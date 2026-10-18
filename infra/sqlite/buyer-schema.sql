@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS ap_buyer_intent (
     amount_base_units INTEGER NOT NULL CHECK (amount_base_units > 0 AND typeof(amount_base_units) = 'integer'),
     
     -- Buyer State Machine Dimension (P0-1 Fix)
-    status TEXT NOT NULL CHECK (status IN ('CREATED', 'AUTHORIZED', 'SIGNATURE_SENT', 'COMPLETED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'RECOVERY_HOLD')),
+    status TEXT NOT NULL CHECK (status IN ('CREATED', 'AUTHORIZED', 'PROCESSING', 'SIGNATURE_SENT', 'COMPLETED', 'SUCCEEDED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'RECOVERY_HOLD')),
     
     -- Cryptographic Proofs
     nonce TEXT,                             -- 32-byte hex nonce

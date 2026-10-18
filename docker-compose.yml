@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  # AgentPay Facilitator Settlement Hub (Configured for Arbitrum Sepolia Testnet)
+  facilitator:
+    build:
+      context: ./python
+      dockerfile: packages/agentpay-gateway/Dockerfile
+    container_name: agentpay-facilitator
+    environment:
+      - RPC_URL=${ARBITRUM_SEPOLIA_RPC_URL:-https://sepolia-rollup.arbitrum.io/rpc}
+      - CHAIN_ID=421614
+      - NETWORK_ID=eip155:421614
+      - USDC_ADDRESS=0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d
+    command: >
+      uvicorn agentpay_gateway.facilitator.server:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+
+  # Upstream Business API (Mock Web2 API)
+  upstream-api:
+    image: python:3.12-alpine
+    container_name: agentpay-upstream-api
+    command: >
+      sh -c "python -m http.server 9000"
+    ports:
+      - "9000:9000"
+
+  # AgentPay Reverse Proxy Gateway
+  gateway:
+    build:
+      context: ./python
+      dockerfile: packages/agentpay-gateway/Dockerfile
+    container_name: agentpay-gateway
+    volumes:
+      - ./examples/paid-api/gateway.yaml:/etc/agentpay/gateway.yaml:ro
+    environment:
+      - GATEWAY_CONFIG=/etc/agentpay/gateway.yaml
+      - FACILITATOR_URL=http://facilitator:8001
+    ports:
+      - "8000:8000"
+    depends_on:
+      - facilitator
+      - upstream-api

@@ -1,0 +1,18 @@
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [
+    "**/_vendor/**",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = [
+    "E501",  # line too long (managed by formatter)
+    "E402",  # module import not at top of file
+    "W291",  # trailing whitespace in multiline SQL strings
+]

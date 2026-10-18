@@ -83,6 +83,8 @@ graph TB
    * Eliminates the traditional ERC-20 `approve` + `transferFrom` two-step gas cost.
 4. **Idempotency Standards:**
    * Every payment request carries an `Idempotency-Key` (UUIDv4) header and deterministic SHA-256 payload digest.
+5. **EIP-1559 Dynamic Fee & Settlement Sponsoring:**
+   * Facilitator settlement broadcasts utilize EIP-1559 (Type 2) transactions with a 1.5x `baseFee` buffer ($\text{maxFeePerGas} = \max(\lfloor \text{baseFee} \times 1.5 \rfloor + \text{priorityFee},\; \lfloor \text{gasPrice} \times 1.35 \rfloor + \text{priorityFee})$) to completely prevent block BaseFee fluctuation rejections without incurring additional gas expenses, accompanied by an adaptive fallback to buffered Legacy Type 0 transactions for legacy chains (see [gas-cost-and-settlement-models.md](file:///Users/wanghongjie/aiPoiject/AgentPay/specs/gas-cost-and-settlement-models.md)).
 
 ---
 
@@ -124,14 +126,34 @@ sequenceDiagram
 
 ---
 
-## 5. Polyglot Parity Architecture (TypeScript + Python + Java)
+## 5. Polyglot Parity Architecture (TypeScript + Python + Go + Java)
 
 To provide an identical developer experience regardless of language:
 * **TypeScript Stack (`packages/`):** Targeted at AI agents (Node.js, Bun, Browser, MCP servers) and modern JS microservices.
-* **Python Stack (`python/`):** Targeted at the primary AI Agent and LLM framework ecosystem (LangChain, CrewAI, AutoGen, LlamaIndex), featuring transparent HTTP interceptors (`httpx`, `requests`, `aiohttp`) and FastAPI middleware.
+* **Python Stack (`python/`):** Targeted at the primary AI Agent and LLM framework ecosystem (LangChain, CrewAI, AutoGen, LlamaIndex), featuring transparent HTTP interceptors (`httpx`, `requests`, `aiohttp`) as well as the v0.1.0 reference gateway implementation.
+* **Go Stack (`gateway-go/`):** Targeted at high-throughput cloud-native reverse proxies, low-latency EIP-712 cryptographic verification (`geth/crypto`), structured logging (Zap/Zerolog), audit trails, and minimal Docker/Kubernetes deployments.
 * **Java Stack (`java/`):** Targeted at enterprise SaaS providers, Spring Cloud gateways, and high-throughput corporate backends.
 * **Shared Conformance Vectors (`specs/conformance/test-vectors/`):**
-  * EIP-712 domain separator serialization across Viem (TS), `eth-account`/`web3.py` (Python), and Web3j (Java).
+  * EIP-712 domain separator serialization across Viem (TS), `eth-account`/`web3.py` (Python), `go-ethereum` (Go), and Web3j (Java).
   * x402 V2 challenge parser and signature encoder.
   * State machine transition edge cases.
   * Policy budget deduction math with 64-bit integer / BigInteger overflow protection.
+
+---
+
+## 6. Gas Economics & Settlement Sponsorship Models
+
+Under EIP-3009 meta-transactions (`transferWithAuthorization`), the Buyer Agent is cryptographically gasless (holds only payment tokens, e.g. USDC, with 0 ETH required), while the EVM transaction caller (`msg.sender` / Facilitator) pays miner gas fees.
+
+AgentPay formally supports three settlement sponsorship modes (detailed in [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md)):
+
+1. **Mode 1: Seller-Subsidized Gasless Settlement (2026 Baseline - v0.1.0):**
+   * Facilitator sponsors L2 native gas (Arbitrum / Base, $0.001 - $0.005 per tx); Buyer pays exact API price in USDC.
+   * Ideal for high-margin APIs and friction-free agent micro-payments.
+2. **Mode 2: Dynamic Gas Surcharge & Reimbursement (2027 Q1 - v0.2.0):**
+   * Gateway dynamically estimates EVM gas + L1 data fees, converts to USDC via Oracle, and appends to Challenge `amount`. Buyer pays both via USDC signature, fully reimbursing the Facilitator.
+   * Ideal for Ethereum L1, gas spikes, and low-margin / pass-through GPU compute.
+3. **Mode 3: Batch Aggregation & State Channel Delayed Settlement (2027 Q2 - v0.3.0):**
+   * Gateway validates authorizations off-chain and fulfills requests immediately; Facilitator flushes payments via batch multicall contracts or state channels.
+   * Amortizes transaction gas by >95%, enabling sub-cent ($0.0001) per-token streaming micro-payments.
+

@@ -1,0 +1,55 @@
+# AgentPay Gateway Configuration
+# Specification version: 1.0
+
+version: "1.0"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  db_path: "./data/gateway.db"
+  default_timeout_seconds: 10.0
+  audit_log_path: "./data/audit.log"
+
+facilitator:
+  url: "${FACILITATOR_URL:-http://127.0.0.1:8001}"
+  timeout_seconds: 5.0
+
+settlement:
+  # Base Mainnet (eip155:8453) or Sepolia (eip155:84532)
+  default_network: "${SETTLEMENT_NETWORK:-eip155:8453}"
+  # Base USDC contract
+  default_asset: "${SETTLEMENT_ASSET:-0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913}"
+  default_asset_symbol: "USDC"
+  default_asset_decimals: 6
+  default_challenge_ttl_seconds: 120
+  safe_buffer_seconds: 60
+  # Merchant wallet receiving funds
+  default_pay_to: "${MERCHANT_WALLET:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}"
+
+routes:
+  # Market data ticker endpoint (0.001 USDC = 1000 base units)
+  - path: /v1/market-data
+    upstream: "${UPSTREAM_MARKET_URL:-http://127.0.0.1:9000/market-data}"
+    price: "0.001 USDC"
+    methods:
+      - GET
+    challenge_ttl_seconds: 60
+
+  # High-depth orderbook streaming endpoint (0.005 USDC = 5000 base units)
+  - path: /v1/market-data/depth
+    upstream: "${UPSTREAM_DEPTH_URL:-http://127.0.0.1:9000/depth}"
+    price: "0.005 USDC"
+    methods:
+      - GET
+    challenge_ttl_seconds: 30
+
+  # AI Inference Execution (0.02 USDC = 20000 base units)
+  - path: /v1/ai/infer
+    upstream: "${UPSTREAM_AI_URL:-http://127.0.0.1:9002/v1/chat/completions}"
+    price: "0.02 USDC"
+    methods:
+      - POST
+    timeout_seconds: 60.0
+    strip_path_prefix: true
+    upstream_headers:
+      X-Internal-Secret: "${INTERNAL_SERVICE_SECRET:-local-dev-secret}"

@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS ap_gateway_settlement (
     raw_signature TEXT NOT NULL,
     
     -- Settlement Status (P1-1 Fix)
-    status TEXT NOT NULL DEFAULT 'NOT_STARTED' CHECK (status IN ('NOT_STARTED', 'SUBMITTED', 'PENDING', 'CONFIRMED', 'FAILED', 'REORGED', 'UNKNOWN')),
+    status TEXT NOT NULL DEFAULT 'NOT_STARTED' CHECK (status IN ('NOT_STARTED', 'NOT_SUBMITTED', 'SUBMITTED', 'PENDING', 'CONFIRMED', 'SUCCESS', 'FAILED', 'REORGED', 'UNKNOWN')),
     tx_hash TEXT,
     block_number INTEGER,
     error_message TEXT,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS ap_gateway_settlement (
 CREATE TABLE IF NOT EXISTS ap_gateway_fulfillment (
     fulfillment_id TEXT PRIMARY KEY,        -- UUIDv7
     settlement_id TEXT NOT NULL REFERENCES ap_gateway_settlement(settlement_id),
-    status TEXT NOT NULL DEFAULT 'NOT_STARTED' CHECK (status IN ('NOT_STARTED', 'PROCESSING', 'DELIVERED', 'FAILED', 'RECOVERY_REQUIRED')),
+    status TEXT NOT NULL DEFAULT 'NOT_STARTED' CHECK (status IN ('NOT_STARTED', 'NOT_DELIVERED', 'DELIVERING', 'PROCESSING', 'DELIVERED', 'FAILED', 'RECOVERY_REQUIRED')),
     upstream_status_code INTEGER,
     response_hash TEXT,                     -- SHA-256 of delivered payload
     retry_count INTEGER NOT NULL DEFAULT 0,

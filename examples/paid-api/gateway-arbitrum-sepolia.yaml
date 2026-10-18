@@ -1,0 +1,46 @@
+# AgentPay Gateway Configuration - Arbitrum Sepolia Testnet
+# Specification version: 1.0
+
+version: "1.0"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  db_path: "./data/gateway-arbitrum-sepolia.db"
+  default_timeout_seconds: 10.0
+  audit_log_path: "./data/audit-arbitrum-sepolia.log"
+
+facilitator:
+  url: "${FACILITATOR_URL:-http://127.0.0.1:8001}"
+  timeout_seconds: 10.0
+
+settlement:
+  # Arbitrum Sepolia Testnet (Chain ID 421614)
+  default_network: "${SETTLEMENT_NETWORK:-eip155:421614}"
+  # Official Native Circle USDC on Arbitrum Sepolia (FiatTokenV2_2)
+  default_asset: "${SETTLEMENT_ASSET:-0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d}"
+  default_asset_symbol: "USDC"
+  default_asset_decimals: 6
+  default_challenge_ttl_seconds: 180
+  safe_buffer_seconds: 60
+  # Merchant wallet receiving funds
+  default_pay_to: "${MERCHANT_WALLET:-0x70997970C51812dc3A010C7d01b50e0d17dc79C8}"
+
+routes:
+  # Real-time Market Intelligence API (0.001 USDC = 1,000 base units)
+  - path: /v1/market-data
+    upstream: "${UPSTREAM_MARKET_URL:-http://127.0.0.1:9000/market-data}"
+    price: "0.001 USDC"
+    methods:
+      - GET
+    challenge_ttl_seconds: 120
+
+  # High-throughput AI Inference Endpoint (0.01 USDC = 10,000 base units)
+  - path: /v1/ai/generate
+    upstream: "${UPSTREAM_AI_URL:-http://127.0.0.1:9002/v1/generate}"
+    price: "0.01 USDC"
+    methods:
+      - POST
+    timeout_seconds: 60.0
+    upstream_headers:
+      X-Internal-Backend-Key: "${INTERNAL_BACKEND_KEY:-arbitrum-sepolia-key}"
