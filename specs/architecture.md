@@ -157,3 +157,180 @@ AgentPay formally supports three settlement sponsorship modes (detailed in [`spe
    * Gateway validates authorizations off-chain and fulfills requests immediately; Facilitator flushes payments via batch multicall contracts or state channels.
    * Amortizes transaction gas by >95%, enabling sub-cent ($0.0001) per-token streaming micro-payments.
 
+---
+
+## 7. Deployment Topology Architectures
+
+AgentPay supports two primary deployment topologies designed for distinct phases of the software and agent lifecycle: **Local Embedded Simulation** (for rapid development and testing) and **Cloud-Native Distributed** (for production API monetization and autonomous multi-agent systems).
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                               AgentPay Deployment Topologies                            │
+├────────────────────────────────────────────┬────────────────────────────────────────────┤
+│ 1. Local Embedded / Simulation Topology    │ 2. Cloud-Native Distributed Topology       │
+├────────────────────────────────────────────┼────────────────────────────────────────────┤
+│ • Single process / local sandbox           │ • Multi-tier, cross-network distribution   │
+│ • In-memory transport (zero network TCP)   │ • Buyer Agent in local/private VPC         │
+│ • Mock EVM JSON-RPC (zero gas/testnet fee) │ • Seller Gateway in public Cloud / K8s     │
+│ • Sub-millisecond CI/CD execution          │ • Independent Cloud Facilitator node       │
+│ • Ideal for unit tests, demos, local devs  │ • Production Arbitrum/Base mainnet/testnet │
+└────────────────────────────────────────────┴────────────────────────────────────────────┘
+```
+
+### 7.1 Topology 1: Local Embedded / Simulation Sandbox (本地单机沙盒拓扑)
+
+#### Architectural Characteristics
+All system components run within a single local runtime (process or test harness), eliminating external network dependencies:
+* **Buyer Agent & Client SDK**: Executed directly within the local Python runtime.
+* **Financial Firewall**: `SQLitePolicyEngine` operates against an in-memory database (`:memory:`) or a local temporary SQLite file (`buyer_wallet.db`), providing full ACID two-phase reservations.
+* **Transport Layer**: `AgentPayClient` utilizes an in-memory ASGI transport (`GatewayTransport`), routing HTTP requests directly into `GatewayProxyService` without binding TCP sockets or triggering operating system network firewalls.
+* **Facilitator & EVM RPC**: Handled by `MockArbitrumSepoliaRpcHandler`, which simulates Ethereum JSON-RPC 2.0 methods (`eth_sendRawTransaction`, `eth_getTransactionReceipt`, `eth_call`, `eth_estimateGas`) locally, emitting deterministic 32-byte hashes.
+
+```mermaid
+graph LR
+    subgraph Local Process Memory Boundary
+        Agent[LangChain / Python Agent] --> Client[AgentPayClient]
+        Client <--> Firewall[(Local SQLite Firewall)]
+        Client -->|In-Memory GatewayTransport| Gateway[GatewayProxyService]
+        Gateway --> Upstream[Mock Upstream Handler]
+        Gateway <--> Facilitator[EvmFacilitatorService]
+        Facilitator <--> MockRPC[Mock EVM RPC Handler]
+    end
+```
+
+#### Primary Use Cases
+1. **Automated CI/CD**: Running end-to-end integration and security test suites (`make check`, 340+ tests) in 3 seconds.
+2. **Offline Algorithm Verification**: Testing agent tool selection and circuit breaker tripping without internet access.
+3. **One-Command Demonstration**: The `make demo` target runs this topology out of the box.
+
+---
+
+### 7.2 Topology 2: Cloud-Native Distributed Architecture (云原生分布式生产拓扑)
+
+In real-world production, the Buyer and Seller operate in completely independent trust and network domains connected solely via the public Internet over standard HTTPS.
+
+```mermaid
+graph TB
+    subgraph Buyer Trust Domain [Buyer Local / Private Pod]
+        Agent[Autonomous AI Agent]
+        Client[AgentPayClient SDK]
+        Firewall[(Local Financial Firewall<br/>SQLite / Redis)]
+        KeyStore[Buyer Wallet Private Key<br/>LocalSigner / AWS KMS / Vault]
+        
+        Agent -->|1. Tool Call| Client
+        Client <-->|3. Reserve & Policy Check| Firewall
+        Client <-->|4. EIP-712 Offline Sign| KeyStore
+    end
+
+    subgraph Public Network [Public HTTPS / Port 443]
+        Client -->|2. Initial Request| PublicGW
+        Client -->|5. Replay with PAYMENT-SIGNATURE| PublicGW
+    end
+
+    subgraph Seller / Platform Cloud Domain [Kubernetes / Cloud VPC]
+        PublicGW[Cloud Ingress / AgentPay Gateway Proxy<br/>agentpay-gateway:443]
+        SellerDB[(Gateway State Coordinator<br/>PostgreSQL / SQLite)]
+        UpstreamAPI[Protected Internal Microservice<br/>Upstream REST / gRPC API]
+        FacilitatorNode[Cloud Facilitator Node<br/>agentpay-facilitator:8001]
+        FacilitatorKey[Facilitator Gas Wallet<br/>L2 ETH Sponsoring Key]
+
+        PublicGW <-->|Idempotency & State| SellerDB
+        PublicGW -->|Forward Upon 200 OK| UpstreamAPI
+        PublicGW -->|6. Verify Signature| FacilitatorNode
+        PublicGW -.->|8. Async Settlement Task| FacilitatorNode
+        FacilitatorNode <--> FacilitatorKey
+    end
+
+    subgraph Decentralized Ledger [EVM Blockchain]
+        EVMNode[Public EVM RPC Node<br/>Alchemy / Infura / QuickNode]
+        Chain[(Arbitrum Sepolia / Base<br/>Circle USDC Contract)]
+
+        FacilitatorNode <-->|RPC Calls| EVMNode
+        EVMNode -->|9. EIP-1559 Broadcast| Chain
+    end
+```
+
+#### Component Allocation & Security Boundaries
+
+#### 1. Buyer Domain (买方安全域 - Local Environment / Buyer K8s Pod)
+* **Zero-Trust Principle (私钥绝对不上云)**:
+  The Buyer's private key (`BUYER_PRIVATE_KEY`) is strictly maintained inside the Buyer's local process or secure key management service (KMS). It is **never** transmitted across the network, sent to the Gateway, or shared with the Facilitator.
+* **Local Financial Firewall Enforcement**:
+  `SQLitePolicyEngine` runs sidecar to the AI Agent. When an external Seller Gateway returns `HTTP 402 Payment Required`, the firewall intercepts the challenge locally:
+  * Validates single-transaction limit, 24-hour rolling budget, and RPM limits.
+  * If the Seller Gateway demands an exorbitant fee (e.g. $500 instead of $0.05), the local firewall **aborts immediately on the client side**. Zero funds leave the wallet, and zero network calls reach the blockchain.
+* **Gasless Agent Wallets**:
+  The Buyer wallet holds **only Circle USDC**. It requires zero native gas tokens (ETH), eliminating multi-asset management and rebalancing operational overhead for agent developers.
+* **Client Code (Standard HTTPS)**:
+  ```python
+  # Buyer Client: Communicates directly with Cloud Gateway over public HTTPS
+  signer = LocalSigner(os.environ["BUYER_PRIVATE_KEY"])
+  policy = SQLitePolicyEngine(conn, config)
+  # Default httpx transport communicates over standard public HTTPS
+  client = AgentPayClient(signer=signer, policy=policy)
+  
+  # Transparent call to cloud gateway
+  resp = client.get("https://api.seller.com/v1/market-data?ticker=NVDA")
+  ```
+
+#### 2. Seller Cloud Domain (卖方/平台云端域 - Kubernetes Cluster / Cloud VPC)
+* **AgentPay Gateway (`agentpay-gateway`)**:
+  * Deployed behind a public-facing Cloud Load Balancer (SLB / Ingress / Nginx) on port 443.
+  * Intercepts unauthenticated requests, maps routes using `gateway.yaml`, issues x402 V2 challenges, and manages idempotency leases via `GatewayStateCoordinator`.
+  * Forwards valid requests to protected internal microservices (`upstream`) residing in private VPC subnets.
+* **Facilitator Service (`agentpay-facilitator`)**:
+  * Deployed as an internal microservice (e.g. `http://facilitator-service.internal:8001`) or hosted SaaS endpoint.
+  * Holds the gas-sponsoring operational key (`FACILITATOR_PRIVATE_KEY`).
+  * Connects to high-availability EVM RPC providers (e.g. Alchemy, QuickNode, Infura) with fallback redundancy.
+  * Performs off-chain signature verification and on-chain nonce state inspection (`authorizationState`).
+  * Runs the asynchronous settlement worker (`AsyncSettlementWorker`), packaging payments into EIP-1559 Type-2 transactions with dynamic 1.5x BaseFee buffers to ensure reliable block inclusion.
+
+#### Cloud Gateway Configuration Example (`gateway.yaml`):
+```yaml
+version: "1.0"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+# Cloud Facilitator Service Endpoint (Internal VPC address)
+facilitator:
+  url: "http://facilitator-service.internal:8001"
+  timeout_seconds: 5.0
+
+# Route Monetization Matrix
+routes:
+  - path: "/v1/market-data"
+    upstream: "http://market-service.production.svc.cluster.local:9000/v1/market-data"
+    methods: ["GET"]
+    price: "0.05 USDC"
+    pay_to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    network: "eip155:421614"                           # Arbitrum Sepolia
+    asset: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d" # Circle USDC Contract
+
+  - path: "/v1/ai/heavy-compute"
+    upstream: "http://inference-service.production.svc.cluster.local:8080/compute"
+    methods: ["POST"]
+    price: "2.50 USDC"
+    pay_to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    network: "eip155:421614"
+    asset: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+```
+
+---
+
+### 7.3 Topology Comparison Matrix
+
+| Evaluation Dimension | Topology 1: Local Embedded Sandbox | Topology 2: Cloud-Native Distributed |
+| :--- | :--- | :--- |
+| **Primary Environment** | Local developer workstation, CI/CD runner | Cloud VPC, Kubernetes, Docker Swarm |
+| **Network Protocol** | In-memory ASGI channel (`GatewayTransport`) | Public HTTPS (TLS 1.3, port 443) |
+| **Private Key Location** | Local test key (`LocalSigner`) | Local Agent Pod / KMS (Never uploaded) |
+| **Firewall Location** | Local in-memory / SQLite file | Local Agent sidecar (Zero-trust perimeter) |
+| **Blockchain Target** | Local EVM RPC simulator (Zero network) | Public testnet/mainnet (Arbitrum Sepolia / Base) |
+| **Buyer Gas Token Need** | Zero (simulated) | Zero (EIP-3009 gasless meta-tx) |
+| **Facilitator Role** | Synchronous in-memory mock handler | Dedicated asynchronous background daemon |
+| **Settlement Latency** | < 1 ms | 1.5 – 3.0 s (network & block mining time) |
+| **Setup Overhead** | Zero setup (`make demo`) | Container deployment (`docker compose` / K8s) |
+
+

@@ -236,6 +236,28 @@ sequenceDiagram
 
 ---
 
+## 🌐 两种部署方案：本地沙盒仿真 vs 云原生分布式
+
+AgentPay 原生支持两种不同的系统部署拓扑，以适应不同阶段的工程与业务需求：
+
+### 方案 1：本地进程内沙盒仿真拓扑（开发自测与 CI/CD）
+* **单进程全链路**：AI Agent、买方 SDK、内存 SQLite 防火墙、网关及 Facilitator 均运行在同一进程内，通过 ASGI 内存通道（`GatewayTransport`）直接调用，**零网络 TCP 开销**。
+* **零 Gas 与测试币成本**：使用内置的 EVM RPC Mock 处理器（`MockArbitrumSepoliaRpcHandler`）生成确定性 32 字节 Hash，无需领水或消耗真实测试币。
+* **极速验证**：`make demo` 命令开箱即用，10 秒内完整跑通攻防三阶段。
+
+### 方案 2：云原生分布式生产拓扑（多租户生产微服务）
+* **买方安全域（Agent 客户端侧）**：
+  - AI Agent 部署于买方本地或买方自有的私有 VPC / K8s Pod 中。
+  - **私钥绝对不出本地（Non-Custodial）**：买方私钥保存在本地 KMS / `LocalSigner` 中，仅用于生成 EIP-712 链下签名，**从不上链或上传云端**。
+  - **本地贴身防火墙**：`SQLitePolicyEngine` 作为 Agent 的“防盗门”，在收到 402 质询时在本地就地校验限额并拦截，超额调用直接在本地熔断终止，0 流量打向外部网络。
+  - 买方客户端通过公网标准 **HTTPS**（443 端口）与云端网关通信。
+* **卖方 / 基础设施云端域（Cloud VPC / K8s）**：
+  - **`agentpay-gateway`**：部署在云厂商负载均衡器（SLB / Ingress）之后，对外开放标准 HTTPS。负责路由匹配、发放 402 质询、幂等去重并将合法流量代理至内网真实微服务。
+  - **`agentpay-facilitator`**：独立的履约清算微服务，持有平台代付 Gas 钱包，对接 Alchemy/QuickNode 等公网 EVM RPC，通过 EIP-1559（Type 2）交易以 1.5x BaseFee 缓冲将授权真实广播至 Arbitrum/Base 上链。
+* *详细架构图解、信任边界划分与时序说明请参阅：[`specs/architecture.md`](./specs/architecture.md#7-deployment-topology-architectures)。*
+
+---
+
 ## 📂 代码目录结构
 
 ```text

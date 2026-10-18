@@ -235,6 +235,28 @@ sequenceDiagram
 
 ---
 
+## 🌐 Deployment Topologies: Local Simulation vs. Cloud-Native
+
+AgentPay natively supports two distinct operational topologies:
+
+### Mode 1: Local In-Memory Simulation Sandbox (开发与单机测试)
+* **Single Process / Zero Network**: AI Agent, Buyer SDK, In-Memory SQLite Firewall, and Gateway/Facilitator interact via in-memory ASGI transports (`GatewayTransport`).
+* **Zero Gas & Zero Token Overhead**: Uses local EVM RPC mocks (`MockArbitrumSepoliaRpcHandler`) generating deterministic 32-byte hashes without touching public testnets.
+* **Run via**: `make demo` (executes in 10 seconds).
+
+### Mode 2: Cloud-Native Distributed Architecture (生产云端微服务)
+* **Buyer Domain (Agent Client Side)**:
+  - AI Agent runs locally or inside your private VPC/Kubernetes cluster.
+  - Private key stays in local KMS/`LocalSigner` (**100% non-custodial, never uploaded to the cloud**).
+  - Local Financial Firewall (`SQLitePolicyEngine`) intercepts 402 challenges locally and aborts unauthorized spend *before* reaching the network.
+  - Communicates with the Cloud Gateway over standard public **HTTPS** (port 443).
+* **Seller / Platform Cloud Domain**:
+  - **`agentpay-gateway`**: Public reverse proxy behind a Cloud Load Balancer (SLB/Ingress). Issues 402 challenges, checks idempotency, and forwards valid traffic to internal microservices.
+  - **`agentpay-facilitator`**: Independent microservice holding gas-sponsorship keys, connecting to cloud EVM RPCs (Alchemy, QuickNode), and broadcasting EIP-1559 settlement transactions to Arbitrum/Base.
+* *Detailed architecture, trust boundaries, and sequence diagrams: [`specs/architecture.md`](./specs/architecture.md#7-deployment-topology-architectures).*
+
+---
+
 ## 📂 Repository Structure
 
 ```text
