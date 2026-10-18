@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 Security Vulnerability Reporting"
+    url: "https://github.com/open-agentpay/AgentPay/blob/main/SECURITY.md"
+    about: "Please report sensitive security issues privately according to our security policy."
+  - name: "💡 Community Q&A & Discussions"
+    url: "https://github.com/open-agentpay/AgentPay/discussions"
+    about: "Ask questions, discuss architectural ideas, or share your AgentPay integrations."
+  - name: "🌱 Good First Issues Guide"
+    url: "https://github.com/open-agentpay/AgentPay/blob/main/docs/good-first-issues.md"
+    about: "Browse curated tasks for new contributors with full technical guidance."

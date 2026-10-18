@@ -345,6 +345,15 @@ make vectors           # Validate language-agnostic test vectors
 
 ---
 
+## 🤝 Contributing
+
+We welcome community contributions! Please check out:
+- [**Contributing Guidelines**](./CONTRIBUTING.md): Environment setup, architectural invariants, and PR workflows.
+- [**Good First Issues**](./docs/good-first-issues.md): Curated beginner-friendly tasks to get you started.
+- [**Security Policy**](./SECURITY.md): Instructions for responsible vulnerability disclosure.
+
+---
+
 ## 📄 License
 
 AgentPay is open-source software licensed under the [Apache License, Version 2.0](./LICENSE).

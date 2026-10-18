@@ -346,6 +346,15 @@ make vectors           # 验证跨语言一致性 JSON 测试向量
 
 ---
 
+## 🤝 参与贡献
+
+我们热烈欢迎社区贡献者！请查阅以下指引：
+- [**贡献指南 (Contributing Guide)**](./CONTRIBUTING.md)：本地开发环境搭建、架构红线与代码规范、PR 提交流程。
+- [**新人任务 (Good First Issues)**](./docs/good-first-issues.md)：精心整理的新手友好任务清单与实现指引。
+- [**安全政策 (Security Policy)**](./SECURITY.md)：负责任的安全漏洞披露流程。
+
+---
+
 ## 📄 开源许可证
 
 AgentPay 基于 [Apache License, Version 2.0](./LICENSE) 协议完全开源。
