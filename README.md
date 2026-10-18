@@ -281,11 +281,13 @@ AgentPay/
 │   ├── basic-buyer/                 # Standalone buyer script
 │   └── paid-api/                    # Standalone gateway configuration
 │
-├── specs/                           # Cross-language specifications
+├── specs/                           # Cross-language specifications & guides
 │   ├── architecture.md              # System topology & protocols
+│   ├── gateway-guide.md             # Gateway operator & deployment guide
+│   ├── policy-configuration-reference.md # Financial firewall & policy reference
+│   ├── security-model.md            # Public threat model & zero-trust boundaries
 │   ├── payment-state-machine.md     # Tri-state decoupling & recovery
 │   ├── gas-cost-and-settlement-models.md # Gas models & EIP-1559 buffer math
-│   ├── security-model.md            # Threat model & zero-trust boundaries
 │   └── test-vectors/                # Shared JSON test vectors (EIP-712/x402)
 │
 ├── Makefile                         # Test, lint, format, demo & demo-live targets
@@ -293,6 +295,19 @@ AgentPay/
 ├── LICENSE                          # Apache-2.0
 └── README.md                        # Documentation overview
 ```
+
+---
+
+## 📚 Documentation & Technical Specifications
+
+| Document | Focus Area | Description |
+| :--- | :--- | :--- |
+| [**Architecture Specification**](./specs/architecture.md) | System Design | System topology, trust boundaries, sequence diagrams, and local vs cloud modes |
+| [**Gateway Operator Guide**](./specs/gateway-guide.md) | Seller / Ops | Running `agentpay-gateway`, `gateway.yaml` reference, Docker/K8s manifests |
+| [**Policy Configuration Reference**](./specs/policy-configuration-reference.md) | Buyer / Risk | Financial Firewall limits, 6-decimal USDC math, circuit breakers, and code samples |
+| [**Public Threat Model**](./specs/security-model.md) | Security | Zero-trust boundaries, in-scope threats (T1-T7), gateway threats, non-goals |
+| [**Payment State Machine**](./specs/payment-state-machine.md) | Reliability | Tri-state decoupling, recovery loops, and reconciliation invariant proofs |
+| [**Gas & Settlement Models**](./specs/gas-cost-and-settlement-models.md) | Economics | L2 gas sponsorship, EIP-1559 dynamic fee formula, and 2027 roadmap |
 
 ---
 

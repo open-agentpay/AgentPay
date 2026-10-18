@@ -1,9 +1,9 @@
 # AgentPay Security & Threat Model Specification (v0)
 
-> **Specification Version:** 1.1.0 (Threat Model v0)  
-> **Status:** Draft  
+> **Specification Version:** 1.1.0 (Public Threat Model v0)  
+> **Status:** Production Specification  
 > **Target Runtimes:** Python SDK (`agentpay`), Self-hosted Gateway  
-> **Task Tracking:** 2026 Plan Milestone M2 (Tasks T1.2, P0-4, P0-5, P1-7, P1-8, P1-9, P1-10)
+> **Task Tracking:** 2026 Plan Milestone M2 & M5 (Tasks T1.2, T7.2, P0-4, P0-5, P1-7, P1-8, P1-9, P1-10)
 
 ---
 
