@@ -26,8 +26,9 @@ lerna-debug.log*
 .pnpm-store/
 .pnpm-debug.log*
 
-# Build outputs (TypeScript / JavaScript)
+# Build outputs (TypeScript / JavaScript / Python)
 dist/
+dist_all/
 build/
 out/
 .turbo/
