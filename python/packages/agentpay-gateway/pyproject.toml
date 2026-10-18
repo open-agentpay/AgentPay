@@ -42,9 +42,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/july-whj/AgentPay"
-Documentation = "https://github.com/july-whj/AgentPay/blob/main/specs/gateway-guide.md"
-Repository = "https://github.com/july-whj/AgentPay"
+Homepage = "https://github.com/open-agentpay/AgentPay"
+Documentation = "https://github.com/open-agentpay/AgentPay/blob/main/specs/gateway-guide.md"
+Repository = "https://github.com/open-agentpay/AgentPay"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentpay_gateway"]

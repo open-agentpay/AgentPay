@@ -6,11 +6,11 @@
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
-  <a href="https://github.com/july-whj/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
+  <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
   <a href="https://arbitrum.io/"><img src="https://img.shields.io/badge/Network-Arbitrum_Sepolia-213147.svg?logo=arbitrum&logoColor=white" alt="Arbitrum Sepolia"></a>
   <a href="https://www.circle.com/usdc"><img src="https://img.shields.io/badge/Settlement-Circle_USDC-2775CA.svg" alt="Circle USDC"></a>
-  <a href="https://github.com/july-whj/AgentPay/actions"><img src="https://img.shields.io/badge/Tests-340%20Passed-brightgreen.svg" alt="Tests: 340 Passed"></a>
+  <a href="https://github.com/open-agentpay/AgentPay/actions"><img src="https://img.shields.io/badge/Tests-340%20Passed-brightgreen.svg" alt="Tests: 340 Passed"></a>
 </p>
 
 <p align="center">
@@ -91,7 +91,7 @@ Total Funds Saved by AgentPay: $2.54 USDC (96.6% saved)
 ### 1. Installation
 
 ```bash
-git clone https://github.com/july-whj/AgentPay.git
+git clone https://github.com/open-agentpay/AgentPay.git
 cd AgentPay
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e python/packages/agentpay -e python/packages/agentpay-gateway

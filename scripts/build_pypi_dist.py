@@ -85,9 +85,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/july-whj/AgentPay"
-Documentation = "https://github.com/july-whj/AgentPay#readme"
-Repository = "https://github.com/july-whj/AgentPay"
+Homepage = "https://github.com/open-agentpay/AgentPay"
+Documentation = "https://github.com/open-agentpay/AgentPay#readme"
+Repository = "https://github.com/open-agentpay/AgentPay"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/{module_name}"]
@@ -113,7 +113,7 @@ from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 ```
 
 For documentation and full source code, visit:
-https://github.com/july-whj/AgentPay
+https://github.com/open-agentpay/AgentPay
 """
             (tmp_path / "README.md").write_text(readme_content, encoding="utf-8")
 

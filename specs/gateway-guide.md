@@ -40,7 +40,7 @@ Install the gateway package from source or wheel:
 
 ```bash
 # Clone and install in virtual environment
-git clone https://github.com/july-whj/AgentPay.git
+git clone https://github.com/open-agentpay/AgentPay.git
 cd AgentPay
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e python/packages/agentpay -e python/packages/agentpay-gateway
@@ -293,7 +293,7 @@ spec:
     spec:
       containers:
         - name: gateway
-          image: ghcr.io/july-whj/agentpay-gateway:v0.1.0
+          image: ghcr.io/open-agentpay/agentpay-gateway:v0.1.0
           args: ["--config", "/etc/agentpay/gateway.yaml"]
           ports:
             - containerPort: 8000

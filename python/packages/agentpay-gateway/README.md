@@ -45,4 +45,4 @@ routes:
 python3 -m agentpay_gateway.server --config ./gateway.yaml
 ```
 
-For complete documentation, visit [AgentPay Gateway Guide](https://github.com/july-whj/AgentPay/blob/main/specs/gateway-guide.md).
+For complete documentation, visit [AgentPay Gateway Guide](https://github.com/open-agentpay/AgentPay/blob/main/specs/gateway-guide.md).

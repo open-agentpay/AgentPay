@@ -61,9 +61,9 @@ def prepare_packages() -> None:
             "license": "Apache-2.0",
             "repository": {
                 "type": "git",
-                "url": "https://github.com/july-whj/AgentPay.git",
+                "url": "https://github.com/open-agentpay/AgentPay.git",
             },
-            "homepage": "https://github.com/july-whj/AgentPay#readme",
+            "homepage": "https://github.com/open-agentpay/AgentPay#readme",
             "keywords": [
                 "agent",
                 "ai",
@@ -112,7 +112,7 @@ def prepare_packages() -> None:
                 "```bash\n"
                 f"npm install {pkg['name']}\n"
                 "```\n\n"
-                "For documentation, visit https://github.com/july-whj/AgentPay\n",
+                "For documentation, visit https://github.com/open-agentpay/AgentPay\n",
                 encoding="utf-8",
             )
         else:
@@ -125,7 +125,7 @@ def prepare_packages() -> None:
                 "```bash\n"
                 f"npm install {pkg['name']}\n"
                 "```\n\n"
-                "For documentation and full source code, visit: https://github.com/july-whj/AgentPay\n",
+                "For documentation and full source code, visit: https://github.com/open-agentpay/AgentPay\n",
                 encoding="utf-8",
             )
 

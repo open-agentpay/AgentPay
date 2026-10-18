@@ -64,4 +64,4 @@ market_tool = PaidTool(
 - **Fail-Closed**: Any policy violation, budget exhaustion, or circuit trip aborts immediately with zero funds spent.
 - **Gasless for Agents**: AI Agents hold only USDC; execution gas is sponsored via EIP-3009 by the seller or facilitator.
 
-For complete documentation, visit [AgentPay GitHub](https://github.com/july-whj/AgentPay).
+For complete documentation, visit [AgentPay GitHub](https://github.com/open-agentpay/AgentPay).
