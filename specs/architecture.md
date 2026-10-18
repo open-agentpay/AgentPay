@@ -177,7 +177,7 @@ AgentPay supports two primary deployment topologies designed for distinct phases
 └────────────────────────────────────────────┴────────────────────────────────────────────┘
 ```
 
-### 7.1 Topology 1: Local Embedded / Simulation Sandbox (本地单机沙盒拓扑)
+### 7.1 Topology 1: Local Embedded / Simulation Sandbox
 
 #### Architectural Characteristics
 All system components run within a single local runtime (process or test harness), eliminating external network dependencies:
@@ -205,7 +205,7 @@ graph LR
 
 ---
 
-### 7.2 Topology 2: Cloud-Native Distributed Architecture (云原生分布式生产拓扑)
+### 7.2 Topology 2: Cloud-Native Distributed Architecture
 
 In real-world production, the Buyer and Seller operate in completely independent trust and network domains connected solely via the public Internet over standard HTTPS.
 
@@ -252,8 +252,8 @@ graph TB
 
 #### Component Allocation & Security Boundaries
 
-#### 1. Buyer Domain (买方安全域 - Local Environment / Buyer K8s Pod)
-* **Zero-Trust Principle (私钥绝对不上云)**:
+#### 1. Buyer Domain (Local Environment / Buyer Kubernetes Pod)
+* **Zero-Trust Principle (Private Keys Never Leave the Local Trust Domain)**:
   The Buyer's private key (`BUYER_PRIVATE_KEY`) is strictly maintained inside the Buyer's local process or secure key management service (KMS). It is **never** transmitted across the network, sent to the Gateway, or shared with the Facilitator.
 * **Local Financial Firewall Enforcement**:
   `SQLitePolicyEngine` runs sidecar to the AI Agent. When an external Seller Gateway returns `HTTP 402 Payment Required`, the firewall intercepts the challenge locally:
@@ -273,7 +273,7 @@ graph TB
   resp = client.get("https://api.seller.com/v1/market-data?ticker=NVDA")
   ```
 
-#### 2. Seller Cloud Domain (卖方/平台云端域 - Kubernetes Cluster / Cloud VPC)
+#### 2. Seller Cloud Domain (Kubernetes Cluster / Cloud VPC)
 * **AgentPay Gateway (`agentpay-gateway`)**:
   * Deployed behind a public-facing Cloud Load Balancer (SLB / Ingress / Nginx) on port 443.
   * Intercepts unauthenticated requests, maps routes using `gateway.yaml`, issues x402 V2 challenges, and manages idempotency leases via `GatewayStateCoordinator`.

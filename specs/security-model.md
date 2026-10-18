@@ -66,7 +66,7 @@ graph TD
 
 ---
 
-## 2. In-Scope Threats & Defenses (Buyer Domain - "防什么")
+## 2. In-Scope Threats & Defenses (Buyer Domain - What Is Defended)
 
 The v0 security architecture explicitly defends the Buyer against 7 threat vectors:
 
@@ -107,7 +107,7 @@ The self-hosted gateway explicitly defends against the following 5 seller-side t
 
 ---
 
-## 4. Explicit Non-Goals for v0 ("不防什么", P0-4, P1-10)
+## 4. Explicit Non-Goals for v0 (What Is Not Defended, P0-4, P1-10)
 
 The following threats are **EXPLICITLY OUT OF SCOPE** for the v0 milestone:
 

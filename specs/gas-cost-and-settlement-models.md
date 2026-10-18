@@ -34,7 +34,7 @@ To achieve production-grade flexibility, AgentPay specifies **three supported Ga
 
 ## 3. Specification of the Three Gas Models
 
-### 3.1 Mode 1: Seller-Subsidized Gasless Settlement (当前已实现 / 2026 基线)
+### 3.1 Mode 1: Seller-Subsidized Gasless Settlement (Implemented / 2026 Baseline)
 
 * **Architecture Role:**
   * **Buyer (AI Agent):** 100% Gasless. Only holds USDC.
@@ -48,33 +48,33 @@ To achieve production-grade flexibility, AgentPay specifies **three supported Ga
   * On Layer 2 rollups, gas costs are negligible compared to SaaS API value. Sellers treat gas as infrastructure overhead (similar to AWS bandwidth costs) or incorporate it into base API pricing.
 * **Implementation Status:** Supported in AgentPay v0.1.0 (`agentpay-gateway`, `EvmRpcClient`, Arbitrum Sepolia Facilitator).
 
-#### 3.1.1 Facilitator 链上广播执行规范：EIP-1559 动态费率与抗拒防波动机制
+#### 3.1.1 Facilitator On-Chain Broadcast Execution Spec: EIP-1559 Dynamic Fee Pricing and Volatility Defense
 
-在 L2 Rollup（如 Arbitrum Nitro、Base）以及以太坊主网出块结算时，底层网络的 `baseFee` 随区块交易密度动态变动。为了确保 Facilitator 履约网关在异步广播 `transferWithAuthorization` 交易时**绝不因区块 BaseFee 毫秒级微幅上涨被节点拒绝**（如 `RPC error -32000: max fee per gas less than block base fee`），AgentPay Facilitator 链上结算执行引擎规范了以下费率管理机制：
+During block settlement on L2 Rollups (such as Arbitrum Nitro, Base) and Ethereum mainnet, the underlying network's `baseFee` fluctuates dynamically with block transaction density. To ensure that the Facilitator fulfillment gateway, when asynchronously broadcasting `transferWithAuthorization` transactions, **is never rejected by nodes due to sub-second micro-spikes in block BaseFee** (e.g., `RPC error -32000: max fee per gas less than block base fee`), the AgentPay Facilitator on-chain settlement execution engine standardizes the following fee management mechanisms:
 
-##### 1. 采用 EIP-1559（Type 2）标准交易
-* 链上广播默认采用 **EIP-1559（Type 2）交易结构**，显式指定 `maxFeePerGas` 与 `maxPriorityFeePerGas`，彻底摒弃存在瞬时波动竞争缺陷的固定费率 Legacy Type 0 结构。
+##### 1. Mandatory EIP-1559 (Type 2) Standard Transactions
+* On-chain broadcasts default to the **EIP-1559 (Type 2) transaction format**, explicitly specifying `maxFeePerGas` and `maxPriorityFeePerGas`, entirely abandoning the fixed-rate Legacy Type 0 format prone to transient fee-spike rejections.
 
-##### 2. 1.5x BaseFee 安全缓冲公式
-Facilitator 在组装链上结算交易前，通过 RPC 查询最新区块头 `baseFee`、优先费 `priorityFee` 与全局 `gasPrice`，按以下公式计算动态费率上限：
+##### 2. 1.5x BaseFee Safety Buffer Formula
+Before assembling on-chain settlement transactions, the Facilitator queries the latest block header `baseFee`, priority fee `priorityFee`, and global `gasPrice` via JSON-RPC, computing the dynamic fee cap using the following formula:
 
 $$\text{maxFeePerGas} = \max\left(\lfloor \text{baseFee} \times 1.5 \rfloor + \text{priorityFee},\; \lfloor \text{gasPrice} \times 1.35 \rfloor + \text{priorityFee}\right)$$
 
-* **优先费保底**：`priorityFee` 默认至少保留 $0.001\text{ Gwei}$（$1{,}000{,}000\text{ wei}$）优先级缓冲。
-* **自愈基准**：当 RPC 节点未暴露区块 `baseFee` 或为 0 时，自动平滑退化为当前 `gasPrice` 作为基准值代入公式计算。
+* **Guaranteed Priority Tip**: `priorityFee` defaults to maintaining at least a $0.001\text{ Gwei}$ ($1{,}000{,}000\text{ wei}$) priority incentive buffer.
+* **Self-Healing Baseline**: If an RPC node does not expose `baseFee` or returns 0, the engine smoothly falls back to using the current `gasPrice` as the baseline in the formula.
 
 > [!NOTE]
-> **经济学原理与 Gas 零额外开销保证**：  
-> 在 EIP-1559 机制下，`maxFeePerGas` 仅代表交易发送者愿意承受的**费率上限**，链上实际扣除的 Gas 费用依然是出块时的**实际 baseFee + priorityFee**。因此，将费率上限上浮 1.5 倍可以 100% 免疫出块波动带来的交易拒绝，且**不会多花任何一分 Gas**。
+> **Economic Rationale and Zero Gas Overhead Guarantee**:  
+> Under EIP-1559 mechanics, `maxFeePerGas` represents only the **maximum price ceiling** the transaction sender is willing to pay. The actual gas amount burned and debited on-chain is strictly determined by the mined block's **actual baseFee + priorityFee**. Therefore, applying a 1.5x safety buffer to the fee ceiling provides 100% immunity against sudden block fee spikes **without spending a single extra wei of gas**.
 
-##### 3. 自适应降级兼容（Adaptive Legacy Fallback）
-若遇到不支持 Type 2 交易的私有链节点、特定开发网或古老 EVM 节点（捕获包含 `not supported` 或 `invalid transaction type` 的 RPC 错误）：
-* 执行引擎**自动降级**为带 1.5x 缓冲的 **Legacy Type 0 交易**；
-* 降级后的 Legacy `gasPrice` 同样设定为 $\max(\text{maxFeePerGas},\; \lfloor \text{gasPrice} \times 1.35 \rfloor + 1{,}000{,}000)$，确保在 Legacy 链上同样具备防御费率波动的韧性。
+##### 3. Adaptive Legacy Fallback
+When interacting with private chains, custom devnets, or older EVM nodes that do not support Type 2 transactions (catching RPC errors containing `not supported` or `invalid transaction type`):
+* The execution engine **automatically falls back** to a **Legacy Type 0 transaction** with a 1.5x buffer.
+* The fallback legacy `gasPrice` is similarly calculated as $\max(\text{maxFeePerGas},\; \lfloor \text{gasPrice} \times 1.35 \rfloor + 1{,}000{,}000)$, preserving resilience against fee volatility even on legacy chains.
 
 ---
 
-### 3.2 Mode 2: Dynamic Gas Surcharge & Reimbursement (规划中 / 2027 Q1 v0.2.0)
+### 3.2 Mode 2: Dynamic Gas Surcharge & Reimbursement (Planned / 2027 Q1 v0.2.0)
 
 * **Architecture Role:**
   * **Buyer (AI Agent):** Pays for both the API service and the required gas in a single token (USDC), still needing zero native ETH.
@@ -93,7 +93,7 @@ $$\text{maxFeePerGas} = \max\left(\lfloor \text{baseFee} \times 1.5 \rfloor + \t
 
 ---
 
-### 3.3 Mode 3: Batch Aggregation & State Channel Delayed Settlement (规划中 / 2027 Q2 v0.3.0)
+### 3.3 Mode 3: Batch Aggregation & State Channel Delayed Settlement (Planned / 2027 Q2 v0.3.0)
 
 * **Architecture Role:**
   * **Buyer (AI Agent):** Issues high-frequency micro-authorizations.
