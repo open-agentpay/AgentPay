@@ -7,7 +7,7 @@ Supports both synchronous and asynchronous modes, with optional in-memory ASGITr
 from __future__ import annotations
 
 import json
-from typing import Any, Self
+from typing import Any
 
 import httpx
 from agentpay.core.models import PaymentAuthorization, PaymentChallenge
@@ -75,7 +75,7 @@ class FacilitatorClient:
         """Close the underlying HTTP client session."""
         self._client.close()
 
-    def __enter__(self) -> Self:
+    def __enter__(self) -> FacilitatorClient:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -213,7 +213,7 @@ class AsyncFacilitatorClient:
         """Close the underlying HTTP client session."""
         await self._client.aclose()
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> AsyncFacilitatorClient:
         return self
 
     async def __aexit__(self, *args: object) -> None:
