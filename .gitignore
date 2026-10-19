@@ -134,3 +134,6 @@ docs/zh/specs/adr/
 !docs/zh/specs/index.md
 !docs/zh/specs/reports/
 !docs/zh/specs/reports/**
+
+# Agent skills
+.agents/skills/
