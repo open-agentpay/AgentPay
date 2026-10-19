@@ -331,6 +331,7 @@ AgentPay/
 | :--- | :--- | :--- |
 | [**Architecture Specification**](./specs/architecture.md) | System Design | System topology, trust boundaries, sequence diagrams, and local vs cloud modes |
 | [**Gateway Operator Guide**](./specs/gateway-guide.md) | Seller / Ops | Running `agentpay-gateway`, `gateway.yaml` reference, Docker/K8s manifests |
+| [**Docker & Cloud Deployment**](./docs/deployment-docker.md) | Ops / Cloud | Golang Gateway + Vue3 Console + PostgreSQL containerization & `docker compose` cloud deployment |
 | [**Policy Configuration Reference**](./specs/policy-configuration-reference.md) | Buyer / Risk | Financial Firewall limits, 6-decimal USDC math, circuit breakers, and code samples |
 | [**Public Threat Model**](./specs/security-model.md) | Security | Zero-trust boundaries, in-scope threats (T1-T7), gateway threats, non-goals |
 | [**Payment State Machine**](./specs/payment-state-machine.md) | Reliability | Tri-state decoupling, recovery loops, and reconciliation invariant proofs |

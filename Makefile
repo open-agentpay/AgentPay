@@ -54,6 +54,19 @@ console-build:
 console-test:
 	npm --prefix console run test
 
+# Docker build & Compose targets
+docker-build:
+	./scripts/docker-build-push.sh
+
+docker-push:
+	./scripts/docker-build-push.sh --push
+
+compose-up:
+	docker compose up -d --build
+
+compose-down:
+	docker compose down
+
 # Run complete verification: lint, format-check, test-vectors, pytest, and gateway-test
 check: lint format-check vectors test gateway-test
 

@@ -332,6 +332,7 @@ AgentPay/
 | :--- | :--- | :--- |
 | [**系统总体架构规范**](./specs/architecture.md) | 架构师 / 开发者 | 总体架构、买卖双方零信任边界划分、EIP-712 离线签名交互时序与两种部署拓扑 |
 | [**网关运维与配置指南**](./specs/gateway-guide.md) | 卖方 / 运维工程师 | `agentpay-gateway` 自托管反向代理部署、`gateway.yaml` 详细配置参考、Docker/K8s 编排 |
+| [**Docker 容器化与云服务器部署指南**](./docs/deployment-docker.md) | 运维 / 云原生工程师 | Golang 服务端 + Vue3 控制台 + PostgreSQL 容器打包发布与 `docker compose` 一键上云 |
 | [**策略引擎配置参考手册**](./specs/policy-configuration-reference.md) | 买方 / 风控研发 | 财务防火墙规则定义、6 位精度 USDC 转换、SQLite 持久化与内存沙盒、熔断器应对策略 |
 | [**公开版威胁模型规范**](./specs/security-model.md) | 安全工程师 | 信任矩阵（防 Prompt 注入、防死循环）、网关防护（G1-G5）、非目标边界（N1-N6） |
 | [**三态解耦状态机规范**](./specs/payment-state-machine.md) | 核心开发者 | 支付/清算/履约三态正交矩阵、网络超时故障自愈机制、对账补偿不变量证明 |
