@@ -1,20 +1,20 @@
 ---
-title: 超时不等于失败
-description: 分布式支付网络中的两难困境：网络超时状态下的账本一致性保证与资金保护。
+title: Timeout Is Not Failure
+description: "The distributed systems dilemma in payments: Handling timeouts without causing double-spending or fund leakage."
 ---
 
-# 超时不等于失败
+# Timeout Is Not Failure
 
-在分布式网络通信中，**超时（Timeout）仅代表未能及时收到响应，绝不代表对端未执行或执行失败**。
+In distributed computing, **a network timeout merely means no response was received within a given timeframe; it does not mean the transaction failed**.
 
-如果在向上游发起支付后因网络抖动超时，客户端直接判定为“失败”并回滚扣费，极易引发资金双花与坏账风险：
-1. 上游服务可能已经成功扣款并交付了数据，仅仅是 HTTP 响应丢包。
-2. 链上交易可能已被广播至 Mempool，并在数分钟后顺利打包进区块。
+If a client marks a timed-out request as "failed" and rolls back an authorization, severe financial loss can occur:
+1. The upstream provider may have successfully charged and fulfilled the service, but the HTTP response was dropped by an intermediate network partition.
+2. An on-chain transaction may have been broadcast to the mempool and mined seconds after the client timeout expired.
 
-因此，健壮的支付网关必须设计**显式未知状态（Unknown State）**与**冻结（Hold）TTL 缓冲机制**：
-- 发生上游超时时，将履约状态标记为 `unknown`，保持资金处于 `held`（冻结状态）。
-- 绝不立刻回滚资金，由对账守护线程或人工介入核查真实交付状态。
+To prevent double-spending and unrecoverable loss, robust payment gateways implement an **explicit Unknown State** combined with **Hold TTL buffers**:
+- When an upstream call times out, fulfillment enters `unknown` while funds remain `held`.
+- Funds are never silently refunded until an asynchronous reconciliation worker or manual reviewer verifies delivery status.
 
-::: tip 在 AgentPay 中
-AgentPay 支付状态机将 `confirmed + unknown` 显式映射为 `SETTLED_FULFILLMENT_UNKNOWN_NEEDS_REVIEW`，并通过默认 120 秒 Hold TTL 防止资金意外流失。详见 [支付状态机规范](/specs/state-machine)。
+::: tip In AgentPay
+The AgentPay state machine maps `confirmed + unknown` to the composite status `SETTLED_FULFILLMENT_UNKNOWN_NEEDS_REVIEW`, backed by a 120-second default Hold TTL. See the [Payment State Machine Specification](/specs/state-machine).
 :::

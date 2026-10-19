@@ -1,22 +1,22 @@
 ---
-title: 生产部署说明
-description: AgentPay 网关容器化部署与基础设施配置。
+title: Deployment Guide
+description: Containerized deployment instructions, Docker Compose setups, and cloud environment requirements.
 ---
 
-# 生产部署说明
+# Deployment Guide
 
-::: warning 生产提示
-当前版本（v0.1.x）属于实验性版本，生产部署前请确保完成完备的测试网演练并配合风控预警。
+::: warning Experimental Notice
+Version 0.1.x is an experimental release. Complete thorough testnet drills before deploying to staging or production.
 :::
 
-## Docker Compose 部署
+## Docker Compose Setup
 
-仓库根目录提供了完整的 `docker-compose.yml`：
+The repository root includes a ready-to-run `docker-compose.yml`:
 
 ```bash
 docker compose up -d
 ```
 
-包含组件：
-1. **PostgreSQL 16**：已预装 `infra/postgres/schema.sql` 多租户表结构。
-2. **AgentPay Gateway**：Go 网关容器，映射 8080（代理）与 8081（管理端）。
+Included services:
+1. **PostgreSQL 16**: Pre-seeded with the multitenant schema from `infra/postgres/schema.sql`.
+2. **AgentPay Gateway**: The Go gateway container exposing port 8080 (proxy) and 8081 (admin API).

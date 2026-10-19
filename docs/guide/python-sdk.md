@@ -1,19 +1,19 @@
 ---
-title: Python SDK 指南
-description: AgentPay Python SDK 客户端使用说明、身份绑定与异常处理。
+title: Python SDK Guide
+description: Documentation for the AgentPay Python asynchronous client SDK, agent identity bindings, and interceptor patterns.
 ---
 
-# Python SDK 指南
+# Python SDK Guide
 
-`agentpay` 是专为 Python 编写的异步客户端 SDK，支持透明 x402 协商、Agent 身份绑定与 MCP 工具集成。
+`agentpay` is the official Python async SDK providing transparent x402 protocol negotiation, agent identity tracing, and native MCP tool adapters.
 
-## 安装
+## Installation
 
 ```bash
 pip install -e python/packages/agentpay
 ```
 
-## 初始化客户端
+## Client Initialization
 
 ```python
 from agentpay import AgentPayClient
@@ -25,8 +25,8 @@ client = AgentPayClient(
 )
 ```
 
-## 主要功能
+## Core Features
 
-- **透明 x402 拦截**：遇到 HTTP 402 状态码时，SDK 自动解析支付报价头并驱动网关执行资金冻结与扣费。
-- **Agent 上下文追踪**：在请求头中自动注入 `X-Agent-ID` 与 `X-Correlation-ID`，保证每笔微支付与对话上下文精准关联。
-- **重试与断路器**：内置幂等性 Key（`Idempotency-Key`）生成与上游超时保护。
+- **Transparent x402 Interception**: Upon encountering `HTTP 402 Payment Required`, the client transparently decodes challenges and coordinates settlement with the gateway.
+- **Agent Context Tracing**: Automatically populates `X-Agent-ID` and `X-Correlation-ID` headers to bind each micro-transaction to dialogue sessions.
+- **Idempotency & Retries**: Generates deterministic `Idempotency-Key` headers and handles network timeouts safely without duplicating spend.

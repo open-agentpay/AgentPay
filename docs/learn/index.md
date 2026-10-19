@@ -1,28 +1,28 @@
 ---
-title: Agent 支付知识库
-description: 面向开发者的 AI Agent 支付与资金安全入门：x402、链上与预付余额、防火墙、失控循环与审计。
+title: Agent Payments Knowledge Base
+description: "A practical guide for developers exploring AI Agent payments and fund safety: x402, on-chain vs virtual balances, financial firewalls, runaway loops, and audit trails."
 ---
 
-# Agent 支付知识库
+# Agent Payments Knowledge Base
 
-这里讲的是 **Agent 如何安全地花钱**，内容独立于 AgentPay 产品，可以单独阅读。
-每篇文章末尾会用“在 AgentPay 中”提示框，说明对应的实现与配置。
+This section covers **how autonomous AI agents can safely spend money**. The articles discuss universal industry concepts and tradeoffs independently of the AgentPay implementation.
+At the end of each article, a dedicated callout explains how the concept maps to AgentPay configurations and specifications.
 
-## 从哪里开始
+## Where to Start
 
-| 你想了解 | 建议阅读 |
+| What You Want to Understand | Recommended Reading |
 |---|---|
-| Agent 为什么会需要付款 | [Agent 为什么需要花钱](./fundamentals/why-agents-pay) |
-| HTTP 402 / x402 是怎么工作的 | [HTTP 402 与 x402](./payments/x402) |
-| 链上支付和预付余额怎么选 | [链上支付 vs 预付余额](./payments/onchain-vs-wallet) |
-| 为什么超时不能当作失败 | [超时不等于失败](./payments/timeout-is-not-failure) |
-| 如何防止 Agent 乱花钱 | [金融防火墙](./safety/financial-firewall) |
-| 术语速查 | [术语表](./glossary) |
+| Why AI agents need purchasing capabilities | [Why Agents Need to Pay](./fundamentals/why-agents-pay) |
+| How HTTP 402 / x402 works under the hood | [HTTP 402 & x402](./payments/x402) |
+| Tradeoffs between on-chain payments and prepaid balances | [On-Chain vs Virtual Wallet](./payments/onchain-vs-wallet) |
+| Why network timeouts must never be treated as failures | [Timeout Is Not Failure](./payments/timeout-is-not-failure) |
+| How to prevent runaway agents from draining budgets | [Financial Firewalls](./safety/financial-firewall) |
+| Key terminology quick lookup | [Glossary](./glossary) |
 
-::: tip 在 AgentPay 中
-知识库里的每个概念，在 [规范](/specs/) 中都有严格定义，在 [使用文档](/guide/overview) 中有配置方法。
+::: tip In AgentPay
+Every concept discussed here is formally specified in the [Specifications](/specs/) and actionable via our [Guides](/guide/overview).
 :::
 
-::: warning 实验性
-涉及资金与安全的内容仅供学习与评估，AgentPay 尚未经过独立安全审计。
+::: warning Experimental Notice
+Payment and security architectures discussed here are for educational and architectural evaluation. AgentPay has not undergone an independent third-party security audit.
 :::

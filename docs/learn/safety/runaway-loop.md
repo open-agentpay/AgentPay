@@ -1,18 +1,18 @@
 ---
-title: 失控循环与熔断
-description: 防止 Agent 陷入代码死循环、思考递归或重复重试耗尽资金的熔断器（Circuit Breaker）设计。
+title: Runaway Loops & Circuit Breakers
+description: Preventing agents from draining funds in retry storms, reasoning loops, or recursive tool invocations.
 ---
 
-# 失控循环与熔断
+# Runaway Loops & Circuit Breakers
 
-智能体在遇到异常响应、上游报错或模型逻辑进入死循环时，可能触发高频并发重试，导致资金在几分钟内被迅速消耗殆尽，这就是**失控循环（Runaway Loop）**。
+When an agent encounters unexpected upstream responses, malformed JSON, or reasoning loops, it may rapidly retry operations, draining allocated budgets within minutes. This failure mode is known as a **Runaway Loop**.
 
-## 熔断机制的层级设计
+## Circuit Breaker Architecture
 
-1. **频次熔断（Rate Limiting）**：限制单个 Agent 每分钟或每小时发起的支付意图次数。
-2. **失败率熔断（Error Ratio Breaker）**：如果连续多次调用上游均返回履约失败或未知状态，系统自动触发熔断，拒绝后续支付请求。
-3. **全局紧急停机（Kill Switch）**：管理员可在控制台一键禁用特定 Agent 或租户的 API Key，或全局冻结支付转发。
+1. **Rate Limiting**: Throttling the number of payment authorizations an agent can trigger per minute or hour.
+2. **Failure Ratio Breaker**: If consecutive calls return upstream failures or timeout errors, the circuit trips automatically, rejecting subsequent payment requests until cooled down.
+3. **Emergency Kill-Switch**: Administrators can instantly revoke a compromised agent's API key or halt all gateway routing.
 
-::: tip 在 AgentPay 中
-AgentPay 提供了全局与项目级的策略配置，内置熔断保护与一键吊销机制。详见 [多租户数据模型规范](/specs/multitenant-data-model)。
+::: tip In AgentPay
+AgentPay provides tenant-level and project-level policy configurations with built-in circuit breaking. See the [Multitenant Data Model Specification](/specs/multitenant-data-model).
 :::

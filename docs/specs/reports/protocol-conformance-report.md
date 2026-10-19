@@ -5,10 +5,10 @@
 > **测试状态**：**100% 通过 (PASSED)**  
 > **执行环境**：macOS (Darwin arm64), Python 3.12.7 (pytest 9.1.1), Go 1.24  
 > **涉及核心规范**：
-> - [`specs/protocol-consistency-spec.md`](file:///Users/wanghongjie/aiPoiject/AgentPay/specs/protocol-consistency-spec.md) (T1.3 统一协议契约)
-> - [`specs/conformance/protocol-errors.json`](file:///Users/wanghongjie/aiPoiject/AgentPay/specs/conformance/protocol-errors.json) (统一错误码表与 Schema)
-> - [`specs/test-vectors/dual-path-protocol.json`](file:///Users/wanghongjie/aiPoiject/AgentPay/specs/test-vectors/dual-path-protocol.json) (双轨协议一致性测试向量)
-> - [`specs/conformance/state-machine.json`](file:///Users/wanghongjie/aiPoiject/AgentPay/specs/conformance/state-machine.json) (统一状态机模型)
+> - [`specs/protocol-consistency-spec.md`](https://github.com/open-agentpay/AgentPay/blob/main/specs/protocol-consistency-spec.md) (T1.3 统一协议契约)
+> - [`specs/conformance/protocol-errors.json`](https://github.com/open-agentpay/AgentPay/blob/main/specs/conformance/protocol-errors.json) (统一错误码表与 Schema)
+> - [`specs/test-vectors/dual-path-protocol.json`](https://github.com/open-agentpay/AgentPay/blob/main/specs/test-vectors/dual-path-protocol.json) (双轨协议一致性测试向量)
+> - [`specs/conformance/state-machine.json`](https://github.com/open-agentpay/AgentPay/blob/main/specs/conformance/state-machine.json) (统一状态机模型)
 
 ---
 

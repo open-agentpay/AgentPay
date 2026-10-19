@@ -1,19 +1,19 @@
-# 规范总览
+# Specifications Overview
 
-AgentPay 的协议、状态机、数据模型与安全设计都以规范文档形式定义，并配有跨语言测试向量（Python 与 Go 运行同一组向量）。
+AgentPay protocols, state machines, data models, and security designs are formally defined as specifications, backed by executable cross-language conformance test vectors (verified identically against Python and Go implementations).
 
-::: info 单一事实来源
-本站规范由仓库根目录 [`specs/`](https://github.com/july-whj/AgentPay/tree/main/specs) 自动同步生成。
-机器可读的 JSON Schema 与测试向量在 [`specs/conformance`](https://github.com/july-whj/AgentPay/tree/main/specs/conformance) 与 [`specs/test-vectors`](https://github.com/july-whj/AgentPay/tree/main/specs/test-vectors)。
+::: info Single Source of Truth
+Specifications on this site are automatically synchronized from the repository root [`specs/`](https://github.com/open-agentpay/AgentPay/tree/main/specs).
+Machine-readable JSON Schemas and test vectors are maintained at [`specs/conformance`](https://github.com/open-agentpay/AgentPay/tree/main/specs/conformance) and [`specs/test-vectors`](https://github.com/open-agentpay/AgentPay/tree/main/specs/test-vectors).
 :::
 
-| 主题 | 说明 |
+| Topic | Description |
 |---|---|
-| [支付状态机](./state-machine) | 意图 / 结算 / 履约三态与合法迁移 |
-| [钱包与账本](./wallet-ledger) | Hold / Capture / Release、只追加账本、对账 |
-| [协议一致性](./protocol-consistency) | 头部、错误码、双轨支付裁定 |
-| [配置发布](./config-publishing) | 草稿、快照、RCU 热切换、回滚 |
-| [审计事件](./audit-events) | 事件信封、脱敏、保留与导出 |
-| [Agent 身份与行为审计](./agent-audit) | 身份来源、观测 vs 自报、停用 |
-| [多租户数据模型](./multitenant-data-model) | 实体与表结构 |
-| [安全模型](./security-model) | 信任边界与防御范围 |
+| [Payment State Machine](./state-machine) | Intent / Settlement / Fulfillment tri-state orthogonal machine |
+| [Wallet & Ledger](./wallet-ledger) | Hold / Capture / Release, append-only double-entry ledger & reconciliation |
+| [Protocol Consistency](./protocol-consistency) | Request headers, normalized error schemas & dual-path dispute resolution |
+| [Config Publishing](./config-publishing) | Drafts, immutable snapshot publishing, RCU hot-swapping & rollbacks |
+| [Audit Events](./audit-events) | Event envelope, data sanitization, WORM retention & CSV/JSON export |
+| [Agent Audit & Identity](./agent-audit) | Cryptographic identity extraction, observed vs reported dimensions, kill-switch |
+| [Multitenant Data Model](./multitenant-data-model) | PostgreSQL 16 schema, row-level isolation & foreign key topology |
+| [Security Model](./security-model) | Trust boundaries, STRIDE threat catalog & firewall mitigations |

@@ -3,37 +3,37 @@ layout: home
 
 hero:
   name: "AgentPay"
-  text: "AI Agent 的金融防火墙与自主支付网关"
-  tagline: 让 AI 可以自主花钱，但不能突破资金权限。基于 HTTP 402 / x402 与平台虚拟钱包的双轨支付。
+  text: "Financial Firewall & Autonomous Payment Gateway for AI Agents"
+  tagline: Empower AI agents to pay autonomously without exceeding financial authorization. Dual-path micro-settlements powered by HTTP 402 / x402 and internal virtual wallets.
   actions:
     - theme: brand
-      text: 5 分钟快速开始
+      text: 5-Minute Quickstart
       link: /guide/quickstart
     - theme: alt
-      text: 了解 Agent 支付
+      text: Explore Agent Payments
       link: /learn/
     - theme: alt
-      text: 核心规范
+      text: Specifications
       link: /specs/
     - theme: alt
       text: GitHub
-      link: https://github.com/july-whj/AgentPay
+      link: https://github.com/open-agentpay/AgentPay
 
 features:
-  - title: 🛡️ 独立财务防火墙
-    details: LLM 只能提议付款，不能自行批准。单笔上限、24 小时滚动预算、白名单、频率熔断与循环检测，全部在请求路径内同步执行。
-  - title: ⚡ 双轨支付
-    details: 链上 x402（EIP-3009 离线签名，买方无需持有 Gas）与平台虚拟钱包（冻结 → 履约 → 确认扣款/释放）。余额不足绝不静默降级到链上。
-  - title: 🔄 三态正交状态机
-    details: 支付意图、结算、履约严格分离。超时与异常不直接判为失败，幂等对账，避免重复扣款。
-  - title: 🏢 多租户管控
-    details: 租户、项目、成员 RBAC 与 API Key 生命周期隔离；配置草稿、不可变快照发布与秒级回滚。
-  - title: 👁️ Agent 身份与行为审计
-    details: 身份只由凭据解析，观测与自报字段严格分离；行为时间线、一键停用（Kill Switch）与只追加审计。
-  - title: 📒 只追加账本
-    details: 金额一律整数最小单位；流水不可修改，多重对账平账，可追溯、可导出。
+  - title: 🛡️ Financial Firewall
+    details: LLMs only propose payments; cryptographic signing and budget deductions execute behind an out-of-band policy engine. Per-tx caps, 24h rolling budgets, whitelists, and circuit breakers.
+  - title: ⚡ Dual-Path Settlements
+    details: On-chain x402 (EIP-3009 offline signing with zero gas token requirements for buyers) and internal virtual wallets (Hold → Fulfill → Capture/Release). Never silently downgrades on insufficient balance.
+  - title: 🔄 Tri-State Orthogonal State Machine
+    details: Strict separation of Payment Intent, Settlement, and Fulfillment. Network timeouts transition to explicit Unknown state, preventing double-spending and loss.
+  - title: 🏢 Multitenant Governance
+    details: Tenant, project, and member RBAC isolation. Key lifecycle management, draft configurations, immutable snapshot publishing, and sub-second rollbacks.
+  - title: 👁️ Agent Identity & Audit Trail
+    details: Cryptographic identity verified via credentials; strict separation of observed vs self-reported metadata. Append-only event logs, timeline tracking, and emergency kill-switches.
+  - title: 📒 Append-Only Double-Entry Ledger
+    details: Integer-based atomic currency units (micro-USDC). Immutable journal entries, multi-level automated reconciliation, and auditable accounting exports.
 ---
 
-::: warning 实验性项目
-AgentPay 处于早期阶段，**尚未经过独立安全审计**，请仅在测试网与测试代币上评估，不要用于生产资金。
+::: warning Experimental Project
+AgentPay is under active development and **has not been audited by an independent security firm**. Evaluate exclusively on testnets and with test tokens. Do not use with production funds.
 :::

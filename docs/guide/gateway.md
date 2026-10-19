@@ -1,13 +1,13 @@
 ---
-title: 网关配置指南
-description: gateway.yaml 配置文件规格说明与运行时路由设置。
+title: Gateway Configuration Guide
+description: gateway.yaml configuration schema reference, reverse proxy settings, and upstream route definitions.
 ---
 
-# 网关配置指南
+# Gateway Configuration Guide
 
-AgentPay 网关使用 YAML 配置文件进行服务启动与路由策略声明。默认配置文件模板位于 `gateway-go/configs/gateway.example.yaml`。
+The AgentPay reverse proxy gateway is configured via YAML. A reference template is provided at `gateway-go/configs/gateway.example.yaml`.
 
-## 基础配置示例
+## Basic Configuration Example
 
 ```yaml
 server:
@@ -28,4 +28,4 @@ routes:
     policy_id: "pol_weather_default"
 ```
 
-完整配置请参考仓库中的 `gateway-go/configs/gateway.example.yaml`。
+For advanced settings including RCU hot-reloads and Prometheus metrics, see `gateway-go/configs/gateway.example.yaml`.

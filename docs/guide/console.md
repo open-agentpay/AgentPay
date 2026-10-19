@@ -1,12 +1,12 @@
 ---
-title: 管理控制台
-description: AgentPay Console 管理端功能与 API Key 生命周期管理。
+title: Management Console
+description: Overview of the AgentPay administrative console, tenant isolation, and API Key lifecycle management.
 ---
 
-# 管理控制台
+# Management Console
 
-管理控制台位于 `console/` 目录，面向企业管理员提供可视化治理界面：
+The management console located under `console/` provides administrative tools for team operators:
 
-- **租户与项目隔离**：按租户查看 API Key、钱包余额与授权 Agent。
-- **账本与流水导出**：查看实时双录账本条目与结算凭证。
-- **应急一键停机**：支持对失控 Agent 或泄露的 API Key 实行秒级吊销。
+- **Tenant & Project Management**: Scope API Keys, wallets, and registered agents per team.
+- **Ledger Journal & Exports**: Real-time auditing of double-entry ledger entries and settlement proofs.
+- **Instant Kill Switch**: Revoke compromised keys or halt runaway agents immediately across all gateway nodes.

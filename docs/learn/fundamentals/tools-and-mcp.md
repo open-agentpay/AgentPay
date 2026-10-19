@@ -1,16 +1,16 @@
 ---
-title: Tool Calling 与 MCP
-description: 了解 Tool Calling 与 Model Context Protocol（MCP）如何在支付场景中协同工作。
+title: Tool Calling & Model Context Protocol (MCP)
+description: How Tool Calling and the open Model Context Protocol (MCP) standard interact with machine payments.
 ---
 
-# Tool Calling 与 MCP
+# Tool Calling & Model Context Protocol (MCP)
 
-Model Context Protocol (MCP) 是当前主流的智能体工具与上下文连接标准。智能体在感知环境并做出决策后，通过 Tool Calling 调用外部工具完成操作。
+The Model Context Protocol (MCP) standardizes how autonomous agents discover tools and query external context. Once an agent determines an action, it triggers external services via Tool Calling.
 
-在支付场景下，工具调用分为两类：
-- **主动支付工具**：Agent 自主决定向某个服务商购买资源（例如 `pay_for_resource(endpoint, amount)`）。
-- **透明 HTTP 握手代理**：Agent 正常调用数据查询工具，底层的通信中间件自动捕获 `HTTP 402 Payment Required` 状态并完成代扣。
+In paid environments, tool integrations fall into two paradigms:
+- **Explicit Payment Tools**: The agent explicitly calls a financial tool (e.g. `pay_for_dataset(resource_id, max_quote)`).
+- **Transparent HTTP Interception**: The agent queries standard REST/RPC endpoints, while the underlying HTTP transport catches `HTTP 402 Payment Required` responses, validates local budget policies, and negotiates payment automatically.
 
-::: tip 在 AgentPay 中
-AgentPay 提供了原生 Python SDK 与 MCP Server 适配，支持透明代理与显式工具调用两种模式。详见 [Python SDK 指南](/guide/python-sdk)。
+::: tip In AgentPay
+AgentPay provides an async Python SDK and native MCP server tools supporting both transparent interception and explicit tool execution. See the [Python SDK Guide](/guide/python-sdk).
 :::

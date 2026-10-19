@@ -1,17 +1,17 @@
 ---
-title: Gasless 微支付与 Gas 模型
-description: 探讨如何解决微支付场景下 Gas 费用占比过高问题，以及 EIP-712、ERC-4337 与 Gas 抽象机制。
+title: Gasless Micro-Payments & Gas Models
+description: How meta-transactions, EIP-712/3009 authorizations, and sponsored settlement models enable friction-free agent transactions.
 ---
 
-# Gasless 微支付与 Gas 模型
+# Gasless Micro-Payments & Gas Models
 
-当单笔微支付金额仅为 $0.001 时，若网络 Gas 费高达 $0.05，支付在经济学上将完全不可行。
+When an API call costs $0.001 but on-chain gas fees are $0.05, the transaction is economically unviable.
 
-为了实现真正的微支付，行业发展出多种 Gas 优化与免 Gas（Gasless）方案：
-- **EIP-712 结构化签名授权**：客户端仅签名支付授权，由 Facilitator 或 Paymaster 代付 Gas 上链。
-- **Layer 2 / Layer 3 Rollup**：将交易迁移到 Arbitrum、Base 等低成本网络。
-- **账本聚合批量上链（Batch Settlement）**：网关在内部记录成百上千笔交易流水，定期汇总一次性上链清算。
+To enable true machine-scale micro-payments, several gas mitigation strategies are required:
+- **EIP-712 & EIP-3009 Meta-Transactions**: The buyer agent signs a structured transfer authorization (`transferWithAuthorization`) off-chain. The caller (Facilitator node) submits the transaction and sponsors the native gas token.
+- **Layer 2 / Layer 3 Rollups**: Moving transaction execution to high-throughput networks such as Arbitrum Sepolia or Base.
+- **Batch Aggregation**: The gateway verifies signatures locally and fulfills requests immediately, aggregating hundreds of payments into periodic batch multicalls.
 
-::: tip 在 AgentPay 中
-AgentPay 提供了内置的 Facilitator 服务与 Gas 模型规范，支持上游代付与聚合结算。详见 [Gas 与结算模型规范](/specs/gas-models)。
+::: tip In AgentPay
+AgentPay implements an autonomous Facilitator service and formal gas sponsorship models. See the [Gas Economics & Settlement Models Specification](/specs/gas-models).
 :::

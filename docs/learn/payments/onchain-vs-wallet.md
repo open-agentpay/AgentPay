@@ -1,21 +1,21 @@
 ---
-title: 链上支付 vs 预付余额
-description: 比较链上直接支付与托管预付账本在性能、Gas 消耗、去中心化和资金隔离维度的权衡。
+title: On-Chain Payments vs Virtual Wallets
+description: Comparing direct on-chain settlement against prepaid custodial virtual wallets across latency, gas economics, and trust models.
 ---
 
-# 链上支付 vs 预付余额
+# On-Chain Payments vs Virtual Wallets
 
-在构建 Agent 支付系统时，开发者往往面临两种路线的选择：
+Architects designing payment systems for autonomous agents face a fundamental architectural choice:
 
-| 评估维度 | 链上直接支付 (On-chain) | 托管预付钱包 (Prepaid Wallet) |
+| Dimension | Direct On-Chain Payments | Prepaid Virtual Wallet |
 |---|---|---|
-| **交易延迟** | 数秒至数十秒（受区块打包时间限制） | 毫秒级（数据库内存与行级锁） |
-| **Gas 消耗** | 每笔微支付均需支付网络 Gas | 零 Gas 消耗（仅充值与提现上链） |
-| **去中心化程度** | 极高，无需对中央账本的信任 | 依赖网关双录不可变账本 |
-| **高频吞吐量** | 受限于区块链 TPS 与 RPC 节点限流 | 可轻松支撑数千 QPS 突发流量 |
+| **Latency** | Multiple seconds (block confirmation times) | Sub-millisecond (in-memory & row-level locking) |
+| **Transaction Gas** | Every micro-payment incurs blockchain gas fees | Zero gas per request (gas only incurred during top-up/settlement) |
+| **Decentralization** | Fully trustless, verifiable by any third party | Relies on an immutable double-entry ledger |
+| **High-Frequency Bursts** | Constrained by L1/L2 block gas limits & RPC rate-limiting | Scalable to thousands of requests per second |
 
-在实际工程落地中，**混合架构**通常是最佳实践：企业或组织内部高频微支付采用托管账本，对外跨组织结算与资金清算采用链上结算。
+In practice, **hybrid architectures** offer the best of both worlds: high-frequency internal micro-transactions run through an append-only virtual wallet ledger, while inter-organizational clearing settles on-chain.
 
-::: tip 在 AgentPay 中
-AgentPay 通过统一协议层抹平了链上支付与钱包账本的接口差异，客户端只需声明意图，网关自动路由。详见 [钱包与账本规范](/specs/wallet-ledger)。
+::: tip In AgentPay
+AgentPay unifies on-chain and virtual wallet payment methods under a single client interface. The gateway routes requests according to configuration without code changes. See the [Wallet & Ledger Specification](/specs/wallet-ledger).
 :::

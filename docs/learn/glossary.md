@@ -1,27 +1,27 @@
 ---
-title: 术语表
-description: AgentPay 与 AI Agent 支付领域的关键术语定义与对照。
+title: Glossary
+description: Essential terminology and definitions across AgentPay and AI Agent payment architectures.
 ---
 
-# 术语表
+# Glossary
 
 ### Agent API Key
-租户签发给特定 Agent 实例的鉴权凭据，格式统一为 `apk_live_<hex>`，网关根据此 Key 检索关联的钱包、策略与租户边界。
+A scoped credential issued by a tenant to an agent instance formatted as `apk_live_<hex>`. The gateway resolves the associated wallet, policy, and tenant boundaries via this key.
 
-### Financial Firewall (金融防火墙)
-部署在 Agent 与付费网络服务之间的受控代理层，执行单笔限额、24小时预算、收款方白名单以及异常熔断。
+### Financial Firewall
+An out-of-band proxy layer placed between autonomous agents and paid upstream services that enforces transaction caps, rolling budgets, payee whitelists, and circuit breaking.
 
-### Hold (资金冻结)
-预付钱包模式下，网关在转发上游请求前对账户可用余额进行的原子锁定。如果请求成功则执行 Capture（确认扣费），若上游明确失败则执行 Release（退回可用余额）。
+### Hold (Balance Reservation)
+An atomic reservation on a virtual wallet balance placed before an upstream request is forwarded. If the call succeeds, the hold is captured; if the call fails with a deterministic client error, the hold is released.
 
-### Hold TTL (冻结超时)
-资金被锁定处于冻结状态的最大有效时长。AgentPay 默认设定为 `upstream_timeout + 60s`（默认 120 秒）。
+### Hold TTL (Time-To-Live)
+The maximum duration a balance hold remains active before being eligible for automated cleanup. AgentPay defaults to `upstream_timeout + 60s` (default 120 seconds).
 
-### Capture (扣除冻结)
-在上游服务确认履约交付后，网关将已冻结的金额转为实际支出，不可回滚。
+### Capture (Settlement Execution)
+The irreversible transition converting held funds into settled revenue once upstream delivery has been confirmed.
 
-### x402 协议
-基于 HTTP 402 Payment Required 扩展的机器可读开放支付协议标准。
+### x402 Protocol
+The open machine-readable payment protocol extending HTTP 402 Payment Required for automated web micro-payments.
 
 ### Facilitator
-链上结算路径中负责构建、签名、广播区块链交易并监听收据的异步服务组件。
+The off-chain service node responsible for verifying signatures, sponsoring miner gas fees, and batching on-chain settlements.

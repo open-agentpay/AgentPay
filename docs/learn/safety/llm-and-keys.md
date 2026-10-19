@@ -1,18 +1,18 @@
 ---
-title: 为什么 LLM 不能持有私钥
-description: 深度解析 Prompt 注入、模型幻觉与黑客诱导攻击下，智能体持有明文私钥的灾难性后果。
+title: Why LLMs Must Never Hold Private Keys
+description: Analyzing the catastrophic risks of prompt injections, model hallucinations, and supply-chain attacks when LLMs hold master keys.
 ---
 
-# 为什么 LLM 不能持有私钥
+# Why LLMs Must Never Hold Private Keys
 
-将区块链私钥或支付主凭据（API Secret Key）直接注入大模型上下文中，是当前 Agent 开发中最危险的反模式：
+Directly injecting private keys or master payment secrets into an LLM context window is the most dangerous anti-pattern in agent engineering:
 
-1. **直接 Prompt 注入攻击**：攻击者可以通过伪造上游响应或恶意 Prompt，诱导模型将私钥在后续对话中打印出来。
-2. **模型幻觉与非确定性**：模型可能误读金额单位（如将 1 USDC 误认为是 1 ETH），签署超出预期的极端交易。
-3. **安全隔离缺失**：Agent 代码若遭遇依赖包供应链投毒，明文私钥将在内存中完全裸露。
+1. **Direct Prompt Injection**: Attackers can construct adversarial prompts or manipulate upstream tool outputs to coerce the model into leaking private keys.
+2. **Model Hallucinations**: An LLM may misinterpret transaction amounts (e.g. confusing 100 USDC with 100 ETH) and sign transactions with unbounded values.
+3. **Absence of Memory Isolation**: If third-party dependencies are compromised, plaintext keys in process memory are completely exposed.
 
-**核心设计准则**：私钥与支付签名权必须完全由外部独立的网关或 HSM 保管，Agent 只能通过策略受控的接口提出“支付意图”。
+**Core Axiom**: Private keys and signature authority must remain strictly within an out-of-band gateway, secure enclave, or KMS. Agents should only issue policy-governed "payment intents."
 
-::: tip 在 AgentPay 中
-在 AgentPay 体系中，Agent 仅持有租户发放的局部 API Key（`apk_live_...`），所有私钥由网关在安全边界内隔离调用。详见 [安全模型规范](/specs/security-model)。
+::: tip In AgentPay
+AgentPay agents only hold scoped API keys (`apk_live_...`). Master signing keys reside behind the gateway security boundary. See the [Security Model Specification](/specs/security-model).
 :::

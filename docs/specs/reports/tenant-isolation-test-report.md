@@ -5,9 +5,9 @@
 > **测试状态**：**100% 通过 (PASSED)**  
 > **执行环境**：macOS (Darwin arm64), Python 3.12.7 (pytest 9.1.1), Go 1.24  
 > **涉及核心规范**：
-> - [`specs/multitenant-data-model.md`](file:///Users/wanghongjie/aiPoiject/AgentPay/specs/multitenant-data-model.md) (多租户实体模型与隔离规范)
-> - [`specs/threat-model-v1.md`](file:///Users/wanghongjie/aiPoiject/AgentPay/specs/threat-model-v1.md) (T1.6 威胁模型与越权攻击面)
-> - [`specs/security-model.md`](file:///Users/wanghongjie/aiPoiject/AgentPay/specs/security-model.md) (RBAC 角色权限与租户安全边界)
+> - [`specs/multitenant-data-model.md`](https://github.com/open-agentpay/AgentPay/blob/main/specs/multitenant-data-model.md) (多租户实体模型与隔离规范)
+> - [`specs/threat-model-v1.md`](https://github.com/open-agentpay/AgentPay/blob/main/specs/threat-model-v1.md) (T1.6 威胁模型与越权攻击面)
+> - [`specs/security-model.md`](https://github.com/open-agentpay/AgentPay/blob/main/specs/security-model.md) (RBAC 角色权限与租户安全边界)
 
 ---
 
