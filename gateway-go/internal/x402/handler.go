@@ -3,8 +3,10 @@ package x402
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -316,7 +318,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			if pID == "" {
 				pID = "prj_default"
 			}
-			_ = p.usageService.RecordRequest(r.Context(), &usage.RequestRecord{
+			if err := p.usageService.RecordRequest(r.Context(), &usage.RequestRecord{
 				RequestID:     requestID,
 				TenantID:      tID,
 				ProjectID:     pID,
@@ -333,7 +335,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				IsReplay:      isReplay,
 				IntentID:      intentID,
 				CreatedAt:     time.Now(),
-			})
+			}); err != nil {
+				slog.Error("failed to record request audit record", slog.String("request_id", requestID), slog.Any("error", err))
+			}
 		}
 	}
 
@@ -347,7 +351,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			if pID == "" {
 				pID = "prj_default"
 			}
-			_ = p.usageService.RecordUsage(r.Context(), &usage.UsageEvent{
+			if err := p.usageService.RecordUsage(r.Context(), &usage.UsageEvent{
 				EventID:         usage.GenerateUsageEventID(),
 				TenantID:        tID,
 				ProjectID:       pID,
@@ -359,7 +363,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				PaymentMethod:   paymentMethod,
 				IsSuccess:       isSuccess,
 				CreatedAt:       time.Now(),
-			})
+			}); err != nil {
+				slog.Error("failed to record usage event", slog.String("request_id", requestID), slog.String("intent_id", intentID), slog.Any("error", err))
+			}
 		}
 	}
 
@@ -373,7 +379,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			if pID == "" {
 				pID = "prj_default"
 			}
-			_ = p.paymentService.CreateIntent(r.Context(), &payment.PaymentIntent{
+			if err := p.paymentService.CreateIntent(r.Context(), &payment.PaymentIntent{
 				IntentID:        intentID,
 				TenantID:        tID,
 				ProjectID:       pID,
@@ -387,13 +393,15 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				Status:          status,
 				ConfigVersionID: configVersion,
 				CreatedAt:       startTime,
-			})
+			}); err != nil {
+				slog.Error("failed to create payment intent record", slog.String("request_id", requestID), slog.String("intent_id", intentID), slog.Any("error", err))
+			}
 		}
 	}
 
 	initSettlement := func(settlementID, intentID, paymentMethod, status, payer, payee, nonce, txHash string) {
 		if p.paymentService != nil {
-			_ = p.paymentService.RecordSettlement(r.Context(), &payment.SettlementRecord{
+			if err := p.paymentService.RecordSettlement(r.Context(), &payment.SettlementRecord{
 				SettlementID:    settlementID,
 				IntentID:        intentID,
 				PaymentMethod:   paymentMethod,
@@ -406,19 +414,23 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				TxHash:          txHash,
 				Status:          status,
 				CreatedAt:       startTime,
-			})
+			}); err != nil {
+				slog.Error("failed to record settlement record", slog.String("request_id", requestID), slog.String("settlement_id", settlementID), slog.Any("error", err))
+			}
 		}
 	}
 
 	initFulfillment := func(fulfillmentID, intentID string) {
 		if p.paymentService != nil {
-			_ = p.paymentService.RecordFulfillment(r.Context(), &payment.FulfillmentRecord{
+			if err := p.paymentService.RecordFulfillment(r.Context(), &payment.FulfillmentRecord{
 				FulfillmentID:  fulfillmentID,
 				IntentID:       intentID,
 				UpstreamURL:    route.UpstreamURL,
 				Status:         payment.FulfillmentStatusInProgress,
 				CreatedAt:      startTime,
-			})
+			}); err != nil {
+				slog.Error("failed to record fulfillment record", slog.String("request_id", requestID), slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
+			}
 		}
 	}
 
@@ -426,15 +438,29 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		if p.paymentService != nil {
 			durationMs := time.Since(startTime).Milliseconds()
 			if statusCode >= 200 && statusCode < 300 {
-				_ = p.paymentService.UpdateSettlementStatus(r.Context(), settlementID, payment.SettlementStatusConfirmed, "", nil, "")
-				_ = p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusSucceeded, statusCode, durationMs, "")
-				_ = p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusCompleted)
+				if err := p.paymentService.UpdateSettlementStatus(r.Context(), settlementID, payment.SettlementStatusConfirmed, "", nil, ""); err != nil {
+					slog.Error("failed to update settlement status confirmed", slog.String("settlement_id", settlementID), slog.Any("error", err))
+				}
+				if err := p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusSucceeded, statusCode, durationMs, ""); err != nil {
+					slog.Error("failed to update fulfillment succeeded", slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
+				}
+				if err := p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusCompleted); err != nil {
+					slog.Error("failed to update intent completed", slog.String("intent_id", intentID), slog.Any("error", err))
+				}
 			} else if statusCode >= 400 && statusCode < 500 {
-				_ = p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusFailed, statusCode, durationMs, "")
-				_ = p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusFailed)
+				if err := p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusFailed, statusCode, durationMs, ""); err != nil {
+					slog.Error("failed to update fulfillment failed", slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
+				}
+				if err := p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusFailed); err != nil {
+					slog.Error("failed to update intent failed", slog.String("intent_id", intentID), slog.Any("error", err))
+				}
 			} else {
-				_ = p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusUnknown, statusCode, durationMs, "")
-				_ = p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusNeedsReview)
+				if err := p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusUnknown, statusCode, durationMs, ""); err != nil {
+					slog.Error("failed to update fulfillment unknown", slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
+				}
+				if err := p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusNeedsReview); err != nil {
+					slog.Error("failed to update intent needs review", slog.String("intent_id", intentID), slog.Any("error", err))
+				}
 			}
 		}
 	}
@@ -461,15 +487,38 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			ConfigVersion: configVersion,
 			ConfigHash:    configHash,
 		}
-		resp, _ := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
-		recordReq(route.TenantID, "prj_default", "", "", "", resp.StatusCode, "", false)
+		resp, err := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+		if err != nil {
+			slog.Error("forwarding free route request failed", slog.String("request_id", requestID), slog.String("route_id", route.RouteID), slog.Any("error", err))
+		}
+		statusCode := http.StatusBadGateway
+		if resp != nil {
+			statusCode = resp.StatusCode
+		}
+		recordReq(route.TenantID, "prj_default", "", "", "", statusCode, "", false)
 		return
 	}
 
 	// Buffer request body for deterministic hash computation & replay
 	var bodyBytes []byte
 	if r.Body != nil {
-		bodyBytes, _ = io.ReadAll(r.Body)
+		var err error
+		bodyBytes, err = io.ReadAll(r.Body)
+		if err != nil {
+			slog.Error("failed to read request body", slog.String("request_id", requestID), slog.Any("error", err))
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": map[string]interface{}{
+					"code":      "ERR_INVALID_REQUEST_BODY",
+					"message":   "Failed to read request body",
+					"status":    http.StatusBadRequest,
+					"requestId": requestID,
+				},
+			})
+			recordReq("", "", "", "", "", http.StatusBadRequest, "ERR_INVALID_REQUEST_BODY", false)
+			return
+		}
 		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 	requestHash := idempotency.ComputeRequestHash(r.Method, r.URL.Path, r.URL.RawQuery, bodyBytes)
@@ -715,24 +764,47 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 					DeclaredParentReqID: declared.ParentRequestID,
 				}
 
-				resp, _ := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+				resp, err := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+				if err != nil {
+					slog.Error("failed to forward request with capture (wallet idempotent free replay)",
+						slog.String("request_id", requestID),
+						slog.String("route_id", route.RouteID),
+						slog.Any("error", err),
+					)
+				}
+				if resp == nil {
+					resp = &proxy.ProxyResponse{
+						StatusCode: http.StatusBadGateway,
+						Headers:    make(map[string]string),
+					}
+				}
 				emitRequestAudit(resp.StatusCode, true, "")
 
 				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-					_ = p.walletService.CaptureFunds(r.Context(), rec.HoldID)
+					if err := p.walletService.CaptureFunds(r.Context(), rec.HoldID); err != nil {
+						slog.Error("failed to capture wallet funds", slog.String("hold_id", rec.HoldID), slog.Any("error", err))
+					}
 					p.agentEnforcer.RecordSpend(resolvedAgent.AgentID, route.PriceBaseUnits)
 					emitSpendAudit(rec.HoldID, "capture")
 					p.metrics.IncHoldsCaptured()
 					p.metrics.IncPaymentsVerified()
-					_ = p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body)
+					if err := p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body); err != nil {
+						slog.Error("failed to mark idempotency completed", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+					}
 				} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-					_ = p.walletService.ReleaseFunds(r.Context(), rec.HoldID)
+					if err := p.walletService.ReleaseFunds(r.Context(), rec.HoldID); err != nil {
+						slog.Error("failed to release wallet funds", slog.String("hold_id", rec.HoldID), slog.Any("error", err))
+					}
 					emitSpendAudit(rec.HoldID, "release")
 					p.metrics.IncHoldsReleased()
-					_ = p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body)
+					if err := p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body); err != nil {
+						slog.Error("failed to mark idempotency completed", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+					}
 				} else {
 					// 5xx or Timeout: KEEP HELD, Mark Recovery Required (strictly no auto-release or double capture)
-					_ = p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure")
+					if err := p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure"); err != nil {
+						slog.Error("failed to mark recovery required", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+					}
 				}
 				return
 			}
@@ -786,24 +858,47 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				DeclaredParentReqID: declared.ParentRequestID,
 			}
 
-			resp, _ := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+			resp, err := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+			if err != nil {
+				slog.Error("failed to forward request with capture (wallet idempotent fresh)",
+					slog.String("request_id", requestID),
+					slog.String("route_id", route.RouteID),
+					slog.Any("error", err),
+				)
+			}
+			if resp == nil {
+				resp = &proxy.ProxyResponse{
+					StatusCode: http.StatusBadGateway,
+					Headers:    make(map[string]string),
+				}
+			}
 			emitRequestAudit(resp.StatusCode, false, "")
 
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				_ = p.walletService.CaptureFunds(r.Context(), holdID)
+				if err := p.walletService.CaptureFunds(r.Context(), holdID); err != nil {
+					slog.Error("failed to capture wallet funds", slog.String("hold_id", holdID), slog.Any("error", err))
+				}
 				p.agentEnforcer.RecordSpend(resolvedAgent.AgentID, route.PriceBaseUnits)
 				emitSpendAudit(holdID, "capture")
 				p.metrics.IncHoldsCaptured()
 				p.metrics.IncPaymentsVerified()
-				_ = p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body)
+				if err := p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body); err != nil {
+					slog.Error("failed to mark idempotency completed", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+				}
 			} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-				_ = p.walletService.ReleaseFunds(r.Context(), holdID)
+				if err := p.walletService.ReleaseFunds(r.Context(), holdID); err != nil {
+					slog.Error("failed to release wallet funds", slog.String("hold_id", holdID), slog.Any("error", err))
+				}
 				emitSpendAudit(holdID, "release")
 				p.metrics.IncHoldsReleased()
-				_ = p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body)
+				if err := p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body); err != nil {
+					slog.Error("failed to mark idempotency completed", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+				}
 			} else {
 				// 5xx / Timeout: KEEP HELD, Mark Recovery Required
-				_ = p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure")
+				if err := p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure"); err != nil {
+					slog.Error("failed to mark recovery required", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+				}
 			}
 			return
 		}
@@ -853,17 +948,34 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			DeclaredParentReqID: declared.ParentRequestID,
 		}
 
-		resp, _ := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+		resp, err := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+		if err != nil {
+			slog.Error("failed to forward request with capture (wallet non-idempotent)",
+				slog.String("request_id", requestID),
+				slog.String("route_id", route.RouteID),
+				slog.Any("error", err),
+			)
+		}
+		if resp == nil {
+			resp = &proxy.ProxyResponse{
+				StatusCode: http.StatusBadGateway,
+				Headers:    make(map[string]string),
+			}
+		}
 		emitRequestAudit(resp.StatusCode, false, "")
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			_ = p.walletService.CaptureFunds(r.Context(), holdID)
+			if err := p.walletService.CaptureFunds(r.Context(), holdID); err != nil {
+				slog.Error("failed to capture wallet funds", slog.String("hold_id", holdID), slog.Any("error", err))
+			}
 			p.agentEnforcer.RecordSpend(resolvedAgent.AgentID, route.PriceBaseUnits)
 			emitSpendAudit(holdID, "capture")
 			p.metrics.IncHoldsCaptured()
 			p.metrics.IncPaymentsVerified()
 		} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-			_ = p.walletService.ReleaseFunds(r.Context(), holdID)
+			if err := p.walletService.ReleaseFunds(r.Context(), holdID); err != nil {
+				slog.Error("failed to release wallet funds", slog.String("hold_id", holdID), slog.Any("error", err))
+			}
 			emitSpendAudit(holdID, "release")
 			p.metrics.IncHoldsReleased()
 		}
@@ -939,12 +1051,29 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 					ConfigVersion:   configVersion,
 					ConfigHash:      configHash,
 				}
-				resp, _ := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+				resp, err := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+				if err != nil {
+					slog.Error("failed to forward request with capture (on-chain idempotent retry)",
+						slog.String("request_id", requestID),
+						slog.String("route_id", route.RouteID),
+						slog.Any("error", err),
+					)
+				}
+				if resp == nil {
+					resp = &proxy.ProxyResponse{
+						StatusCode: http.StatusBadGateway,
+						Headers:    make(map[string]string),
+					}
+				}
 				recordReq(route.TenantID, "prj_default", "", "", intentID, resp.StatusCode, "", true)
 				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-					_ = p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body)
+					if err := p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body); err != nil {
+						slog.Error("failed to mark idempotency completed", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+					}
 				} else {
-					_ = p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure")
+					if err := p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure"); err != nil {
+						slog.Error("failed to mark recovery required", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+					}
 				}
 				return
 			}
@@ -1024,16 +1153,33 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				ConfigHash:      configHash,
 			}
 
-			resp, _ := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+			resp, err := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+			if err != nil {
+				slog.Error("failed to forward request with capture (on-chain idempotent)",
+					slog.String("request_id", requestID),
+					slog.String("route_id", route.RouteID),
+					slog.Any("error", err),
+				)
+			}
+			if resp == nil {
+				resp = &proxy.ProxyResponse{
+					StatusCode: http.StatusBadGateway,
+					Headers:    make(map[string]string),
+				}
+			}
 			updateCorrelationOutcome(intentID, settlementID, fulfillmentID, resp.StatusCode)
 			recordReq(route.TenantID, "prj_default", "", "", intentID, resp.StatusCode, "", false)
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				_ = p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body)
+				if err := p.idempotencyStore.MarkCompleted(r.Context(), tenantID, idemKey, resp.StatusCode, resp.Headers, resp.Body); err != nil {
+					slog.Error("failed to mark idempotency completed", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+				}
 				recordUsage(route.TenantID, "prj_default", "", intentID, "onchain", true)
 			} else {
 				// Anti-Rollback: Record remains SUBMITTED, Mark recovery required
 				_ = p.recoveryCoord.MarkUnknown(settlementID, "upstream error")
-				_ = p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure")
+				if err := p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure"); err != nil {
+					slog.Error("failed to mark recovery required", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
+				}
 				recordUsage(route.TenantID, "prj_default", "", intentID, "onchain", false)
 			}
 			return
@@ -1097,7 +1243,20 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			ConfigHash:      configHash,
 		}
 
-		resp, _ := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+		resp, err := p.proxyHandler.ForwardWithCapture(w, r, route, pCtx)
+		if err != nil {
+			slog.Error("failed to forward request with capture (on-chain non-idempotent)",
+				slog.String("request_id", requestID),
+				slog.String("route_id", route.RouteID),
+				slog.Any("error", err),
+			)
+		}
+		if resp == nil {
+			resp = &proxy.ProxyResponse{
+				StatusCode: http.StatusBadGateway,
+				Headers:    make(map[string]string),
+			}
+		}
 		updateCorrelationOutcome(intentID, settlementID, fulfillmentID, resp.StatusCode)
 		recordReq(route.TenantID, "prj_default", "", "", intentID, resp.StatusCode, "", false)
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {

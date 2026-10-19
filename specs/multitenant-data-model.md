@@ -123,7 +123,7 @@ CREATE TABLE ap_api_key (
     project_id VARCHAR(64) NOT NULL REFERENCES ap_project(project_id) ON DELETE CASCADE,
     name VARCHAR(128) NOT NULL,
     key_hash VARCHAR(128) NOT NULL UNIQUE,       -- SHA-256 哈希，绝不存明文
-    key_prefix VARCHAR(16) NOT NULL,             -- 展示给前端识别的前 8 位（如 `ap_live_...`）
+    key_prefix VARCHAR(16) NOT NULL,             -- 展示给前端识别的前 8 位（如 `apk_live_`）
     scopes JSONB NOT NULL DEFAULT '["gateway:call"]'::jsonb,
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
     expires_at TIMESTAMPTZ NULL,

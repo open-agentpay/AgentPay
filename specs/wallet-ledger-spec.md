@@ -43,8 +43,8 @@
 | `version` | `BIGINT` | NOT NULL | 乐观锁版本号（并发控制） |
 | `available_cache` | `BIGINT` | NOT NULL | 可用余额缓存（以流水重新计算为准） |
 | `held_cache` | `BIGINT` | NOT NULL | 冻结金额缓存（以状态为 held 的 Hold 之和为准） |
-| `created_at` | `BIGINT` | NOT NULL | 创建时间 Unix 秒 |
-| `updated_at` | `BIGINT` | NOT NULL | 更新时间 Unix 秒 |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | 创建时间（带时区时间戳） |
+| `updated_at` | `TIMESTAMPTZ` | NOT NULL | 更新时间（带时区时间戳） |
 
 ### 3.2 只追加账本流水 (`LedgerEntry`)
 不可修改、不可删除的不可变金融流水底账。
@@ -59,9 +59,9 @@
 | `idempotency_key`| `VARCHAR(128)`| NOT NULL | 同一钱包内唯一约束，防止重复记账 |
 | `ref_type` | `VARCHAR(32)` | NOT NULL | 关联对象类型（`TopUpOrder`、`PaymentIntent`、`Hold`） |
 | `ref_id` | `VARCHAR(64)` | NOT NULL | 关联业务 ID |
-| `operator` | `VARCHAR(64)` | NULL | 操作者 ID（人工调账时必填） |
+| `operator_id` | `VARCHAR(64)` | NULL | 操作者 ID（人工调账时必填） |
 | `reason` | `TEXT` | NULL | 调账原因说明（人工调账时必填） |
-| `created_at` | `BIGINT` | NOT NULL | 记账时间 Unix 秒 |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | 记账时间（带时区时间戳） |
 
 ### 3.3 资金冻结凭单 (`Hold`)
 请求生命周期内的临时配额锁定凭单。
@@ -73,8 +73,8 @@
 | `payment_intent_id`| `VARCHAR(64)`| UNIQUE, NOT NULL | 绑定的支付意图 ID |
 | `amount` | `BIGINT` | NOT NULL | 冻结金额（最小单位正整数） |
 | `status` | `VARCHAR(32)` | NOT NULL | `held`（冻结中）、`captured`（已扣款）、`released`（已全额释放）、`expired`（已超时过期） |
-| `expires_at` | `BIGINT` | NOT NULL | 冻结到期时间 Unix 秒 |
-| `created_at` | `BIGINT` | NOT NULL | 创建时间 Unix 秒 |
+| `expires_at` | `TIMESTAMPTZ` | NOT NULL | 冻结到期时间（带时区时间戳） |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | 创建时间（带时区时间戳） |
 
 ### 3.4 统一充值单 (`TopUpOrder`)
 三类充值渠道共用的充值凭证。
@@ -89,7 +89,7 @@
 | `asset` | `VARCHAR(16)` | NOT NULL | 充值币种（`USDC`） |
 | `status` | `VARCHAR(32)` | NOT NULL | `created`、`pending`、`confirmed`、`failed`、`expired`、`reversed` |
 | `external_ref` | `VARCHAR(128)`| NULL | 链上 tx_hash 或第三方网关交易流水号 |
-| `created_at` | `BIGINT` | NOT NULL | 下单时间 |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL | 下单时间（带时区时间戳） |
 
 ---
 
@@ -159,7 +159,7 @@ sequenceDiagram
 
 | 阶段 | 渠道 | 核心业务流 | 防范风险与合规边界 |
 |---|---|---|---|
-| **Phase 1 (v1)** | **管理员发放 (`admin_grant`)** | 具备管理员权限的角色通过控制台或 API 录入充值单，系统立即写入 `topup_credit` 流水 | 必须强制记录 `operator` 与 `reason`，纳入审计日志（T1.5），防止越权与滥发。 |
+| **Phase 1 (v1)** | **管理员发放 (`admin_grant`)** | 具备管理员权限的角色通过控制台或 API 录入充值单，系统立即写入 `topup_credit` 流水 | 必须强制记录 `operator_id` 与 `reason`，纳入审计日志（T1.5），防止越权与滥发。 |
 | **Phase 2 (v1.x)**| **链上充值 (`onchain_deposit`)** | 租户向指定收款地址转入 USDC，网关监听入账事件并在达到所需确认数（1 确认）后以 `tx_hash` 为幂等键入账 | 防范链上重组回滚、错币种充值、重复入账；异常充值转人工处理。 |
 | **Phase 3 (之后)** | **法币充值 (`fiat`)** | 接入合规第三方支付网关（Stripe / 支付宝 / 微信），接收 Webhook 验签回调后入账 | 回调严格验签；若遭遇拒付退款，触发 `reversal` 冲正流水，余额不足扣减时触发 W6 `frozen_arrears` 冻结。 |
 

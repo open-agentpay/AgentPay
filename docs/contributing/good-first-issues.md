@@ -11,7 +11,7 @@ Each task is scoped to be achievable within a few hours to a weekend, with clear
 1. Read through the tasks below and choose one that matches your interests (CLI tools, database queries, networking, or observability).
 2. Check the [AgentPay Issues](https://github.com/open-agentpay/AgentPay/issues) on GitHub to ensure no one has claimed it yet.
 3. Leave a comment on the issue saying: *"I would like to work on this!"* to get assigned.
-4. Review our [Contributing Guide](../CONTRIBUTING.md) for development environment setup and make sure `make check` passes locally.
+4. Review our [Contributing Guide](https://github.com/open-agentpay/AgentPay/blob/main/CONTRIBUTING.md) for development environment setup and make sure `make check` passes locally.
 
 ---
 

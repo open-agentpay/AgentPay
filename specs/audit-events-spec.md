@@ -206,7 +206,7 @@ graph TD
 
 | 字段类别 | 明文出现场景 | 审计事件记录标准与脱敏算法 | 严重性级别 |
 | :--- | :--- | :--- | :---: |
-| **API Key 凭据** | `Authorization: Bearer agp_live_12345678abcdef...` | **绝不明文存储**。<br>1. 提取前缀：`key_prefix` (前 8 位如 `agp_live`)<br>2. 密钥哈希：`key_hash = sha256(raw_key)`<br>3. 关联 ID：`api_key_id` | **P0 (禁止明文)** |
+| **API Key 凭据** | `Authorization: Bearer apk_live_12345678abcdef...` | **绝不明文存储**。<br>1. 提取前缀：`key_prefix` (前 8 位如 `apk_live`)<br>2. 密钥哈希：`key_hash = sha256(raw_key)`<br>3. 关联 ID：`api_key_id` | **P0 (禁止明文)** |
 | **私钥与助记词** | 买方本地签名器私钥 | **物理隔离**。网关及审计系统绝不允许接触私钥。若在载荷中误传，立即抹除并抛出安全告警。 | **P0 (禁止接触)** |
 | **加密签名 (Signature)** | `PAYMENT-SIGNATURE` 请求头 | 允许保留 compact 字符串或分解的 `(v, r, s)`，必须隐去客户端任何非公开私有参数。 | **P2** |
 | **HTTP 请求/响应体** | Agent 与上游交互的 Body 载荷 | 1. 默认仅记录 `body_sha256` 摘要与 `content_length` 字节数。<br>2. 如需采样留存，执行 JSON 敏感键脱敏（将 `password`, `secret`, `token`, `credential`, `private_key` 的值替换为 `[REDACTED]`），且截断最大长度为 2048 字符。 | **P1** |

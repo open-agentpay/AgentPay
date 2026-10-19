@@ -40,9 +40,9 @@ type JWTManager struct {
 }
 
 // NewJWTManager constructs a new JWTManager.
-func NewJWTManager(secretKey string, tokenDuration time.Duration) *JWTManager {
-	if secretKey == "" {
-		secretKey = "agentpay-default-insecure-dev-secret-do-not-use-in-prod"
+func NewJWTManager(secretKey string, tokenDuration time.Duration) (*JWTManager, error) {
+	if strings.TrimSpace(secretKey) == "" {
+		return nil, errors.New("jwt secret key cannot be empty: refusing to initialize with insecure defaults")
 	}
 	if tokenDuration == 0 {
 		tokenDuration = 24 * time.Hour
@@ -50,7 +50,16 @@ func NewJWTManager(secretKey string, tokenDuration time.Duration) *JWTManager {
 	return &JWTManager{
 		secretKey:     []byte(secretKey),
 		tokenDuration: tokenDuration,
+	}, nil
+}
+
+// MustNewJWTManager constructs a new JWTManager or panics on error. Useful in tests and bootstrap.
+func MustNewJWTManager(secretKey string, tokenDuration time.Duration) *JWTManager {
+	mgr, err := NewJWTManager(secretKey, tokenDuration)
+	if err != nil {
+		panic(err)
 	}
+	return mgr
 }
 
 // GenerateToken signs a new JWT token for the specified user and tenant.

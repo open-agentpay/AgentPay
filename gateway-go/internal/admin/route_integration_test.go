@@ -15,7 +15,7 @@ import (
 func setupRouteTest(t *testing.T) (*MemoryService, http.Handler, *auth.JWTManager, string, string, string, string) {
 	t.Helper()
 	svc, _, _ := setupTestService()
-	jwtMgr := auth.NewJWTManager("test-secret-key-32-bytes-long!!", 2*time.Hour)
+	jwtMgr := auth.MustNewJWTManager("test-secret-key-32-bytes-long!!", 2*time.Hour)
 	handler := auth.Middleware(jwtMgr)(NewHandlerWithJWT(svc, jwtMgr))
 
 	ctx := context.Background()

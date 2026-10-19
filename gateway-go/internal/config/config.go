@@ -76,10 +76,17 @@ type RouteDefinition struct {
 	MaxBodyBytes          int64             `yaml:"max_body_bytes"`
 }
 
+// AuthConfig defines control plane and administrative API authentication settings.
+type AuthConfig struct {
+	JWTSecret          string `yaml:"jwt_secret"`
+	TokenDurationHours int    `yaml:"token_duration_hours"`
+}
+
 // GatewayConfig is the root configuration object for the Go Gateway.
 type GatewayConfig struct {
 	Version      string            `yaml:"version"`
 	Server       ServerConfig      `yaml:"server"`
+	Auth         AuthConfig        `yaml:"auth"`
 	Database     DatabaseConfig    `yaml:"database"`
 	Facilitator  FacilitatorConfig `yaml:"facilitator"`
 	Settlement   SettlementConfig  `yaml:"settlement"`
@@ -99,6 +106,9 @@ func DefaultConfig() GatewayConfig {
 			WriteTimeoutSeconds:    30.0,
 			IdleTimeoutSeconds:     60.0,
 			ShutdownTimeoutSeconds: 10.0,
+		},
+		Auth: AuthConfig{
+			TokenDurationHours: 24,
 		},
 		Database: DatabaseConfig{
 			PostgresURL:            "postgres://postgres:postgres@localhost:5432/agentpay?sslmode=disable",
@@ -175,6 +185,9 @@ func applyEnvOverrides(cfg *GatewayConfig) {
 	}
 	if logFmt := os.Getenv("AGENTPAY_LOG_FORMAT"); logFmt != "" {
 		cfg.Logger.Format = logFmt
+	}
+	if jwtSecret := os.Getenv("AGENTPAY_JWT_SECRET"); jwtSecret != "" {
+		cfg.Auth.JWTSecret = jwtSecret
 	}
 }
 

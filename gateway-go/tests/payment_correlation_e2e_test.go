@@ -349,7 +349,7 @@ func TestPaymentCorrelationAndThreeLifecyclesE2E(t *testing.T) {
 
 func getTestJWTHeader(t *testing.T, memberID, email, tenantID string, role admin.MemberRole) string {
 	t.Helper()
-	jwtMgr := auth.NewJWTManager("", 24*time.Hour)
+	jwtMgr := auth.MustNewJWTManager("agentpay-example-secret-key-replace-in-production-min-32-chars!", 24*time.Hour)
 	token, err := jwtMgr.GenerateToken(memberID, email, tenantID, string(role))
 	if err != nil {
 		t.Fatalf("failed to create test user token: %v", err)

@@ -1,112 +1,142 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
-export default defineConfig({
-  title: 'AgentPay',
-  description: 'AI Agent 的金融防火墙与自主支付基础设施 (Financial Firewall & Autonomous Payment Infrastructure)',
-  lang: 'zh-CN',
-  base: '/',
-  lastUpdated: true,
-  cleanUrls: true,
+// GitHub Pages 项目站点需要 DOCS_BASE=/AgentPay/，自定义域名则留空
+const base = process.env.DOCS_BASE ?? '/'
 
-  head: [
-    ['link', { rel: 'icon', href: '/logo.svg' }],
-    ['meta', { name: 'theme-color', content: '#3eaf7c' }],
-  ],
-
-  themeConfig: {
-    siteTitle: 'AgentPay Docs',
-    logo: '/logo.svg',
-
-    nav: [
-      { text: '文档首页', link: '/' },
-      { text: '架构与指南', link: '/guide/overview' },
-      { text: '核心规范 (Specs)', link: '/specs/state-machine' },
-      { text: '虚拟钱包', link: '/specs/wallet-ledger' },
-      { text: '研发任务与基线', link: '/planning/tasks-v1.1' },
-      {
-        text: '代码仓库',
-        link: 'https://github.com/open-agentpay/AgentPay',
-      },
-    ],
-
-    sidebar: {
-      '/guide/': [
-        {
-          text: '基础概览',
-          items: [
-            { text: '项目愿景与产品定位', link: '/guide/overview' },
-            { text: 'MVP 系统设计', link: '/guide/mvp-design' },
-            { text: 'API 接口规范', link: '/guide/api-specs' },
-          ],
-        },
-      ],
-      '/specs/': [
-        {
-          text: '技术规范 (Specs)',
-          items: [
-            { text: '双轨支付状态机 (T1.1)', link: '/specs/state-machine' },
-            { text: '多租户逻辑数据模型 (T1.2)', link: '/specs/multitenant-data-model' },
-            { text: '协议一致性契约 (T1.3)', link: '/specs/protocol-consistency' },
-            { text: '配置发布契约 (T1.4)', link: '/specs/config-publishing' },
-            { text: '消费审计事件契约 (T1.5)', link: '/specs/audit-events' },
-            { text: '全面威胁模型规范 (T1.6)', link: '/specs/threat-model-v1' },
-            { text: '虚拟钱包与账本规范 (T1.7)', link: '/specs/wallet-ledger' },
-            { text: '系统整体架构设计', link: '/specs/architecture' },
-          ],
-        },
-        {
-          text: '架构决策记录 (ADR)',
-          items: [
-            { text: 'ADR-001: x402 V2 协议选型', link: '/specs/adr-001' },
-            { text: 'ADR-002: PostgreSQL 数据库选型', link: '/specs/adr-002' },
-          ],
-        },
-      ],
-      '/planning/': [
-        {
-          text: '研发规划与基线',
-          items: [
-            { text: '研发任务总清单 (v1.1)', link: '/planning/tasks-v1.1' },
-            { text: 'T0.2 行为基线冻结记录', link: '/planning/baseline-freeze' },
-            { text: '2026 年底研发计划', link: '/planning/development-plan-2026' },
-            { text: '开源新手任务 (Good First Issues)', link: '/planning/good-first-issues' },
-          ],
-        },
-      ],
-    },
-
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/open-agentpay/AgentPay' },
-    ],
-
-    footer: {
-      message: 'Released under the Apache-2.0 License.',
-      copyright: 'Copyright © 2026 Open-AgentPay Team',
-    },
-
-    search: {
-      provider: 'local',
-      options: {
-        locales: {
-          root: {
-            translations: {
-              button: {
-                buttonText: '搜索文档',
-                buttonAriaLabel: '搜索文档',
-              },
-              modal: {
-                noResultsText: '无法找到相关结果',
-                resetButtonTitle: '清除查询条件',
-                footer: {
-                  selectText: '选择',
-                  navigateText: '切换',
-                  closeText: '关闭',
-                },
-              },
-            },
+export default withMermaid(
+  defineConfig({
+    lang: 'zh-CN',
+    title: 'AgentPay',
+    description: 'AI Agent 的金融防火墙与自主支付网关（实验性开源项目）',
+    base,
+    cleanUrls: true,
+    lastUpdated: true,
+    sitemap: { hostname: 'https://open-agentpay.github.io/AgentPay' },
+    head: [['meta', { name: 'theme-color', content: '#3b82f6' }]],
+    vite: {
+          optimizeDeps: {
+            include: ['mermaid', 'fastdom'],
           },
         },
+    themeConfig: {
+      nav: [
+        { text: '文档', link: '/guide/quickstart', activeMatch: '/guide/' },
+        { text: '规范', link: '/specs/', activeMatch: '/specs/' },
+        { text: '知识库', link: '/learn/', activeMatch: '/learn/' },
+        { text: '参与贡献', link: '/contributing/good-first-issues', activeMatch: '/contributing/' },
+      ],
+
+      sidebar: {
+        '/guide/': [
+          {
+            text: '开始',
+            items: [
+              { text: '概览', link: '/guide/overview' },
+              { text: '5 分钟快速开始', link: '/guide/quickstart' },
+            ],
+          },
+          {
+            text: '使用',
+            items: [
+              { text: 'Python SDK', link: '/guide/python-sdk' },
+              { text: '网关配置', link: '/guide/gateway' },
+              { text: '策略配置', link: '/guide/policy' },
+              { text: '管理控制台', link: '/guide/console' },
+            ],
+          },
+          {
+            text: '参考',
+            items: [
+              { text: '接口规格 (x402 / Facilitator)', link: '/guide/api-specs' },
+              { text: '部署', link: '/guide/deployment' },
+            ],
+          },
+        ],
+
+        '/specs/': [
+          { text: '规范总览', link: '/specs/' },
+          {
+            text: '核心契约',
+            items: [
+              { text: '支付状态机', link: '/specs/state-machine' },
+              { text: '钱包与账本', link: '/specs/wallet-ledger' },
+              { text: '协议一致性', link: '/specs/protocol-consistency' },
+              { text: '配置发布', link: '/specs/config-publishing' },
+              { text: '审计事件', link: '/specs/audit-events' },
+              { text: 'Agent 身份与行为审计', link: '/specs/agent-audit' },
+              { text: '多租户数据模型', link: '/specs/multitenant-data-model' },
+            ],
+          },
+          {
+            text: '架构与安全',
+            items: [
+              { text: '架构', link: '/specs/architecture' },
+              { text: 'Gas 与结算模型', link: '/specs/gas-models' },
+              { text: '安全模型', link: '/specs/security-model' },
+            ],
+          },
+          {
+            text: '架构决策 (ADR)',
+            items: [
+              { text: 'ADR-001 x402 复用策略', link: '/specs/adr/001' },
+              { text: 'ADR-002 PostgreSQL 选型', link: '/specs/adr/002' },
+            ],
+          },
+          {
+            text: '测试报告',
+            items: [
+              { text: 'Python/Go 协议一致性', link: '/specs/reports/protocol-conformance-report' },
+              { text: '多租户隔离与越权', link: '/specs/reports/tenant-isolation-test-report' },
+            ],
+          },
+        ],
+
+        '/learn/': [
+          { text: '知识库首页', link: '/learn/' },
+          {
+            text: '基础概念',
+            collapsed: false,
+            items: [
+              { text: 'Agent 为什么需要花钱', link: '/learn/fundamentals/why-agents-pay' },
+              { text: 'Tool Calling 与 MCP', link: '/learn/fundamentals/tools-and-mcp' },
+            ],
+          },
+          {
+            text: 'Agent 支付',
+            collapsed: false,
+            items: [
+              { text: 'HTTP 402 与 x402', link: '/learn/payments/x402' },
+              { text: '链上支付 vs 预付余额', link: '/learn/payments/onchain-vs-wallet' },
+              { text: 'Gasless 微支付与 Gas 模型', link: '/learn/payments/gasless' },
+              { text: '超时不等于失败', link: '/learn/payments/timeout-is-not-failure' },
+            ],
+          },
+          {
+            text: 'Agent 资金安全',
+            collapsed: false,
+            items: [
+              { text: '为什么 LLM 不能持有私钥', link: '/learn/safety/llm-and-keys' },
+              { text: '金融防火墙', link: '/learn/safety/financial-firewall' },
+              { text: '失控循环与熔断', link: '/learn/safety/runaway-loop' },
+              { text: 'Agent 身份与行为审计', link: '/learn/safety/agent-identity-audit' },
+            ],
+          },
+          { text: '术语表', link: '/learn/glossary' },
+        ],
+      },
+
+      socialLinks: [{ icon: 'github', link: 'https://github.com/open-agentpay/AgentPay' }],
+      search: { provider: 'local' },
+      outline: { label: '本页目录', level: [2, 3] },
+      docFooter: { prev: '上一页', next: '下一页' },
+      lastUpdated: { text: '最后更新' },
+      footer: {
+        message: '实验性项目，未经独立安全审计，请勿用于生产资金。',
+        copyright: 'Apache-2.0 License',
       },
     },
-  },
-})
+
+    mermaid: {},
+  })
+)

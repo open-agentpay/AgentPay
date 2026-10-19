@@ -12,8 +12,13 @@ server:
   idle_timeout_seconds: 60.0
   shutdown_timeout_seconds: 10.0
 
+auth:
+  jwt_secret: "agentpay-example-secret-key-replace-in-production-min-32-chars!"
+  token_duration_hours: 24
+
 database:
-  postgres_url: "postgres://postgres:postgres@localhost:5432/agentpay?sslmode=disable"
+  # In production, configure credentials securely or via AGENTPAY_POSTGRES_URL environment variable
+  postgres_url: "postgres://user:password@localhost:5432/agentpay?sslmode=disable"
   max_open_conns: 25
   max_idle_conns: 10
   conn_max_lifetime_seconds: 300
@@ -27,7 +32,7 @@ settlement:
   default_asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e" # USDC
   default_asset_symbol: "USDC"
   default_asset_decimals: 6
-  default_pay_to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+  default_pay_to: "0x0000000000000000000000000000000000000000" # Replace with your payee wallet address
 
 logger:
   level: "info"
@@ -45,7 +50,7 @@ routes:
     upstream: "https://httpbin.org/get"
     price_base_units: 1000
     asset: "USDC"
-    payee_address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    payee_address: "0x0000000000000000000000000000000000000000"
     allowed_payment_methods: "both"
     timeout_seconds: 10.0
     rate_limit_rpm: 600
@@ -55,7 +60,7 @@ routes:
     upstream: "https://httpbin.org/post"
     price_base_units: 10000
     asset: "USDC"
-    payee_address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    payee_address: "0x0000000000000000000000000000000000000000"
     allowed_payment_methods: "wallet"
     timeout_seconds: 60.0
     rate_limit_rpm: 120

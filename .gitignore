@@ -102,7 +102,7 @@ coverage/
 .nyc_output/
 *.lcov
 test-results/
-reports/
+/reports/
 
 # Database & Local Infrastructure
 postgres-data/
@@ -117,3 +117,14 @@ logs/
 # VitePress build cache & outputs
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+internal-docs/
+
+# Local gateway config with runtime credentials
+gateway-go/configs/gateway.yaml
+
+# 同步产物不进 Git；手写的 index.md 与 reports/ 要进
+docs/specs/*.md
+docs/specs/adr/
+!docs/specs/index.md
+!docs/specs/reports/
+!docs/specs/reports/**

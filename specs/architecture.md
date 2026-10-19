@@ -7,7 +7,7 @@
 ### Key Tenets
 1. **Zero-Trust for AI Autonomous Actions:** AI models propose transactions, but the cryptographic signing and payment execution occur strictly behind an independent, non-LLM policy boundary.
 2. **Decoupled Asynchronous Lifecycle:** Separates high-level payment intent, blockchain consensus/settlement, and downstream service fulfillment to protect against network timeouts.
-3. **Cross-Language Equivalence:** Full protocol, state machine, and cryptographic parity between TypeScript (pnpm monorepo) and Java / Spring Boot (Gradle multi-project).
+3. **Cross-Language Equivalence (Roadmap):** Specification-driven conformance vectors ensuring deterministic protocol, state machine, and cryptographic parity across current Python/Go implementations and planned multi-language SDKs.
 4. **Gasless Micro-Settlements:** Employs EIP-712 / EIP-3009 signed authorizations. Buyer Agents require zero native gas tokens (ETH/MATIC/etc.), which are sponsored and settled by Facilitator nodes.
 
 ---
@@ -65,7 +65,7 @@ graph TB
 | **Buyer Agent** | High-level agent runtime or script initiating HTTP calls to tools, APIs, and data sources. |
 | **AgentPay Client Interceptor** | Transparent HTTP client wrapper that detects `402 Payment Required`, triggers policy evaluation, collects EIP-712 signatures, and replays requests. |
 | **Policy Engine (Firewall)** | Standalone security engine enforcing rate limits, per-transaction caps, daily rolling budgets, and destination whitelists. |
-| **Seller Middleware** | Express / Fastify (TS) or Spring Boot Starter (Java) intercepting incoming requests, generating x402 challenges, and coordinating verification with Facilitators. |
+| **Gateway / Seller Proxy** | High-performance Go Reverse Proxy (`gateway-go`) intercepting incoming requests, generating x402 challenges, managing wallet reservations, and coordinating verification. |
 | **Facilitator Service** | High-performance gateway that validates off-chain EIP-712/3009 signatures, sponsors gas, and batches on-chain settlement transactions. |
 | **Reconciliation Worker** | Asynchronous service that polls unconfirmed settlements, repairs state after network splits, and triggers automated recovery workflows. |
 
@@ -126,18 +126,23 @@ sequenceDiagram
 
 ---
 
-## 5. Polyglot Parity Architecture (TypeScript + Python + Go + Java)
+## 5. Technology Stack & Multi-Language Roadmap
 
-To provide an identical developer experience regardless of language:
-* **TypeScript Stack (`packages/`):** Targeted at AI agents (Node.js, Bun, Browser, MCP servers) and modern JS microservices.
-* **Python Stack (`python/`):** Targeted at the primary AI Agent and LLM framework ecosystem (LangChain, CrewAI, AutoGen, LlamaIndex), featuring transparent HTTP interceptors (`httpx`, `requests`, `aiohttp`) as well as the v0.1.0 reference gateway implementation.
-* **Go Stack (`gateway-go/`):** Targeted at high-throughput cloud-native reverse proxies, low-latency EIP-712 cryptographic verification (`geth/crypto`), structured logging (Zap/Zerolog), audit trails, and minimal Docker/Kubernetes deployments.
-* **Java Stack (`java/`):** Targeted at enterprise SaaS providers, Spring Cloud gateways, and high-throughput corporate backends.
-* **Shared Conformance Vectors (`specs/conformance/test-vectors/`):**
-  * EIP-712 domain separator serialization across Viem (TS), `eth-account`/`web3.py` (Python), `go-ethereum` (Go), and Web3j (Java).
-  * x402 V2 challenge parser and signature encoder.
-  * State machine transition edge cases.
-  * Policy budget deduction math with 64-bit integer / BigInteger overflow protection.
+To serve different operational requirements while guaranteeing identical protocol behavior:
+
+### 5.1 Current Implementation (v0.1.x Baseline)
+* **Go Reverse Proxy Gateway (`gateway-go/`):** High-throughput cloud-native reverse proxy, embedded Policy Engine, multitenant wallet & ledger, low-latency EIP-712 cryptographic verification (`geth/crypto`), structured logging, and minimal container footprints.
+* **Python Client SDK (`python/packages/agentpay`):** Targeted at the primary AI Agent and LLM framework ecosystem (LangChain, CrewAI, AutoGen, LlamaIndex), featuring transparent HTTP interceptors (`httpx`, `aiohttp`) and native MCP server tools.
+
+### 5.2 Multi-Language Roadmap (2027+)
+* **TypeScript / Node.js Stack:** Targeted at JS/TS AI agents (Browser, Bun, MCP servers) and Next.js / Express microservices.
+* **Java Stack:** Targeted at enterprise financial backends and Spring Cloud gateways.
+
+### 5.3 Shared Conformance Vectors (`specs/conformance/test-vectors/`)
+* EIP-712 domain separator serialization across `eth-account`/`web3.py` (Python), `go-ethereum` (Go), and future SDKs.
+* x402 V2 challenge parser and signature encoder.
+* State machine transition edge cases.
+* Policy budget deduction math with 64-bit integer overflow protection.
 
 ---
 

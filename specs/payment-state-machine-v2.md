@@ -132,7 +132,7 @@ authorized ──▶ hold ──▶ [held] ──(dispatch)──▶ [fulfillmen
 | `unknown` / `pending` / `submitted` | `not_started` | `SETTLEMENT_IN_PROGRESS` | 链上支付确认中 |
 | `confirmed` | `in_progress` | `FULFILLMENT_IN_PROGRESS` | 扣费已确认，服务交付中 |
 | `confirmed` | `succeeded` | `COMPLETED` | 交易成功完成 |
-| `confirmed` | `failed` | `REFUND_REQUIRED` | 链上已扣款但履约失败，待补偿退款 |
-| `confirmed` | `unknown` | `FULFILLMENT_UNKNOWN` | 扣款已确认，履约异常待排查 |
+| `confirmed` | `failed` | `SETTLED_FULFILLMENT_FAILED_REFUND_REQUIRED` | 链上已扣款但履约失败，待补偿退款 |
+| `confirmed` | `unknown` | `SETTLED_FULFILLMENT_UNKNOWN_NEEDS_REVIEW` | 扣款已确认，履约异常待排查 |
 | `released` | `failed` | `RELEASED_UNBILLED` | 钱包额度已释放，未产生任何实际扣款 |
 | `failed` | `not_started` | `PAYMENT_FAILED` | 支付失败，未扣款 |

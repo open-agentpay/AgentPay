@@ -126,15 +126,15 @@ graph TD
 - **影响严重度**：High (P1)
 - **核心防御措施**：
   1. **多重安全确认数门槛**：
-     - EVM L2 (Arbitrum / Base)：至少 12 个 Finalized / Safe 区块确认数。
-     - Ethereum L1：至少 32 个区块（2 个 Epoch Finality）。
+     - 测试网与微支付即时结算：1 个区块确认（见 state-machine 契约 `required_confirmations: 1`）。
+     - 生产环境大额充值防重组：EVM L2 (Arbitrum / Base) 建议至少 12 个 Safe 区块确认数；Ethereum L1 建议至少 32 个区块。
   2. **链上深度监听与重组巡检 Worker**：定期校验已入账 `tx_hash` 是否仍处于主链有效区块中；若发生重组导致交易消失，立即对对应钱包执行 `status = 'frozen_arrears'` 并创建会计冲正记录。
 
 ### 2.6 [W-T6] 履约悬挂引发的冻结泄漏与额度 DoS (Hold Leakage / Starvation DoS)
 - **攻击场景**：客户端持续发起请求，网关完成 Hold 冻结后上游服务发生死锁或连接悬挂，请求既未成功也未失败。海量资金卡在 `held` 状态，耗尽租户可用额度。
 - **影响严重度**：Medium (P1)
 - **核心防御措施**：
-  1. **显式 Hold 超时 TTL (W3)**：每个 `ap_hold` 创建时必须指定 `expires_at = NOW() + INTERVAL '30 seconds'`。
+  1. **显式 Hold 超时 TTL (W3)**：每个 `ap_hold` 创建时必须指定 `expires_at = NOW() + INTERVAL '120 seconds'`（符合 W3 规范：`upstream_timeout + 60s`，系统默认 120 秒）。
   2. **后台超时自动释放 Sweeper**：定时调度器轮询 `WHERE status = 'held' AND expires_at < NOW()`，安全释放超时未捕获的冻结额度，将资金归还 `available_cache` 并记录审计事件。
   3. **未知状态保护原则 (W4)**：若上游返回 5xx 或网络超时导致结果未知，标记 `needs_review`，在人工确认前保持冻结或由保全流程裁决，严禁静默泄露。
 
@@ -158,7 +158,7 @@ graph TD
 | **Tampering (数据篡改)** | **G-T1: 配置发布中间人篡改**<br>攻击者在网络或控制面篡改路由上游地址或价格，将资金重定向到攻击者收款地址。 | 配置发布订阅器 | 强制配置快照采用不可变指纹 `snapshotHash = sha256(...)`，发布时由系统管理员私钥或签名校验后才生效；Gateway 本地严格比对 Hash。 |
 | **Tampering (数据篡改)** | **G-T2: 402 挑战价格篡改 (Price Tampering)**<br>攻击者拦截 402 挑战，将其中的 `amount` 修改为 0.0001 USDC 后签名提交。 | 支付意图引擎 | Gateway 收到买方 Authorization 时，**重新从本地路由配置严格计算目标金额**，比对 `auth.value == route.price`；不符立即报错 `PRICE_MISMATCH` 并拒绝。 |
 | **Repudiation (抵赖与审计擦除)** | **G-R1: 恶意管理员擦除扣款记录**<br>平台管理员或攻击者侵入数据库，试图修改或删除消费记录。 | 审计与账本存储 | `ap_ledger_entry` 与 `ap_audit_event` 表配置数据库级仅追加约束（禁止 UPDATE/DELETE，通过 DB Trigger 或只读权限限制）；定期归档至 WORM (Write Once Read Many) 存储。 |
-| **Information Disclosure (信息泄露)** | **G-I1: 错误日志与堆栈泄漏敏感凭据**<br>上游服务崩溃返回包含 DB 连接串或 API Key 的错误堆栈，网关透传给买方。 | 网关错误转换中间件 | 严格脱敏上游响应；截断错误日志至 1024 字符；API Key 仅记录前缀 `agp_live_****` 与 Hash，绝不明文输出到日志或响应头。 |
+| **Information Disclosure (信息泄露)** | **G-I1: 错误日志与堆栈泄漏敏感凭据**<br>上游服务崩溃返回包含 DB 连接串或 API Key 的错误堆栈，网关透传给买方。 | 网关错误转换中间件 | 严格脱敏上游响应；截断错误日志至 1024 字符；API Key 仅记录前缀 `apk_live_****` 与 Hash，绝不明文输出到日志或响应头。 |
 | **Information Disclosure (信息泄露)** | **G-I2: SSRF 内网探针攻击**<br>攻击者将上游配置为 `http://169.254.169.254/` 或 `http://10.0.0.1/admin` 试图探测内网云元数据。 | 反向代理传输层 (Transport) | Gateway 禁止反向代理重定向（`CheckRedirect` 禁用）；解析上游 DNS 时屏蔽私有保留网段（RFC 1918、Link-Local、Loopback）。 |
 | **Denial of Service (拒绝服务)** | **G-D1: 402 挑战泛洪与内存耗尽**<br>攻击者大量发送无凭据请求，导致网关频繁生成 402 挑战并占用内存。 | 网关速率限制器 | 在 402 签发前置入基于 IP 和路由的 Sliding Window Token Bucket 限流；对未授权恶意探测 IP 触发动态封禁黑名单。 |
 | **Elevation of Privilege (提权越权)** | **G-E1: 多租户 IDOR / BOLA 跨租户数据访问**<br>租户 A 传入租户 B 的 `intent_id` 或 `wallet_id` 试图窃取状态或执行操作。 | 业务逻辑与查询层 | 所有业务查询强制注入 `WHERE tenant_id = $session_tenant_id`，禁止仅凭全局 ID 跨租户查询；数据模型外键均级联至租户根。 |

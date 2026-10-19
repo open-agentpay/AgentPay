@@ -13,7 +13,7 @@ import (
 
 func TestConfigDraftAndValidation(t *testing.T) {
 	svc, _, _ := setupTestService()
-	jwtMgr := auth.NewJWTManager("test-secret-key-32-bytes-long!!", 2*time.Hour)
+	jwtMgr := auth.MustNewJWTManager("test-secret-key-32-bytes-long!!", 2*time.Hour)
 	handler := auth.Middleware(jwtMgr)(NewHandlerWithJWT(svc, jwtMgr))
 
 	ctx := context.Background()

@@ -13,7 +13,7 @@ import (
 
 func TestAuthRegistrationAndLogin(t *testing.T) {
 	svc, _, _ := setupTestService()
-	jwtMgr := auth.NewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
+	jwtMgr := auth.MustNewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
 	handler := auth.Middleware(jwtMgr)(NewHandlerWithJWT(svc, jwtMgr))
 
 	// 1. Password too short validation
@@ -116,7 +116,7 @@ func TestAuthRegistrationAndLogin(t *testing.T) {
 
 func TestAuthMeProfileAndPermissions(t *testing.T) {
 	svc, _, _ := setupTestService()
-	jwtMgr := auth.NewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
+	jwtMgr := auth.MustNewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
 	handler := auth.Middleware(jwtMgr)(NewHandlerWithJWT(svc, jwtMgr))
 
 	// Register owner
@@ -174,7 +174,7 @@ func TestAuthMeProfileAndPermissions(t *testing.T) {
 
 func TestJWTSecuredAdminOperation(t *testing.T) {
 	svc, _, _ := setupTestService()
-	jwtMgr := auth.NewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
+	jwtMgr := auth.MustNewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
 	handler := auth.Middleware(jwtMgr)(NewHandlerWithJWT(svc, jwtMgr))
 
 	// 1. Register owner
@@ -227,7 +227,7 @@ func TestJWTSecuredAdminOperation(t *testing.T) {
 
 func TestAddMemberWithPasswordAndSelfPasswordChange(t *testing.T) {
 	svc, _, _ := setupTestService()
-	jwtMgr := auth.NewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
+	jwtMgr := auth.MustNewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
 	handler := auth.Middleware(jwtMgr)(NewHandlerWithJWT(svc, jwtMgr))
 
 	// 1. Register owner

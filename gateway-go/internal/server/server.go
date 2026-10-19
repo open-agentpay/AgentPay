@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -214,7 +216,21 @@ func NewWithWalletAndTransport(
 		}
 	}
 
-	jwtMgr := auth.NewJWTManager("", 24*time.Hour)
+	jwtSecret := cfg.Auth.JWTSecret
+	if jwtSecret == "" {
+		jwtSecret = os.Getenv("AGENTPAY_JWT_SECRET")
+	}
+	if strings.TrimSpace(jwtSecret) == "" {
+		return nil, fmt.Errorf("jwt secret key cannot be empty: configure auth.jwt_secret or AGENTPAY_JWT_SECRET (refusing to start with insecure defaults)")
+	}
+	tokenDuration := 24 * time.Hour
+	if cfg.Auth.TokenDurationHours > 0 {
+		tokenDuration = time.Duration(cfg.Auth.TokenDurationHours) * time.Hour
+	}
+	jwtMgr, err := auth.NewJWTManager(jwtSecret, tokenDuration)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize JWT manager: %w", err)
+	}
 	adminHandler := admin.NewHandlerWithJWT(adminSvc, jwtMgr)
 	securedAdminHandler := auth.Middleware(jwtMgr)(adminHandler)
 

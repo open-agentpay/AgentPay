@@ -90,7 +90,7 @@ func TestAgentTimelineE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to register tenant alpha: %v", err)
 	}
-	jwtMgr := auth.NewJWTManager("", 24*time.Hour)
+	jwtMgr := auth.MustNewJWTManager(cfg.Auth.JWTSecret, 24*time.Hour)
 	tokenAlpha, _ := jwtMgr.GenerateToken(ownerAlpha.MemberID, ownerAlpha.Email, tenantAlpha.TenantID, string(ownerAlpha.Role))
 
 	projects, err := adminSvc.ListProjects(context.Background(), tenantAlpha.TenantID)

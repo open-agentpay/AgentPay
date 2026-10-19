@@ -234,7 +234,7 @@ policy = MemoryPolicyEngine(
 signer = LocalSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 
 # 2. 获取控制台颁发给该 Agent 的 API Key
-api_key = os.getenv("AGENTPAY_API_KEY", "agp_live_xxxxxxxxxxxxxxxxxxxx")
+api_key = os.getenv("AGENTPAY_API_KEY", "apk_live_xxxxxxxxxxxxxxxxxxxx")
 
 # 3. 创建客户端：配置 APIKey 与 T1.8 规范审计跟踪请求头
 client = AgentPayClient(

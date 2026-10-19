@@ -22,6 +22,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.Auth.JWTSecret = "test-jwt-secret-key-32-bytes-long!!"
 	snap := &rcu.ConfigSnapshot{
 		SchemaVersion: "2.0.0",
 		TenantID:      "ten_default",
@@ -201,5 +202,26 @@ func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 
 	if wWeatherAuth.Code != http.StatusOK {
 		t.Errorf("expected 200 for paid /api/v1/simple-weather with wallet, got %d (body: %s)", wWeatherAuth.Code, wWeatherAuth.Body.String())
+	}
+}
+
+func TestServerRejectsEmptyJWTSecret(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Auth.JWTSecret = ""
+	snap := &rcu.ConfigSnapshot{
+		SchemaVersion: "2.0.0",
+		TenantID:      "ten_default",
+		VersionID:     "ver_init",
+		Routes:        []rcu.RouteConfig{},
+	}
+	rcuMgr, err := rcu.NewManager(snap)
+	if err != nil {
+		t.Fatalf("failed to init rcu: %v", err)
+	}
+	m := metrics.New()
+
+	_, err = New(&cfg, rcuMgr, m)
+	if err == nil {
+		t.Fatalf("expected server.New to fail when JWT secret is empty, got nil")
 	}
 }

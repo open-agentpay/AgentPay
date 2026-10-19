@@ -196,6 +196,6 @@
       "secret_key",
       "password"
     ],
-    "masked_key_pattern": "^agp_live_[a-zA-Z0-9]{4}\\*{4,}$"
+    "masked_key_pattern": "^apk_live_[a-zA-Z0-9]{4}\\*{4,}$"
   }
 }

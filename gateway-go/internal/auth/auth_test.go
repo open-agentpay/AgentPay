@@ -41,8 +41,23 @@ func TestPasswordHashingAndVerification(t *testing.T) {
 	}
 }
 
+func TestJWTManagerRejectsEmptySecret(t *testing.T) {
+	_, err := NewJWTManager("", 24*time.Hour)
+	if err == nil {
+		t.Fatalf("expected error when secret key is empty, got nil")
+	}
+
+	_, err = NewJWTManager("   ", 24*time.Hour)
+	if err == nil {
+		t.Fatalf("expected error when secret key is whitespace, got nil")
+	}
+}
+
 func TestJWTGenerationAndValidation(t *testing.T) {
-	jwtMgr := NewJWTManager("super-secret-key-for-testing", 2*time.Second)
+	jwtMgr, err := NewJWTManager("super-secret-key-for-testing", 2*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error creating jwt manager: %v", err)
+	}
 
 	memberID := "usr_test123"
 	email := "alice@agentpay.io"
@@ -82,7 +97,7 @@ func TestJWTGenerationAndValidation(t *testing.T) {
 	}
 
 	// 4. Token expiration
-	expiredMgr := NewJWTManager("secret", -1*time.Second)
+	expiredMgr := MustNewJWTManager("secret", -1*time.Second)
 	expiredToken, err := expiredMgr.GenerateToken(memberID, email, tenantID, role)
 	if err != nil {
 		t.Fatalf("failed to generate token: %v", err)
@@ -95,7 +110,7 @@ func TestJWTGenerationAndValidation(t *testing.T) {
 }
 
 func TestAuthMiddleware(t *testing.T) {
-	jwtMgr := NewJWTManager("secret", 1*time.Hour)
+	jwtMgr := MustNewJWTManager("secret", 1*time.Hour)
 	middleware := Middleware(jwtMgr)
 
 	handlerExecuted := false

@@ -21,15 +21,16 @@ type APIHandler struct {
 	jwtMgr *auth.JWTManager
 }
 
-// NewHandler creates a new HTTP handler for control plane REST API with default JWT manager.
+// NewHandler creates a new HTTP handler for control plane REST API with a test JWT manager.
+// For production, use NewHandlerWithJWT with an explicitly configured JWT manager.
 func NewHandler(svc Service) http.Handler {
-	return NewHandlerWithJWT(svc, auth.NewJWTManager("", 24*time.Hour))
+	return NewHandlerWithJWT(svc, auth.MustNewJWTManager("test-admin-secret-key-for-unit-testing-32b!", 24*time.Hour))
 }
 
 // NewHandlerWithJWT creates a new HTTP handler for control plane REST API with explicit JWT manager.
 func NewHandlerWithJWT(svc Service, jwtMgr *auth.JWTManager) http.Handler {
 	if jwtMgr == nil {
-		jwtMgr = auth.NewJWTManager("", 24*time.Hour)
+		panic("admin.NewHandlerWithJWT: jwtMgr cannot be nil")
 	}
 	return &APIHandler{svc: svc, jwtMgr: jwtMgr}
 }
