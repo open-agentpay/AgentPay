@@ -5,6 +5,9 @@ hero:
   name: "AgentPay"
   text: "Financial Firewall & Autonomous Payment Gateway for AI Agents"
   tagline: Empower AI agents to pay autonomously without exceeding financial authorization. Dual-path micro-settlements powered by HTTP 402 / x402 and internal virtual wallets.
+  image:
+    src: /logo.png
+    alt: AgentPay Logo
   actions:
     - theme: brand
       text: 5-Minute Quickstart

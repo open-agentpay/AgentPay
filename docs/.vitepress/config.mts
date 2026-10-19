@@ -11,7 +11,14 @@ export default withMermaid(
     cleanUrls: true,
     lastUpdated: true,
     sitemap: { hostname: 'https://open-agentpay.github.io/AgentPay' },
-    head: [['meta', { name: 'theme-color', content: '#3b82f6' }]],
+    head: [
+      ['meta', { name: 'theme-color', content: '#f97316' }],
+      ['link', { rel: 'icon', type: 'image/png', href: `${base}favicon.png` }],
+      ['link', { rel: 'icon', type: 'image/x-icon', href: `${base}favicon.ico` }],
+      ['meta', { property: 'og:image', content: 'https://open-agentpay.github.io/AgentPay/og-image.png' }],
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+      ['meta', { name: 'twitter:image', content: 'https://open-agentpay.github.io/AgentPay/og-image.png' }],
+    ],
     vite: {
       optimizeDeps: {
         include: ['mermaid', 'fastdom'],
@@ -264,6 +271,7 @@ export default withMermaid(
     },
 
     themeConfig: {
+      logo: '/logo.png',
       socialLinks: [{ icon: 'github', link: 'https://github.com/open-agentpay/AgentPay' }],
       search: { provider: 'local' },
     },

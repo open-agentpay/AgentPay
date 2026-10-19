@@ -5,6 +5,9 @@ hero:
   name: "AgentPay"
   text: "AI Agent 的金融防火墙与自主支付网关"
   tagline: 让 AI 可以自主花钱，但不能突破资金权限。基于 HTTP 402 / x402 与平台虚拟钱包的双轨支付。
+  image:
+    src: /logo.png
+    alt: AgentPay Logo
   actions:
     - theme: brand
       text: 5 分钟快速开始
