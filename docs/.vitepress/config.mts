@@ -272,7 +272,10 @@ export default withMermaid(
 
     themeConfig: {
       logo: '/logo.png',
-      socialLinks: [{ icon: 'github', link: 'https://github.com/open-agentpay/AgentPay' }],
+      socialLinks: [
+        { icon: 'github', link: 'https://github.com/open-agentpay/AgentPay' },
+        { icon: 'x', link: 'https://x.com/OpenAgentPay' },
+      ],
       search: { provider: 'local' },
     },
 

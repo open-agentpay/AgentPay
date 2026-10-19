@@ -1,16 +1,31 @@
-# AgentPay
+<p align="center">
+  <a href="https://open-agentpay.github.io/AgentPay/zh/">
+    <img src="./docs/public/logo.png" alt="AgentPay Logo" width="130" height="130" />
+  </a>
+</p>
+
+<h1 align="center">AgentPay</h1>
 
 <p align="center">
   <strong>专为自主 AI Agent 打造的开源财务防火墙与微支付基础设施</strong>
 </p>
 
 <p align="center">
+  <a href="https://open-agentpay.github.io/AgentPay/zh/"><img src="https://img.shields.io/badge/文档站-在线阅读-blue?logo=vitepress&logoColor=white" alt="文档站"></a>
+  <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/关注-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
   <a href="https://arbitrum.io/"><img src="https://img.shields.io/badge/Network-Arbitrum_Sepolia-213147.svg?logo=arbitrum&logoColor=white" alt="Arbitrum Sepolia"></a>
   <a href="https://www.circle.com/usdc"><img src="https://img.shields.io/badge/Settlement-Circle_USDC-2775CA.svg" alt="Circle USDC"></a>
-  <a href="https://github.com/open-agentpay/AgentPay/actions"><img src="https://img.shields.io/badge/Tests-340%20Passed-brightgreen.svg" alt="Tests: 340 Passed"></a>
+  <a href="https://github.com/open-agentpay/AgentPay/actions/workflows/deploy-docs.yml"><img src="https://github.com/open-agentpay/AgentPay/actions/workflows/deploy-docs.yml/badge.svg" alt="Docs Deployment"></a>
+</p>
+
+<p align="center">
+  <a href="https://open-agentpay.github.io/AgentPay/zh/">📚 官方在线文档</a> •
+  <a href="https://x.com/OpenAgentPay">🐦 官方推特 (@OpenAgentPay)</a> •
+  <a href="#-5-分钟快速开始">⚡ 快速上手</a> •
+  <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 提交反馈</a>
 </p>
 
 <p align="center">
@@ -343,6 +358,14 @@ make test-integration  # 网关代理与链上 Facilitator 集成测试
 make test-e2e          # 端到端全链路支付生命周期测试
 make vectors           # 验证跨语言一致性 JSON 测试向量
 ```
+
+---
+
+## 💬 社区与动态
+
+- **X (Twitter)**: 关注 [@OpenAgentPay](https://x.com/OpenAgentPay) 获取最新协议进展、生态合作与版本发布资讯。
+- **官方在线文档**：访问 [open-agentpay.github.io/AgentPay/zh/](https://open-agentpay.github.io/AgentPay/zh/) 在线阅读双语使用指南与完整技术规范。
+- **GitHub Issues 与讨论**：通过 [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues) 提交缺陷反馈或功能建议。
 
 ---
 

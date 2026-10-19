@@ -1,16 +1,31 @@
-# AgentPay
+<p align="center">
+  <a href="https://open-agentpay.github.io/AgentPay/">
+    <img src="./docs/public/logo.png" alt="AgentPay Logo" width="130" height="130" />
+  </a>
+</p>
+
+<h1 align="center">AgentPay</h1>
 
 <p align="center">
   <strong>The Open-Source Financial Firewall & Micro-Payment Infrastructure for Autonomous AI Agents</strong>
 </p>
 
 <p align="center">
+  <a href="https://open-agentpay.github.io/AgentPay/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
+  <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/Follow-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
   <a href="https://arbitrum.io/"><img src="https://img.shields.io/badge/Network-Arbitrum_Sepolia-213147.svg?logo=arbitrum&logoColor=white" alt="Arbitrum Sepolia"></a>
   <a href="https://www.circle.com/usdc"><img src="https://img.shields.io/badge/Settlement-Circle_USDC-2775CA.svg" alt="Circle USDC"></a>
-  <a href="https://github.com/open-agentpay/AgentPay/actions"><img src="https://img.shields.io/badge/Tests-340%20Passed-brightgreen.svg" alt="Tests: 340 Passed"></a>
+  <a href="https://github.com/open-agentpay/AgentPay/actions/workflows/deploy-docs.yml"><img src="https://github.com/open-agentpay/AgentPay/actions/workflows/deploy-docs.yml/badge.svg" alt="Docs Deployment"></a>
+</p>
+
+<p align="center">
+  <a href="https://open-agentpay.github.io/AgentPay/">📚 Documentation</a> •
+  <a href="https://x.com/OpenAgentPay">🐦 Follow on X (@OpenAgentPay)</a> •
+  <a href="#-5-minute-quickstart">⚡ Quickstart</a> •
+  <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 Report Issue</a>
 </p>
 
 <p align="center">
@@ -342,6 +357,14 @@ make test-integration  # Facilitator & gateway integration tests
 make test-e2e          # End-to-end full payment lifecycle
 make vectors           # Validate language-agnostic test vectors
 ```
+
+---
+
+## 💬 Community & Updates
+
+- **X (Twitter)**: Follow [@OpenAgentPay](https://x.com/OpenAgentPay) for protocol updates, ecosystem announcements, and release notes.
+- **Interactive Documentation**: Browse our full guides, specifications, and architecture deep-dives at [open-agentpay.github.io/AgentPay](https://open-agentpay.github.io/AgentPay/).
+- **GitHub Issues & Discussions**: Use [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues) to report bugs or request features.
 
 ---
 
