@@ -16,6 +16,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.21%2B-00ADD8.svg?logo=go&logoColor=white" alt="Go 1.21+"></a>
   <a href="https://arbitrum.io/"><img src="https://img.shields.io/badge/Network-Arbitrum_Sepolia-213147.svg?logo=arbitrum&logoColor=white" alt="Arbitrum Sepolia"></a>
   <a href="https://www.circle.com/usdc"><img src="https://img.shields.io/badge/Settlement-Circle_USDC-2775CA.svg" alt="Circle USDC"></a>
   <a href="https://github.com/open-agentpay/AgentPay/actions/workflows/deploy-docs.yml"><img src="https://github.com/open-agentpay/AgentPay/actions/workflows/deploy-docs.yml/badge.svg" alt="Docs Deployment"></a>
@@ -276,6 +277,16 @@ AgentPay natively supports two distinct operational topologies:
 
 ```text
 AgentPay/
+├── gateway-go/                      # Production Cloud-Native Go Reverse Proxy Gateway
+│   ├── cmd/gateway/                 # Gateway main server entrypoint
+│   ├── internal/                    # Core modules (RCU, x402, wallet, admin, state machine)
+│   ├── tests/                       # E2E & concurrency test suites
+│   └── Makefile                     # Go build, test & clean targets
+│
+├── console/                         # Multi-Tenant Web Management Console (Vue 3 + Element Plus)
+│   ├── src/                         # Views (dashboard, routes, agents, wallets, audit)
+│   └── package.json                 # Web console workspace
+│
 ├── python/packages/
 │   ├── agentpay/                    # Buyer SDK & Financial Firewall
 │   │   ├── client/                  # Transparent HTTP 402 interceptor (httpx)
@@ -283,7 +294,7 @@ AgentPay/
 │   │   ├── evm/                     # EIP-712 / EIP-3009 codecs & EvmRpcClient
 │   │   └── integrations/langchain/  # @paid_tool decorator for AI agents
 │   │
-│   └── agentpay-gateway/            # Seller Reverse Proxy & Facilitator
+│   └── agentpay-gateway/            # Python Reference Reverse Proxy & Facilitator
 │       ├── proxy/                   # Streaming forwarder & ASGI service
 │       ├── payment/                 # PaymentVerifier & AsyncSettlementWorker
 │       ├── facilitator/             # EvmFacilitatorService (EIP-1559 clearing)
@@ -305,7 +316,8 @@ AgentPay/
 │   ├── gas-cost-and-settlement-models.md # Gas models & EIP-1559 buffer math
 │   └── test-vectors/                # Shared JSON test vectors (EIP-712/x402)
 │
-├── Makefile                         # Test, lint, format, demo & demo-live targets
+├── docs/                            # Bilingual VitePress Documentation Site
+├── Makefile                         # Test, lint, format, demo & gateway targets
 ├── pyproject.toml                   # Root Python workspace configuration
 ├── LICENSE                          # Apache-2.0
 └── README.md                        # Documentation overview
@@ -333,10 +345,11 @@ AgentPay/
 | **Python Buyer SDK (`agentpay`)** | 🟢 Complete | v0.1.0 (2026) | Transparent 402 interceptor, EIP-712/3009 signing |
 | **Financial Firewall (Policy Engine)** | 🟢 Complete | v0.1.0 (2026) | Per-tx cap, rolling budget, RPM circuit breaker |
 | **LangChain Paid Tools (`@paid_tool`)**| 🟢 Complete | v0.1.0 (2026) | 1-line paid tool decorator for AI agents |
-| **Reverse Proxy Gateway (`agentpay-gateway`)** | 🟢 Complete | v0.1.0 (2026) | Reverse proxy, challenge manager, state coordinator |
+| **Go Cloud-Native Gateway (`gateway-go`)** | 🟢 Complete | v0.1.0 (2026) | High-performance Go proxy, zero-downtime RCU reload, multitenancy, ledger |
+| **Management Console (`console`)** | 🟢 Complete | v0.1.0 (2026) | Vue 3 + Element Plus multi-tenant web dashboard & API management |
+| **Python Reference Gateway (`agentpay-gateway`)** | 🟢 Complete | v0.1.0 (2026) | Lightweight reference reverse proxy, challenge manager |
 | **Arbitrum Sepolia EIP-3009 Settlement** | 🟢 Complete | v0.1.0 (2026) | Circle USDC, EIP-1559 Facilitator, 1.5x BaseFee buffer |
 | **Runaway Agent Circuit Breaker Demo** | 🟢 Complete | v0.1.0 (2026) | `make demo` (simulation) & `make demo-live` (testnet) |
-| **Go High-Performance Gateway (`agentpay-gateway-go`)** | ⚪ Planned | 2027 Q1 (v0.2.0) | High-throughput Go reverse proxy with native CGo验签 |
 | **Mode 2: Dynamic Gas Surcharge** | ⚪ Planned | 2027 Q1 (v0.2.0) | Oracle-based gas fee surcharge added to USDC challenge |
 | **Mode 3: Batch Settlement & Channels** | ⚪ Planned | 2027 Q2 (v0.3.0) | High-frequency streaming micro-payments & channels |
 | **TypeScript Buyer / Seller SDKs** | ⚪ Planned | 2027 Q2 (v0.3.0) | Express / Fastify middleware & TS agent client |
@@ -345,17 +358,21 @@ AgentPay/
 
 ## 🧪 Verification & Testing
 
-AgentPay enforces comprehensive test suites covering unit logic, integration flows, and language-agnostic test vectors:
+AgentPay enforces comprehensive test suites covering unit logic, integration flows, and language-agnostic test vectors across Python and Go:
 
 ```bash
-# Run complete validation (linter, format check, test vectors, unit/integration/e2e tests)
+# Run complete verification (linter, format check, test vectors, Python tests, and Go gateway tests)
 make check
 
-# Run specific test suites
+# Python test suites
 make test-unit         # Unit tests only
 make test-integration  # Facilitator & gateway integration tests
 make test-e2e          # End-to-end full payment lifecycle
 make vectors           # Validate language-agnostic test vectors
+
+# Go Cloud-Native Gateway test suites
+make gateway-build     # Build Go gateway binary
+make gateway-test      # Run Go unit, concurrency, and E2E tests
 ```
 
 ---

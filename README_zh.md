@@ -16,6 +16,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.21%2B-00ADD8.svg?logo=go&logoColor=white" alt="Go 1.21+"></a>
   <a href="https://arbitrum.io/"><img src="https://img.shields.io/badge/Network-Arbitrum_Sepolia-213147.svg?logo=arbitrum&logoColor=white" alt="Arbitrum Sepolia"></a>
   <a href="https://www.circle.com/usdc"><img src="https://img.shields.io/badge/Settlement-Circle_USDC-2775CA.svg" alt="Circle USDC"></a>
   <a href="https://github.com/open-agentpay/AgentPay/actions/workflows/deploy-docs.yml"><img src="https://github.com/open-agentpay/AgentPay/actions/workflows/deploy-docs.yml/badge.svg" alt="Docs Deployment"></a>
@@ -277,6 +278,16 @@ AgentPay 原生支持两种不同的系统部署拓扑，以适应不同阶段�
 
 ```text
 AgentPay/
+├── gateway-go/                      # 生产级云原生 Go 反向代理网关
+│   ├── cmd/gateway/                 # 网关主程序入口
+│   ├── internal/                    # 核心模块 (RCU 热加载、x402、双轨钱包、多租户 RBAC、状态机)
+│   ├── tests/                       # E2E 链路与并发测试套件
+│   └── Makefile                     # Go 构建、测试与清理目标
+│
+├── console/                         # 多租户可视化 Web 管理控制台 (Vue 3 + Element Plus)
+│   ├── src/                         # 控制台视图（仪表盘、路由管理、智能体、钱包对账）
+│   └── package.json                 # Web 控制台工作区
+│
 ├── python/packages/
 │   ├── agentpay/                    # 买方 SDK 与财务防火墙
 │   │   ├── client/                  # 透明 HTTP 402 拦截重试中间件 (httpx)
@@ -284,7 +295,7 @@ AgentPay/
 │   │   ├── evm/                     # EIP-712 / EIP-3009 编解码与 EvmRpcClient
 │   │   └── integrations/langchain/  # @paid_tool LangChain 智能体工具装饰器
 │   │
-│   └── agentpay-gateway/            # 卖方反向代理网关与 Facilitator
+│   └── agentpay-gateway/            # Python 参考反向代理网关与 Facilitator
 │       ├── proxy/                   # 流式正向代理与 ASGI 网关服务
 │       ├── payment/                 # PaymentVerifier 与后台 AsyncSettlementWorker
 │       ├── facilitator/             # EvmFacilitatorService (EIP-1559 清算)
@@ -306,6 +317,7 @@ AgentPay/
 │   ├── gas-cost-and-settlement-models.md # 三种 Gas 经济分摊模型与动态费率计算
 │   └── test-vectors/                # 跨语言 JSON 测试向量 (EIP-712/x402)
 │
+├── docs/                            # 双语 VitePress 官方文档站
 ├── Makefile                         # 测试、代码检查、格式化与 demo 目标
 ├── pyproject.toml                   # Python 工作区统一配置
 ├── LICENSE                          # Apache-2.0 开源协议
@@ -334,10 +346,11 @@ AgentPay/
 | **Python 买方 SDK (`agentpay`)** | 🟢 已完成 | v0.1.0 (2026) | 透明 402 自动重试、EIP-712/3009 本地签名 |
 | **财务防火墙（策略引擎 Policy Engine）** | 🟢 已完成 | v0.1.0 (2026) | 单笔上限、滚动预算、白名单、RPM 熔断器 |
 | **LangChain 付费工具（`@paid_tool`）** | 🟢 已完成 | v0.1.0 (2026) | 1 行代码武装 Agent 付费工具调用 |
-| **自托管反向代理（`agentpay-gateway`）** | 🟢 已完成 | v0.1.0 (2026) | 零侵入路由转发、402 质询管理、幂等去重 |
+| **Go 高性能云原生网关 (`gateway-go`)** | 🟢 已完成 | v0.1.0 (2026) | Go 原生高性能反向代理、RCU 零停机热加载、多租户治理与双轨钱包账本 |
+| **多租户可视化控制台 (`console`)** | 🟢 已完成 | v0.1.0 (2026) | Vue 3 + Element Plus 多租户可视化仪表盘、路由与密钥管理 |
+| **Python 参考网关（`agentpay-gateway`）** | 🟢 已完成 | v0.1.0 (2026) | 轻量级路由转发、402 质询管理、状态协调 |
 | **Arbitrum Sepolia 链上结算与履约** | 🟢 已完成 | v0.1.0 (2026) | Circle USDC 合约、EIP-1559 广播、1.5x BaseFee 缓冲 |
 | **失控循环熔断演示 Demo** | 🟢 已完成 | v0.1.0 (2026) | `make demo` (本地极速仿真) 与 `make demo-live` (公网) |
-| **Go 高性能云原生网关 (`agentpay-gateway-go`)** | ⚪ 规划中 | 2027 Q1 (v0.2.0) | 单二进制独立发布、Go 原生高并发反向代理与验签 |
 | **Gas 模式 2：动态加价分摊（Dynamic Surcharge）** | ⚪ 规划中 | 2027 Q1 (v0.2.0) | 预估 Gas 并通过 Oracle 附加至 USDC 质询，Facilitator 零亏损 |
 | **Gas 模式 3：批量聚合与状态通道延迟清算** | ⚪ 规划中 | 2027 Q2 (v0.3.0) | 高频微额流式计费、多笔合并 multicall 或状态通道净额提交 |
 | **TypeScript 买卖双方 SDK** | ⚪ 规划中 | 2027 Q2 (v0.3.0) | Express / Fastify 变现插件与 TS 买方客户端 |
@@ -346,17 +359,21 @@ AgentPay/
 
 ## 🧪 自动化测试与质量保障
 
-AgentPay 拥有极其严苛的工程测试套件，全面覆盖底层密码学、状态转移矩阵与并发资产竞争：
+AgentPay 拥有极其严苛的工程测试套件，全面覆盖 Python 与 Go 双语言体系：
 
 ```bash
-# 执行完整自动化质检（Ruff 代码风格、格式校验、规范向量测试、全套单元与集成测试）
+# 执行完整自动化质检（Ruff 校验、规范向量测试、Python 测试与 Go 网关测试）
 make check
 
-# 单独执行指定测试集
+# Python 测试套件
 make test-unit         # 纯单元测试
 make test-integration  # 网关代理与链上 Facilitator 集成测试
 make test-e2e          # 端到端全链路支付生命周期测试
 make vectors           # 验证跨语言一致性 JSON 测试向量
+
+# Go 云原生网关测试套件
+make gateway-build     # 编译 Go 网关二进制
+make gateway-test      # 运行 Go 单元测试、并发测试与 E2E 测试
 ```
 
 ---
