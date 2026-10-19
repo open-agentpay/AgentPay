@@ -19,6 +19,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: gateway-go/go.sum
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -31,6 +37,10 @@ jobs:
           pip install ruff pytest
           pip install -e "./python[dev,all]"
 
+      - name: Build Go Gateway
+        run: |
+          make gateway-build
+
       - name: Run Ruff Linter
         run: |
           ruff check python/
@@ -42,3 +52,20 @@ jobs:
       - name: Validate Conformance Vectors
         run: |
           python scripts/validate_vectors.py specs/conformance/test-vectors
+
+  gateway-go-test:
+    name: Go Gateway Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: gateway-go/go.sum
+
+      - name: Run Go Gateway Tests
+        run: |
+          make gateway-test

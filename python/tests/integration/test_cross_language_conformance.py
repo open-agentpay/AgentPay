@@ -90,7 +90,8 @@ def mock_upstream() -> Generator[str, None, None]:
 
 @pytest.fixture(scope="module")
 def live_gateway(mock_upstream: str) -> Generator[str, None, None]:
-    assert GATEWAY_BIN.exists(), f"Gateway binary not found at {GATEWAY_BIN}. Run 'make gateway-build' first."
+    if not GATEWAY_BIN.exists():
+        pytest.skip(f"Gateway binary not found at {GATEWAY_BIN}. Run 'make gateway-build' first.")
 
     gateway_port = find_free_port()
 
