@@ -1,0 +1,144 @@
+{
+  "version": "2.0.0",
+  "name": "AgentPay Canonical Protocol Error Taxonomy",
+  "description": "Language-agnostic canonical error codes, HTTP status mappings, domains, and error response schema shared across Python SDK, Go Gateway, and Web Console.",
+  "error_response_schema": {
+    "type": "object",
+    "required": ["error"],
+    "properties": {
+      "error": {
+        "type": "object",
+        "required": ["code", "message", "domain", "status", "requestId"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "domain": { "type": "string" },
+          "status": { "type": "integer" },
+          "requestId": { "type": "string" },
+          "details": { "type": "object" }
+        }
+      }
+    }
+  },
+  "errors": [
+    {
+      "code": "ERR_PAYMENT_REQUIRED",
+      "status": 402,
+      "domain": "PROTOCOL",
+      "message": "Resource requires x402 payment authorization.",
+      "actionable": "Parse PAYMENT-REQUIRED challenge and attach valid PAYMENT-SIGNATURE."
+    },
+    {
+      "code": "ERR_WALLET_INSUFFICIENT_BALANCE",
+      "status": 402,
+      "domain": "WALLET",
+      "message": "Wallet available balance is insufficient to cover this request.",
+      "actionable": "Top up wallet balance via admin grant, onchain transfer, or fiat deposit. Silent downgrade to onchain payment is strictly forbidden."
+    },
+    {
+      "code": "ERR_WALLET_FROZEN",
+      "status": 403,
+      "domain": "WALLET",
+      "message": "Wallet account is currently frozen or in arrears status.",
+      "actionable": "Contact administrator or clear arrears balance to restore wallet active status."
+    },
+    {
+      "code": "ERR_PAYMENT_METHOD_NOT_ALLOWED",
+      "status": 403,
+      "domain": "ROUTING",
+      "message": "Requested payment method is not permitted by route policy.",
+      "actionable": "Review route configuration for allowed payment methods ('wallet', 'onchain', or 'both')."
+    },
+    {
+      "code": "ERR_POLICY_BUDGET_EXCEEDED",
+      "status": 403,
+      "domain": "POLICY",
+      "message": "24-hour rolling or lifetime budget ceiling exhausted.",
+      "actionable": "Increase project/tenant budget cap or await rolling window expiration."
+    },
+    {
+      "code": "ERR_POLICY_MAX_PER_TX",
+      "status": 403,
+      "domain": "POLICY",
+      "message": "Single transaction amount exceeds maximum per-request policy limit.",
+      "actionable": "Adjust transaction amount or reconfigure policy max_amount_per_request."
+    },
+    {
+      "code": "ERR_POLICY_CIRCUIT_BROKEN",
+      "status": 429,
+      "domain": "POLICY",
+      "message": "Circuit breaker triggered due to runaway agent loops or high request frequency.",
+      "actionable": "Cool down request dispatch loop or wait for automatic probe recovery window."
+    },
+    {
+      "code": "ERR_API_KEY_INVALID",
+      "status": 401,
+      "domain": "AUTH",
+      "message": "Provided API Key is invalid, revoked, or expired.",
+      "actionable": "Verify Bearer token or obtain a newly generated active API Key from console."
+    },
+    {
+      "code": "ERR_API_KEY_SCOPE_DENIED",
+      "status": 403,
+      "domain": "AUTH",
+      "message": "API Key lacks required permission scope for this operation.",
+      "actionable": "Grant appropriate scope (e.g. 'gateway:call') to the API Key."
+    },
+    {
+      "code": "ERR_TENANT_SUSPENDED",
+      "status": 403,
+      "domain": "TENANT",
+      "message": "Tenant organization account is suspended.",
+      "actionable": "Contact platform super-admin to reinstate tenant account."
+    },
+    {
+      "code": "ERR_SIGNATURE_INVALID",
+      "status": 401,
+      "domain": "CRYPTOGRAPHY",
+      "message": "EIP-712 / EIP-3009 payment signature verification failed or payload tampered.",
+      "actionable": "Verify private key, CAIP-2 network domain separator, and signer address."
+    },
+    {
+      "code": "ERR_NONCE_REPLAY",
+      "status": 409,
+      "domain": "SETTLEMENT",
+      "message": "Cryptographic nonce has already been consumed or submitted.",
+      "actionable": "Generate a fresh 32-byte cryptographic random nonce."
+    },
+    {
+      "code": "ERR_IDEMPOTENCY_CONFLICT",
+      "status": 409,
+      "domain": "IDEMPOTENCY",
+      "message": "Idempotency key collision with mismatched payload hash or in-flight concurrent execution.",
+      "actionable": "Use a new unique idempotency key or wait for in-flight request resolution."
+    },
+    {
+      "code": "ERR_HOLD_EXPIRED",
+      "status": 408,
+      "domain": "WALLET",
+      "message": "Internal wallet hold reservation expired before upstream completion.",
+      "actionable": "Retry request with fresh hold lease."
+    },
+    {
+      "code": "ERR_UPSTREAM_TIMEOUT",
+      "status": 504,
+      "domain": "GATEWAY",
+      "message": "Gateway timed out awaiting upstream API execution.",
+      "actionable": "Retry with exact same Idempotency-Key (free idempotent replay)."
+    },
+    {
+      "code": "ERR_UPSTREAM_FAILED",
+      "status": 502,
+      "domain": "GATEWAY",
+      "message": "Upstream service returned 5xx server error.",
+      "actionable": "Investigate upstream service availability; retry with same Idempotency-Key."
+    },
+    {
+      "code": "ERR_CONFIG_VERSION_EXPIRED",
+      "status": 409,
+      "domain": "CONFIG",
+      "message": "Route configuration version has been superseded or rolled back during execution.",
+      "actionable": "Refresh local gateway route snapshot and retry."
+    }
+  ]
+}

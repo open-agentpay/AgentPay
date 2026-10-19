@@ -1,0 +1,201 @@
+{
+  "description": "Standard test vectors for AgentPay Audit Event Specification v1.0 (T1.5)",
+  "version": "1.0.0",
+  "vectors": [
+    {
+      "id": "vec_audit_wallet_hold_created",
+      "description": "Virtual wallet funds successfully held prior to upstream fulfillment",
+      "expected_valid": true,
+      "event": {
+        "event_id": "evt_01j7b8z4m0k9x8y7a1b2c3d4",
+        "event_type": "wallet.hold.created",
+        "version": "1.0",
+        "timestamp": "2026-10-18T07:15:00.123456Z",
+        "tenant_id": "ten_enterprise_01",
+        "project_id": "prj_production",
+        "correlation": {
+          "request_id": "req_01j7b8z4m0k9x8y100000001",
+          "idempotency_key": "tx_client_uuid_998877",
+          "intent_id": "pi_01j7b8z4m0k9x8y200000002",
+          "settlement_id": null,
+          "fulfillment_id": null,
+          "hold_id": "hld_01j7b8z4m0k9x8y600000003",
+          "ledger_entry_id": null,
+          "topup_id": null
+        },
+        "actor": {
+          "type": "api_key",
+          "id": "key_01j7b8z4m0k9x8y900000004",
+          "client_ip": "198.51.100.42",
+          "user_agent": "AgentPay-Python/0.1.0"
+        },
+        "data": {
+          "wallet_id": "wlt_01j7b8z4m0k9x8y500000005",
+          "amount_base_units": 10000,
+          "asset": "USDC",
+          "expires_at": "2026-10-18T07:15:30.123456Z",
+          "balance_available_before": 500000,
+          "balance_available_after": 490000,
+          "balance_held_before": 0,
+          "balance_held_after": 10000
+        }
+      }
+    },
+    {
+      "id": "vec_audit_wallet_hold_captured",
+      "description": "Virtual wallet funds captured upon upstream fulfillment success",
+      "expected_valid": true,
+      "event": {
+        "event_id": "evt_01j7b8z4m0k9x8y7a1b2c3d5",
+        "event_type": "wallet.hold.captured",
+        "version": "1.0",
+        "timestamp": "2026-10-18T07:15:02.456789Z",
+        "tenant_id": "ten_enterprise_01",
+        "project_id": "prj_production",
+        "correlation": {
+          "request_id": "req_01j7b8z4m0k9x8y100000001",
+          "idempotency_key": "tx_client_uuid_998877",
+          "intent_id": "pi_01j7b8z4m0k9x8y200000002",
+          "settlement_id": null,
+          "fulfillment_id": "ful_01j7b8z4m0k9x8y400000001",
+          "hold_id": "hld_01j7b8z4m0k9x8y600000003",
+          "ledger_entry_id": "led_01j7b8z4m0k9x8y700000001",
+          "topup_id": null
+        },
+        "actor": {
+          "type": "api_key",
+          "id": "key_01j7b8z4m0k9x8y900000004",
+          "client_ip": "198.51.100.42",
+          "user_agent": "AgentPay-Python/0.1.0"
+        },
+        "data": {
+          "wallet_id": "wlt_01j7b8z4m0k9x8y500000005",
+          "amount_base_units": 10000,
+          "asset": "USDC",
+          "balance_held_before": 10000,
+          "balance_held_after": 0
+        }
+      }
+    },
+    {
+      "id": "vec_audit_settlement_confirmed",
+      "description": "On-chain settlement confirmed with target confirmation blocks",
+      "expected_valid": true,
+      "event": {
+        "event_id": "evt_01j7b8z4m0k9x8y7a1b2c3d6",
+        "event_type": "settlement.confirmed",
+        "version": "1.0",
+        "timestamp": "2026-10-18T07:16:15.000000Z",
+        "tenant_id": "ten_enterprise_01",
+        "project_id": "prj_production",
+        "correlation": {
+          "request_id": "req_01j7b8z4m0k9x8y100000002",
+          "idempotency_key": "tx_onchain_uuid_112233",
+          "intent_id": "pi_01j7b8z4m0k9x8y200000003",
+          "settlement_id": "set_01j7b8z4m0k9x8y300000001",
+          "fulfillment_id": null,
+          "hold_id": null,
+          "ledger_entry_id": null,
+          "topup_id": null
+        },
+        "actor": {
+          "type": "client_signer",
+          "id": "0x1234567890123456789012345678901234567890",
+          "client_ip": "203.0.113.195",
+          "user_agent": "AgentPay-GoGateway/2.0"
+        },
+        "data": {
+          "network_id": "eip155:84532",
+          "asset_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+          "payer_address": "0x1234567890123456789012345678901234567890",
+          "payee_address": "0x2345678901234567890123456789012345678901",
+          "amount_base_units": 25000,
+          "tx_hash": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+          "block_number": 19827364,
+          "confirmations": 5
+        }
+      }
+    },
+    {
+      "id": "vec_audit_admin_config_rolled_back",
+      "description": "Administrator rolls back gateway configuration to a previous safe snapshot",
+      "expected_valid": true,
+      "event": {
+        "event_id": "evt_01j7b8z4m0k9x8y7a1b2c3d7",
+        "event_type": "admin.config.rolled_back",
+        "version": "1.0",
+        "timestamp": "2026-10-18T07:20:00.000000Z",
+        "tenant_id": "ten_enterprise_01",
+        "project_id": null,
+        "correlation": {
+          "request_id": null,
+          "idempotency_key": null,
+          "intent_id": null,
+          "settlement_id": null,
+          "fulfillment_id": null,
+          "hold_id": null,
+          "ledger_entry_id": null,
+          "topup_id": null
+        },
+        "actor": {
+          "type": "admin_user",
+          "id": "usr_sec_admin_001",
+          "client_ip": "10.0.1.25",
+          "user_agent": "Mozilla/5.0 (Macintosh)"
+        },
+        "data": {
+          "active_version_id": "ver_01j7b8z4m0k9x8y300000002",
+          "target_version_id": "ver_01j7b8z4m0k9x8y300000001",
+          "new_version_id": "ver_01j7b8z4m0k9x8y300000003",
+          "reason": "Emergency rollback due to upstream outage"
+        }
+      }
+    },
+    {
+      "id": "vec_audit_topup_order_confirmed",
+      "description": "Administrator grant topup order successfully credited to wallet",
+      "expected_valid": true,
+      "event": {
+        "event_id": "evt_01j7b8z4m0k9x8y7a1b2c3d8",
+        "event_type": "topup.order.confirmed",
+        "version": "1.0",
+        "timestamp": "2026-10-18T07:25:00.000000Z",
+        "tenant_id": "ten_enterprise_01",
+        "project_id": null,
+        "correlation": {
+          "request_id": null,
+          "idempotency_key": "topup_grant_batch_20261018",
+          "intent_id": null,
+          "settlement_id": null,
+          "fulfillment_id": null,
+          "hold_id": null,
+          "ledger_entry_id": "led_01j7b8z4m0k9x8y700000002",
+          "topup_id": "top_01j7b8z4m0k9x8y800000001"
+        },
+        "actor": {
+          "type": "admin_user",
+          "id": "usr_finance_mgr_01",
+          "client_ip": "10.0.2.14",
+          "user_agent": "AgentPay-Console/1.0"
+        },
+        "data": {
+          "wallet_id": "wlt_01j7b8z4m0k9x8y500000005",
+          "channel": "admin_grant",
+          "amount_base_units": 1000000,
+          "asset": "USDC",
+          "reason": "Monthly testing quota grant",
+          "available_balance_after": 1490000
+        }
+      }
+    }
+  ],
+  "redaction_rules": {
+    "forbidden_keys_in_payload": [
+      "private_key",
+      "raw_api_key",
+      "secret_key",
+      "password"
+    ],
+    "masked_key_pattern": "^agp_live_[a-zA-Z0-9]{4}\\*{4,}$"
+  }
+}

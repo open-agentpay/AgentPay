@@ -1,0 +1,338 @@
+package server
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"time"
+
+	_ "github.com/lib/pq"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/admin"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/agent"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/auth"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/config"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/metrics"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/payment"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/proxy"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/rcu"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/timeline"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/usage"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/wallet"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/x402"
+)
+
+// GatewayServer encapsulates the HTTP listener and runtime dependencies.
+type GatewayServer struct {
+	cfg         *config.GatewayConfig
+	httpServer  *http.Server
+	db          *sql.DB
+	metrics     *metrics.Metrics
+	rcuMgr      *rcu.Manager
+	processor   *x402.PaymentProcessor
+	walletSvc   wallet.Service
+	adminSvc    admin.Service
+	usageSvc    usage.Service
+	paymentSvc  payment.Service
+	timelineSvc timeline.Service
+	startTime   time.Time
+}
+
+// New creates an initialized GatewayServer using default network transport.
+func New(cfg *config.GatewayConfig, rcuMgr *rcu.Manager, m *metrics.Metrics) (*GatewayServer, error) {
+	return NewWithTransport(cfg, rcuMgr, m, nil)
+}
+
+// NewWithTransport creates an initialized GatewayServer with custom transport.
+func NewWithTransport(cfg *config.GatewayConfig, rcuMgr *rcu.Manager, m *metrics.Metrics, transport http.RoundTripper) (*GatewayServer, error) {
+	return NewWithWalletAndTransport(cfg, rcuMgr, m, nil, transport)
+}
+
+// NewWithWalletAndTransport creates an initialized GatewayServer with explicit wallet service and custom transport.
+func NewWithWalletAndTransport(
+	cfg *config.GatewayConfig,
+	rcuMgr *rcu.Manager,
+	m *metrics.Metrics,
+	walletSvc wallet.Service,
+	transport http.RoundTripper,
+) (*GatewayServer, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config cannot be nil")
+	}
+	if rcuMgr == nil {
+		return nil, fmt.Errorf("rcu manager cannot be nil")
+	}
+	if m == nil {
+		m = metrics.New()
+	}
+
+	proxyHandler := proxy.NewHandler(m, transport)
+
+	var dbConn *sql.DB
+	if cfg.Database.PostgresURL != "" {
+		db, err := sql.Open("postgres", cfg.Database.PostgresURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to database: %w", err)
+		}
+		if cfg.Database.MaxOpenConns > 0 {
+			db.SetMaxOpenConns(cfg.Database.MaxOpenConns)
+		}
+		if cfg.Database.MaxIdleConns > 0 {
+			db.SetMaxIdleConns(cfg.Database.MaxIdleConns)
+		}
+		if cfg.Database.ConnMaxLifetimeSeconds > 0 {
+			db.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetimeSeconds) * time.Second)
+		}
+		dbConn = db
+	}
+
+	// Verify if PostgreSQL is reachable
+	var isPostgresReady bool
+	if dbConn != nil {
+		pingCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		if err := dbConn.PingContext(pingCtx); err == nil {
+			isPostgresReady = true
+		}
+		cancel()
+	}
+
+	if walletSvc == nil {
+		if isPostgresReady {
+			walletSvc = wallet.NewPostgresService(dbConn, 120*time.Second)
+		} else {
+			memWallet := wallet.NewMemoryService()
+			// Register baseline development & testing accounts
+			memWallet.RegisterWallet(&wallet.Wallet{
+				WalletID:       "wlt_tenant_01",
+				TenantID:       "ten_01",
+				Asset:          "USDC",
+				Status:         wallet.StatusActive,
+				Version:        1,
+				AvailableCache: 10000000,
+				HeldCache:      0,
+			})
+			memWallet.RegisterAPIKey("apk_live_valid123", "ten_01", "prj_01")
+
+			memWallet.RegisterWallet(&wallet.Wallet{
+				WalletID:       "wlt_tenant_02",
+				TenantID:       "ten_02",
+				Asset:          "USDC",
+				Status:         wallet.StatusActive,
+				Version:        1,
+				AvailableCache: 100,
+				HeldCache:      0,
+			})
+			memWallet.RegisterAPIKey("apk_live_poor", "ten_02", "prj_02")
+
+			memWallet.RegisterWallet(&wallet.Wallet{
+				WalletID:       "wlt_tenant_03",
+				TenantID:       "ten_03",
+				Asset:          "USDC",
+				Status:         wallet.StatusFrozenArrears,
+				Version:        1,
+				AvailableCache: -50000,
+				HeldCache:      0,
+			})
+			memWallet.RegisterAPIKey("apk_live_frozen", "ten_03", "prj_03")
+
+			walletSvc = memWallet
+		}
+	}
+
+	processor := x402.NewPaymentProcessor(nil, nil, walletSvc, proxyHandler, m)
+
+	// Control Plane Admin & Tenancy Service
+	agentRegistry := agent.NewRegistry()
+	var adminSvc admin.Service
+
+	// If explicit in-memory wallet service was passed by caller, keep admin in-memory
+	if _, isMem := walletSvc.(*wallet.MemoryService); !isMem && isPostgresReady {
+		pgAdmin, err := admin.NewPostgresService(dbConn, agentRegistry, walletSvc)
+		if err == nil {
+			adminSvc = pgAdmin
+			slog.Info("AgentPay Control Plane operating in PostgreSQL persistence mode")
+		} else {
+			slog.Warn("failed to initialize postgres admin service, falling back to in-memory", slog.Any("error", err))
+		}
+	}
+
+	if adminSvc == nil {
+		adminSvc = admin.NewMemoryService(agentRegistry, walletSvc)
+		slog.Info("AgentPay Control Plane operating in in-memory mode")
+	}
+
+	// Usage and Request Event Recording Service (T5.1)
+	var usageSvc usage.Service
+	if _, isMem := walletSvc.(*wallet.MemoryService); !isMem && isPostgresReady {
+		usageSvc = usage.NewPostgresService(dbConn)
+		slog.Info("AgentPay Usage & Event Recording operating in PostgreSQL persistence mode")
+	} else {
+		usageSvc = usage.NewMemoryService()
+		slog.Info("AgentPay Usage & Event Recording operating in in-memory mode")
+	}
+	processor.SetUsageService(usageSvc)
+	adminSvc.SetUsageService(usageSvc)
+
+	// Payment, Settlement & Fulfillment Correlation Service (T5.2)
+	var paymentSvc payment.Service
+	if _, isMem := walletSvc.(*wallet.MemoryService); !isMem && isPostgresReady {
+		paymentSvc = payment.NewPostgresService(dbConn)
+		slog.Info("AgentPay Payment Correlation operating in PostgreSQL persistence mode")
+	} else {
+		paymentSvc = payment.NewMemoryService()
+		slog.Info("AgentPay Payment Correlation operating in in-memory mode")
+	}
+	processor.SetPaymentService(paymentSvc)
+	adminSvc.SetPaymentService(paymentSvc)
+
+	// Agent Behavior Timeline Service (T5.8)
+	var timelineSvc timeline.Service
+	if _, isMem := walletSvc.(*wallet.MemoryService); !isMem && isPostgresReady {
+		timelineSvc = timeline.NewPostgresService(dbConn)
+		slog.Info("AgentPay Agent Behavior Timeline operating in PostgreSQL persistence mode")
+	} else {
+		timelineSvc = timeline.NewMemoryService()
+		slog.Info("AgentPay Agent Behavior Timeline operating in in-memory mode")
+	}
+	adminSvc.SetTimelineService(timelineSvc)
+	processor.SetAuditEmitter(timeline.NewTimelineAuditEmitter(timelineSvc, processor.GetAuditEmitter()))
+
+	// Wire admin service to RCU Manager and run initial synchronization
+	if adminSvc != nil && rcuMgr != nil {
+		adminSvc.SetRCUManager(rcuMgr)
+		if err := adminSvc.SyncRCU(context.Background()); err != nil {
+			slog.Warn("initial RCU snapshot synchronization failed", slog.Any("error", err))
+		} else {
+			snap := rcuMgr.Current()
+			routesCount := 0
+			if snap != nil {
+				routesCount = len(snap.Routes)
+			}
+			slog.Info("RCU configuration cache synchronized with control plane", slog.Int("routes_loaded", routesCount))
+		}
+	}
+
+	jwtMgr := auth.NewJWTManager("", 24*time.Hour)
+	adminHandler := admin.NewHandlerWithJWT(adminSvc, jwtMgr)
+	securedAdminHandler := auth.Middleware(jwtMgr)(adminHandler)
+
+	startTime := time.Now()
+	mux := http.NewServeMux()
+
+	// Register system & operational endpoints
+	mux.HandleFunc(cfg.Metrics.HealthPath, handleHealthz(startTime))
+	mux.HandleFunc(cfg.Metrics.ReadyPath, handleReadyz(rcuMgr))
+	mux.HandleFunc("/version", handleVersion())
+
+	// Register Control Plane Admin REST API
+	// Note: Explicitly register admin domain endpoints so that proxy routes under /api/v1/... (e.g. /api/v1/simple-weather)
+	// fall through to handleGatewayFallback rather than being shadowed by ServeMux longest-prefix matching.
+	mux.Handle("/api/v1/auth/", securedAdminHandler)
+	mux.Handle("/api/v1/auth-types", securedAdminHandler)
+	mux.Handle("/api/v1/audit/", securedAdminHandler)
+	mux.Handle("/api/v1/agents/", securedAdminHandler)
+	mux.Handle("/api/v1/tenants", securedAdminHandler)
+	mux.Handle("/api/v1/tenants/", securedAdminHandler)
+	mux.Handle("/api/v1/wallets", securedAdminHandler)
+	mux.Handle("/api/v1/wallets/", securedAdminHandler)
+
+	if cfg.Metrics.Enabled {
+		mux.Handle(cfg.Metrics.Path, m.Handler())
+	}
+
+	// Gateway traffic handler routes via x402 payment processor
+	mux.HandleFunc("/", handleGatewayFallback(rcuMgr, m, processor, adminSvc))
+
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	httpSrv := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  cfg.Server.ReadTimeout(),
+		WriteTimeout: cfg.Server.WriteTimeout(),
+		IdleTimeout:  cfg.Server.IdleTimeout(),
+	}
+
+	return &GatewayServer{
+		cfg:         cfg,
+		httpServer:  httpSrv,
+		db:          dbConn,
+		metrics:     m,
+		rcuMgr:      rcuMgr,
+		processor:   processor,
+		walletSvc:   walletSvc,
+		adminSvc:    adminSvc,
+		usageSvc:    usageSvc,
+		paymentSvc:  paymentSvc,
+		timelineSvc: timelineSvc,
+		startTime:   startTime,
+	}, nil
+}
+
+// Start listens on the configured network address.
+func (s *GatewayServer) Start() error {
+	addr := s.httpServer.Addr
+	slog.Info("AgentPay Gateway starting HTTP listener",
+		slog.String("address", addr),
+		slog.String("health_path", s.cfg.Metrics.HealthPath),
+		slog.String("metrics_path", s.cfg.Metrics.Path),
+	)
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to bind listener on %s: %w", addr, err)
+	}
+
+	if err := s.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("http server failed: %w", err)
+	}
+
+	return nil
+}
+
+// Shutdown gracefully stops the server within the specified context.
+func (s *GatewayServer) Shutdown(ctx context.Context) error {
+	slog.Info("shutting down HTTP server gracefully")
+	err := s.httpServer.Shutdown(ctx)
+	if s.db != nil {
+		_ = s.db.Close()
+	}
+	return err
+}
+
+// Handler returns the underlying http.Handler for testing.
+func (s *GatewayServer) Handler() http.Handler {
+	return s.httpServer.Handler
+}
+
+// WalletService returns the active wallet service.
+func (s *GatewayServer) WalletService() wallet.Service {
+	return s.walletSvc
+}
+
+// Processor returns the payment processor.
+func (s *GatewayServer) Processor() *x402.PaymentProcessor {
+	return s.processor
+}
+
+// AdminService returns the control plane admin service.
+func (s *GatewayServer) AdminService() admin.Service {
+	return s.adminSvc
+}
+
+// UsageService returns the usage and event recording service.
+func (s *GatewayServer) UsageService() usage.Service {
+	return s.usageSvc
+}
+
+// PaymentService returns the payment, settlement & fulfillment correlation service.
+func (s *GatewayServer) PaymentService() payment.Service {
+	return s.paymentSvc
+}
+
+// TimelineService returns the agent behavior timeline service.
+func (s *GatewayServer) TimelineService() timeline.Service {
+	return s.timelineSvc
+}
+

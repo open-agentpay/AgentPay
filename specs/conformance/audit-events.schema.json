@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentPay Audit Event Envelope Schema",
+  "description": "Standard schema for append-only audit events across Gateway, Settlement, Virtual Wallet Ledger and Management operations.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "version",
+    "timestamp",
+    "tenant_id",
+    "correlation",
+    "actor",
+    "data"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^evt_[a-zA-Z0-9_-]+$",
+      "description": "Globally unique event identifier"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "gateway.request.received",
+        "gateway.challenge.issued",
+        "gateway.request.completed",
+        "gateway.request.rejected",
+        "intent.created",
+        "intent.authorized",
+        "intent.completed",
+        "intent.failed",
+        "intent.expired",
+        "intent.needs_review",
+        "settlement.submitted",
+        "settlement.pending",
+        "settlement.confirmed",
+        "settlement.failed",
+        "settlement.unknown",
+        "fulfillment.dispatched",
+        "fulfillment.succeeded",
+        "fulfillment.failed",
+        "fulfillment.unknown",
+        "wallet.created",
+        "wallet.hold.created",
+        "wallet.hold.captured",
+        "wallet.hold.released",
+        "wallet.ledger.appended",
+        "wallet.status.changed",
+        "topup.order.created",
+        "topup.order.confirmed",
+        "topup.order.failed",
+        "topup.order.expired",
+        "admin.adjustment.executed",
+        "admin.config.published",
+        "admin.config.rolled_back",
+        "admin.apikey.created",
+        "admin.apikey.revoked",
+        "admin.tenant.updated"
+      ],
+      "description": "Hierarchical domain event type identifier"
+    },
+    "version": {
+      "type": "string",
+      "enum": ["1.0", "1.0.0"],
+      "description": "Audit envelope schema version"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of event generation"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^(tenant|ten)_[a-zA-Z0-9_-]+$",
+      "description": "Associated tenant identifier"
+    },
+    "project_id": {
+      "type": ["string", "null"],
+      "pattern": "^(proj|prj)_[a-zA-Z0-9_-]+$",
+      "description": "Associated project identifier"
+    },
+    "correlation": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "idempotency_key",
+        "intent_id"
+      ],
+      "properties": {
+        "request_id": {
+          "type": ["string", "null"],
+          "pattern": "^req_[a-zA-Z0-9_-]+$"
+        },
+        "idempotency_key": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "intent_id": {
+          "type": ["string", "null"],
+          "pattern": "^pi_[a-zA-Z0-9_-]+$"
+        },
+        "settlement_id": {
+          "type": ["string", "null"],
+          "pattern": "^set_[a-zA-Z0-9_-]+$"
+        },
+        "fulfillment_id": {
+          "type": ["string", "null"],
+          "pattern": "^ful_[a-zA-Z0-9_-]+$"
+        },
+        "hold_id": {
+          "type": ["string", "null"],
+          "pattern": "^hld_[a-zA-Z0-9_-]+$"
+        },
+        "ledger_entry_id": {
+          "type": ["string", "null"],
+          "pattern": "^led_[a-zA-Z0-9_-]+$"
+        },
+        "topup_id": {
+          "type": ["string", "null"],
+          "pattern": "^top_[a-zA-Z0-9_-]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "client_ip"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "api_key",
+            "client_signer",
+            "admin_user",
+            "system_worker"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "client_ip": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "user_agent": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        }
+      },
+      "additionalProperties": false
+    },
+    "data": {
+      "type": "object",
+      "description": "Event-specific structured payload data"
+    }
+  },
+  "additionalProperties": false
+}

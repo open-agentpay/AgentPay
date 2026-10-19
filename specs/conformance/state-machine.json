@@ -1,0 +1,186 @@
+{
+  "version": "2.1.0",
+  "name": "AgentPay Unified State Machine Specification (with Virtual Wallet)",
+  "description": "Language-agnostic state machine definitions, events, transition matrices, and coordination rules for AgentPay (supporting dual settlement paths: On-Chain and Internal Wallet).",
+  "supported_payment_methods": ["onchain", "wallet"],
+  "entities": {
+    "payment_intent": {
+      "entity_type": "PaymentIntent",
+      "states": {
+        "created": { "is_terminal": false, "description": "Request received, route & policy matched" },
+        "challenged": { "is_terminal": false, "description": "HTTP 402 challenge returned to buyer (onchain path)" },
+        "authorized": { "is_terminal": false, "description": "Payment authorization or API Key quota verified" },
+        "rejected": { "is_terminal": true, "description": "Policy firewall denied, signature invalid, or wallet balance insufficient" },
+        "expired": { "is_terminal": true, "description": "Challenge or authorization window expired" },
+        "completed": { "is_terminal": true, "description": "Settlement confirmed (onchain or wallet capture) and workflow completed" },
+        "failed": { "is_terminal": true, "description": "Settlement definitively failed or rolled back" },
+        "needs_review": { "is_terminal": false, "description": "Settlement or fulfillment in unknown state beyond recovery window, escalated to manual review" }
+      },
+      "events": [
+        "challenge_issued",
+        "policy_denied",
+        "payload_verified",
+        "payload_invalid",
+        "timeout",
+        "settlement_confirmed",
+        "settlement_failed",
+        "settlement_released",
+        "authorization_expired",
+        "recovery_deadline_exceeded",
+        "manual_resolved_confirmed",
+        "manual_resolved_failed"
+      ],
+      "transitions": [
+        { "from": "created", "event": "challenge_issued", "to": "challenged" },
+        { "from": "created", "event": "policy_denied", "to": "rejected" },
+        { "from": "created", "event": "payload_verified", "to": "authorized" },
+        { "from": "challenged", "event": "payload_verified", "to": "authorized" },
+        { "from": "challenged", "event": "payload_invalid", "to": "rejected" },
+        { "from": "challenged", "event": "timeout", "to": "expired" },
+        { "from": "authorized", "event": "settlement_confirmed", "to": "completed" },
+        { "from": "authorized", "event": "settlement_failed", "to": "failed" },
+        { "from": "authorized", "event": "settlement_released", "to": "failed" },
+        { "from": "authorized", "event": "authorization_expired", "to": "expired" },
+        { "from": "authorized", "event": "recovery_deadline_exceeded", "to": "needs_review" },
+        { "from": "needs_review", "event": "manual_resolved_confirmed", "to": "completed" },
+        { "from": "needs_review", "event": "manual_resolved_failed", "to": "failed" }
+      ]
+    },
+    "settlement": {
+      "entity_type": "Settlement",
+      "states": {
+        "not_started": { "is_terminal": false, "description": "Not yet submitted (onchain) or not yet frozen (wallet)" },
+        "held": { "is_terminal": false, "description": "Quota held in internal wallet ledger (wallet path only)" },
+        "submitted": { "is_terminal": false, "description": "Submitted to network, holding transaction identifier (onchain path)" },
+        "pending": { "is_terminal": false, "description": "Broadcasted on-chain, awaiting required block confirmations (onchain path)" },
+        "confirmed": { "is_terminal": true, "description": "Reached on-chain confirmations, or wallet hold captured" },
+        "released": { "is_terminal": true, "description": "Wallet hold safely released to available balance (wallet path only)" },
+        "failed": { "is_terminal": true, "description": "Definitively rejected, reverted on-chain, or hold acquisition failed" },
+        "unknown": { "is_terminal": false, "description": "Uncertain status due to timeout, network partition, or crash (onchain path)" }
+      },
+      "events": [
+        "hold_acquired",
+        "hold_failed",
+        "capture",
+        "release",
+        "submit_ok",
+        "submit_rejected_definitely",
+        "submit_timeout",
+        "seen_on_chain",
+        "query_timeout",
+        "confirmations_reached",
+        "reverted",
+        "query_found_confirmed",
+        "query_found_failed",
+        "query_found_pending",
+        "query_still_unknown"
+      ],
+      "transitions": [
+        { "from": "not_started", "event": "hold_acquired", "to": "held" },
+        { "from": "not_started", "event": "hold_failed", "to": "failed" },
+        { "from": "held", "event": "capture", "to": "confirmed" },
+        { "from": "held", "event": "release", "to": "released" },
+        { "from": "not_started", "event": "submit_ok", "to": "submitted" },
+        { "from": "not_started", "event": "submit_rejected_definitely", "to": "failed" },
+        { "from": "not_started", "event": "submit_timeout", "to": "unknown" },
+        { "from": "submitted", "event": "seen_on_chain", "to": "pending" },
+        { "from": "submitted", "event": "query_timeout", "to": "unknown" },
+        { "from": "pending", "event": "confirmations_reached", "to": "confirmed" },
+        { "from": "pending", "event": "reverted", "to": "failed" },
+        { "from": "pending", "event": "query_timeout", "to": "unknown" },
+        { "from": "unknown", "event": "query_found_confirmed", "to": "confirmed" },
+        { "from": "unknown", "event": "query_found_failed", "to": "failed" },
+        { "from": "unknown", "event": "query_found_pending", "to": "pending" },
+        { "from": "unknown", "event": "query_still_unknown", "to": "unknown" }
+      ]
+    },
+    "fulfillment": {
+      "entity_type": "Fulfillment",
+      "states": {
+        "not_started": { "is_terminal": false, "description": "Upstream service request has not been dispatched" },
+        "in_progress": { "is_terminal": false, "description": "Request dispatched to upstream service" },
+        "succeeded": { "is_terminal": true, "description": "Upstream returned HTTP 2xx success payload" },
+        "failed": { "is_terminal": true, "description": "Upstream definitively returned 4xx (client error, non-executed)" },
+        "unknown": { "is_terminal": false, "description": "Upstream returned 5xx, timeout, or connection dropped (execution state uncertain)" }
+      },
+      "events": [
+        "dispatch",
+        "upstream_2xx",
+        "upstream_4xx",
+        "upstream_5xx",
+        "upstream_timeout",
+        "upstream_status_query_ok",
+        "upstream_status_query_failed",
+        "recovery_deadline_exceeded"
+      ],
+      "transitions": [
+        { "from": "not_started", "event": "dispatch", "to": "in_progress" },
+        { "from": "in_progress", "event": "upstream_2xx", "to": "succeeded" },
+        { "from": "in_progress", "event": "upstream_4xx", "to": "failed" },
+        { "from": "in_progress", "event": "upstream_5xx", "to": "unknown" },
+        { "from": "in_progress", "event": "upstream_timeout", "to": "unknown" },
+        { "from": "unknown", "event": "upstream_status_query_ok", "to": "succeeded" },
+        { "from": "unknown", "event": "upstream_status_query_failed", "to": "failed" },
+        { "from": "unknown", "event": "recovery_deadline_exceeded", "to": "unknown" }
+      ]
+    }
+  },
+  "coordination": {
+    "supported_paths": {
+      "onchain": {
+        "flow": "authorized -> settlement:confirmed -> fulfillment:dispatch -> succeeded",
+        "dispatch_condition": "settlement == 'confirmed'"
+      },
+      "wallet": {
+        "flow": "authorized -> settlement:held -> fulfillment:dispatch -> (succeeded ? capture : release)",
+        "dispatch_condition": "settlement == 'held'"
+      }
+    },
+    "invariants": [
+      {
+        "id": "INV_1_DISPATCH_GUARD",
+        "description": "Fulfillment dispatch is forbidden unless (path==onchain AND settlement==confirmed) OR (path==wallet AND settlement==held)"
+      },
+      {
+        "id": "INV_2_UNKNOWN_SUBMIT_GUARD",
+        "description": "When onchain settlement == 'unknown', re-submitting payment is strictly prohibited; only status polling is allowed"
+      },
+      {
+        "id": "INV_3_TERMINAL_IMMUTABLE",
+        "description": "States marked as is_terminal == true can never transition to any other state"
+      },
+      {
+        "id": "INV_4_UPSTREAM_5XX_UNKNOWN",
+        "description": "Upstream 5xx or network timeout must transition fulfillment to 'unknown', never directly to 'failed'"
+      },
+      {
+        "id": "INV_5_WALLET_UNKNOWN_HOLD_GUARD",
+        "description": "When path==wallet and fulfillment==unknown, hold must remain in 'held' state; neither capture nor release is permitted automatically"
+      },
+      {
+        "id": "INV_6_NO_AUTO_DOWNGRADE",
+        "description": "When wallet balance is insufficient, gateway must return 402 Insufficient Funds immediately; silent downgrade to onchain is forbidden"
+      }
+    ],
+    "composite_views": [
+      { "settlement": ["held"], "fulfillment": ["not_started", "in_progress"], "display": "WALLET_HOLD_PROCESSING" },
+      { "settlement": ["unknown", "pending", "submitted"], "fulfillment": ["not_started"], "display": "SETTLEMENT_IN_PROGRESS" },
+      { "settlement": ["confirmed"], "fulfillment": ["in_progress"], "display": "FULFILLMENT_IN_PROGRESS" },
+      { "settlement": ["confirmed"], "fulfillment": ["succeeded"], "display": "COMPLETED" },
+      { "settlement": ["confirmed"], "fulfillment": ["failed"], "display": "SETTLED_FULFILLMENT_FAILED_REFUND_REQUIRED" },
+      { "settlement": ["confirmed"], "fulfillment": ["unknown"], "display": "SETTLED_FULFILLMENT_UNKNOWN_NEEDS_REVIEW" },
+      { "settlement": ["released"], "fulfillment": ["failed"], "display": "RELEASED_UNBILLED" },
+      { "settlement": ["failed"], "fulfillment": ["not_started"], "display": "PAYMENT_FAILED" }
+    ]
+  },
+  "parameters": {
+    "challenge_ttl_seconds": 300,
+    "min_authorization_window_seconds": 60,
+    "default_authorization_window_seconds": 600,
+    "onchain_grace_period_seconds": 60,
+    "required_confirmations": 1,
+    "wallet_hold_ttl_seconds": 120,
+    "settlement_unknown_recovery_timeout_seconds": 600,
+    "fulfillment_unknown_recovery_timeout_seconds": 300
+  }
+}

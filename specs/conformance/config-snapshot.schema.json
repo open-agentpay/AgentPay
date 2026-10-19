@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentPay Immutable Route Configuration Snapshot",
+  "description": "Standard schema for published immutable configuration snapshots cached by Go Gateway and persisted in ap_config_version.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "versionId",
+    "versionNumber",
+    "publishedAt",
+    "publishedBy",
+    "routes",
+    "policies",
+    "snapshotHash"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "enum": ["2.0.0"] },
+    "tenantId": { "type": "string", "pattern": "^ten_[a-zA-Z0-9_-]+$" },
+    "versionId": { "type": "string", "pattern": "^ver_[a-zA-Z0-9_-]+$" },
+    "versionNumber": { "type": "integer", "minimum": 1 },
+    "publishedAt": { "type": "integer", "description": "Unix timestamp in seconds" },
+    "publishedBy": { "type": "string", "pattern": "^usr_[a-zA-Z0-9_-]+$" },
+    "changeSummary": { "type": "string" },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "routeId",
+          "projectId",
+          "pathPattern",
+          "upstreamUrl",
+          "priceBaseUnits",
+          "asset",
+          "payeeAddress",
+          "allowedPaymentMethods",
+          "timeoutMs",
+          "rateLimitRpm",
+          "status"
+        ],
+        "properties": {
+          "routeId": { "type": "string", "pattern": "^rou_[a-zA-Z0-9_-]+$" },
+          "projectId": { "type": "string", "pattern": "^prj_[a-zA-Z0-9_-]+$" },
+          "pathPattern": { "type": "string", "pattern": "^/[a-zA-Z0-9_\\-/.*]+$" },
+          "upstreamUrl": { "type": "string", "format": "uri" },
+          "priceBaseUnits": { "type": "integer", "minimum": 0 },
+          "asset": { "type": "string", "enum": ["USDC"] },
+          "payeeAddress": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+          "allowedPaymentMethods": { "type": "string", "enum": ["wallet", "onchain", "both"] },
+          "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 300000 },
+          "rateLimitRpm": { "type": "integer", "minimum": 1 },
+          "status": { "type": "string", "enum": ["active", "disabled"] }
+        }
+      }
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "policyId",
+          "projectId",
+          "maxAmountPerRequest",
+          "rolling24hBudgetCap",
+          "circuitBreakerMaxRpm",
+          "whitelistedNetworks",
+          "isActive"
+        ],
+        "properties": {
+          "policyId": { "type": "string", "pattern": "^pol_[a-zA-Z0-9_-]+$" },
+          "projectId": { "type": "string", "pattern": "^prj_[a-zA-Z0-9_-]+$" },
+          "routeId": { "type": ["string", "null"] },
+          "maxAmountPerRequest": { "type": "integer", "minimum": 1 },
+          "rolling24hBudgetCap": { "type": "integer", "minimum": 1 },
+          "circuitBreakerMaxRpm": { "type": "integer", "minimum": 1 },
+          "whitelistedNetworks": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z0-9]+:[a-zA-Z0-9_-]+$" }
+          },
+          "isActive": { "type": "boolean" }
+        }
+      }
+    },
+    "snapshotHash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Deterministic SHA-256 fingerprint computed across sorted routes and policies"
+    }
+  }
+}

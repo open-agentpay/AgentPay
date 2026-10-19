@@ -5,10 +5,19 @@
   "description": "The Open-Source Payment Infrastructure & Financial Firewall for Autonomous AI Agents",
   "license": "Apache-2.0",
   "scripts": {
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "console:dev": "npm --prefix console run dev",
+    "console:build": "npm --prefix console run build",
+    "console:test": "npm --prefix console run test",
     "build": "pnpm --recursive run build",
     "test": "pnpm --recursive run test",
     "lint": "pnpm --recursive run lint",
     "clean": "pnpm --recursive run clean"
+  },
+  "devDependencies": {
+    "vitepress": "^1.5.0"
   },
   "packageManager": "pnpm@9.12.0",
   "engines": {

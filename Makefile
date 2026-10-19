@@ -34,11 +34,31 @@ format:
 format-check:
 	$(PYTHON) -m ruff format --check python/
 
-# Run complete verification: lint, format-check, test-vectors, and pytest
-check: lint format-check vectors test
+# Go Gateway targets
+gateway-build:
+	$(MAKE) -C gateway-go build
+
+gateway-test:
+	$(MAKE) -C gateway-go test
+
+gateway-clean:
+	$(MAKE) -C gateway-go clean
+
+# Console targets (Vue 3 + Element Plus)
+console-dev:
+	npm --prefix console run dev
+
+console-build:
+	npm --prefix console run build
+
+console-test:
+	npm --prefix console run test
+
+# Run complete verification: lint, format-check, test-vectors, pytest, and gateway-test
+check: lint format-check vectors test gateway-test
 
 # Clean build artifacts and test caches
-clean:
+clean: gateway-clean
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type d -name ".pytest_cache" -exec rm -rf {} +
 	find . -type d -name ".ruff_cache" -exec rm -rf {} +

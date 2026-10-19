@@ -1,0 +1,130 @@
+{
+  "version": "2.0.0",
+  "suite": "config-publishing-conformance",
+  "description": "Cross-language test vectors for AgentPay configuration validation, draft isolation, immutable snapshot hashing, rollback, and gateway cache degradation.",
+  "testCases": [
+    {
+      "id": "TC_CFG_01_VALID_SNAPSHOT_PUBLISHING",
+      "category": "PUBLISHING",
+      "description": "Valid routes and policies are serialized, validated, and signed with deterministic SHA-256 fingerprint",
+      "input": {
+        "tenant_id": "ten_alpha001",
+        "version_number": 1,
+        "published_by": "usr_superadmin01",
+        "routes": [
+          {
+            "route_id": "rou_chat_v1",
+            "project_id": "prj_llm_prod",
+            "path_pattern": "/api/v1/chat/completions",
+            "upstream_url": "https://upstream.provider.internal/v1/chat",
+            "price_base_units": 10000,
+            "asset": "USDC",
+            "payee_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+            "allowed_payment_methods": "both",
+            "timeout_ms": 15000,
+            "rate_limit_rpm": 300,
+            "status": "active"
+          }
+        ],
+        "policies": [
+          {
+            "policy_id": "pol_llm_guard",
+            "project_id": "prj_llm_prod",
+            "route_id": "rou_chat_v1",
+            "max_amount_per_request": 50000,
+            "rolling_24h_budget_cap": 1000000,
+            "circuit_breaker_max_rpm": 60,
+            "whitelisted_networks": ["eip155:421614"],
+            "is_active": true
+          }
+        ]
+      },
+      "expected": {
+        "is_valid": true,
+        "target_status": "active",
+        "hash_prefix": "sha256:"
+      }
+    },
+    {
+      "id": "TC_CFG_02_VALIDATION_REJECT_INVALID_UPSTREAM",
+      "category": "VALIDATION",
+      "description": "Upstream URL with invalid scheme or format must fail validation before publishing",
+      "input": {
+        "tenant_id": "ten_alpha001",
+        "routes": [
+          {
+            "route_id": "rou_bad_url",
+            "project_id": "prj_llm_prod",
+            "path_pattern": "/api/v1/bad",
+            "upstream_url": "not_a_valid_http_uri",
+            "price_base_units": 10000,
+            "asset": "USDC",
+            "payee_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+            "allowed_payment_methods": "both",
+            "timeout_ms": 10000,
+            "rate_limit_rpm": 60,
+            "status": "active"
+          }
+        ],
+        "policies": []
+      },
+      "expected": {
+        "is_valid": false,
+        "error_code": "INVALID_UPSTREAM_URL"
+      }
+    },
+    {
+      "id": "TC_CFG_03_VALIDATION_REJECT_MAX_EXCEEDS_BUDGET",
+      "category": "VALIDATION",
+      "description": "Policy with max_amount_per_request exceeding 24h rolling budget cap must be rejected",
+      "input": {
+        "tenant_id": "ten_alpha001",
+        "routes": [],
+        "policies": [
+          {
+            "policy_id": "pol_inconsistent",
+            "project_id": "prj_llm_prod",
+            "max_amount_per_request": 2000000,
+            "rolling_24h_budget_cap": 1000000,
+            "circuit_breaker_max_rpm": 60,
+            "whitelisted_networks": ["eip155:421614"],
+            "is_active": true
+          }
+        ]
+      },
+      "expected": {
+        "is_valid": false,
+        "error_code": "MAX_AMOUNT_EXCEEDS_ROLLING_BUDGET"
+      }
+    },
+    {
+      "id": "TC_CFG_04_ROLLBACK_INTEGRITY",
+      "category": "ROLLBACK",
+      "description": "Rollback from v2 to v1 produces new version v3 with identical snapshotHash as v1",
+      "input": {
+        "target_version_id": "ver_v1_snapshot",
+        "v1_hash": "sha256:d8e8fca2dc0f896fd7cb4cb0031ba249ecc0203f7e6f669db75fa4ff31238994",
+        "v2_hash": "sha256:59c1184f475da4a6828b6d44549ba3676cd3c834579c32de6dd0617a94d80a3a"
+      },
+      "expected": {
+        "new_version_number": 3,
+        "active_hash": "sha256:d8e8fca2dc0f896fd7cb4cb0031ba249ecc0203f7e6f669db75fa4ff31238994",
+        "action": "ROLLBACK_SUCCESS"
+      }
+    },
+    {
+      "id": "TC_CFG_05_GATEWAY_CACHE_DEGRADATION",
+      "category": "DEGRADATION",
+      "description": "Gateway loses control plane connectivity; continues routing using immutable memory snapshot",
+      "input": {
+        "control_plane_status": "UNAVAILABLE_500",
+        "in_memory_snapshot_version": "ver_v1_snapshot",
+        "in_memory_routes_count": 1
+      },
+      "expected": {
+        "gateway_behavior": "CONTINUE_SERVICE_WITH_LOCAL_CACHE",
+        "degradation_alert_logged": true
+      }
+    }
+  ]
+}

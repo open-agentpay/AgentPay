@@ -20,14 +20,13 @@ AgentPay 是面向自主 AI Agent 的开源支付基础设施与"财务防火墙
 
 > Python Agent → 买方 SDK（策略引擎 + 拦截器）→ 自托管网关 → 上游 API。正常请求自动付款；超额或失控循环被熔断；上游失败或超时后可恢复且不重复扣款。
 
-**本年只做：**
+
 - Python 买方 SDK：策略引擎、x402 编解码、EIP-712/3009 签名、httpx 拦截器
 - 三态状态机 + SQLite 持久化 + `reconcile()`
 - 最简网关：YAML 配置（路由 + 上游 + 固定价格 + 收款地址）
 - Mock Facilitator，之后接本地 anvil
 - LangChain 付费工具封装 + 失控循环 Demo（`make demo`）
 
-**本年明确不做（即使 README 或旧文档里出现，也不要实现）：**
 TypeScript 包、Java / Spring Boot starter、MCP 封装、PostgreSQL、控制台 API、独立对账服务、KMS、多链多币种、公共发现目录、托管或代收款平台、动态定价、主网。
 
 `AGENTPAY_CONTEXT.md` 是旧版（TypeScript 优先 + PostgreSQL）的上下文，**已过时，以本文件为准**。
@@ -105,6 +104,9 @@ make demo                                 # 失控循环 Demo（实现后）
 
 **协议**
 - x402 V2 的线格式、header 编码、Facilitator 接口，以**官方规范**为准。不确定时停下来，让用户提供官方文档，不要凭记忆编造字段。
+
+**语言**
+- 所有代码、文档语言要统一，支持多语言英文、中文简体；拒绝中英文混用
 
 ## 7. 工作流程
 

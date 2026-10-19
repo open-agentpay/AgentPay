@@ -42,3 +42,21 @@ services:
     depends_on:
       - facilitator
       - upstream-api
+
+  # PostgreSQL 15 Relational & Transactional Database (T1.2)
+  postgres:
+    image: postgres:15-alpine
+    container_name: agentpay-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=agentpay
+      - POSTGRES_USER=agentpay
+      - POSTGRES_PASSWORD=agentpay_secret_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+volumes:
+  pgdata:

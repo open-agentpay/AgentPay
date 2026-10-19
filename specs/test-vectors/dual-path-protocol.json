@@ -1,0 +1,139 @@
+{
+  "version": "2.0.0",
+  "suite": "dual-path-protocol-conformance",
+  "description": "Cross-language test vectors for AgentPay x402 onchain payments, internal virtual wallet payments, routing selection, and canonical error enforcement.",
+  "testCases": [
+    {
+      "id": "TC_PROTO_01_ONCHAIN_CHALLENGE_FORMAT",
+      "category": "ONCHAIN_X402",
+      "description": "Standard HTTP 402 challenge issued by gateway for onchain settlement",
+      "input": {
+        "route_id": "rou_llm_chat",
+        "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "network": "eip155:421614",
+        "amount": "50000",
+        "payee": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+      },
+      "expected": {
+        "http_status": 402,
+        "challenge_header": "PAYMENT-REQUIRED",
+        "challenge_payload": {
+          "version": "2.0",
+          "network": "eip155:421614",
+          "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+          "assetSymbol": "USDC",
+          "decimals": 6,
+          "amount": "50000",
+          "scheme": "EIP-3009"
+        }
+      }
+    },
+    {
+      "id": "TC_PROTO_02_WALLET_APIKEY_SELECTION",
+      "category": "WALLET_PAYMENT",
+      "description": "Client provides valid API Key on a wallet-enabled route -> selects wallet payment path",
+      "input": {
+        "headers": {
+          "Authorization": "Bearer apk_live_01j7xyz890abcdef12345678",
+          "Idempotency-Key": "idemp_order_20261018_001"
+        },
+        "route": {
+          "route_id": "rou_llm_chat",
+          "allowed_payment_methods": "both",
+          "price_base_units": 50000
+        },
+        "wallet_balance": {
+          "available": 1000000,
+          "held": 0,
+          "status": "active"
+        }
+      },
+      "expected": {
+        "selected_payment_method": "wallet",
+        "hold_amount": 50000,
+        "auto_downgrade": false,
+        "target_status": "held"
+      }
+    },
+    {
+      "id": "TC_PROTO_03_WALLET_INSUFFICIENT_NO_DOWNGRADE",
+      "category": "WALLET_PAYMENT",
+      "description": "Wallet available balance insufficient -> strictly reject with 402 and NO auto-downgrade to onchain",
+      "input": {
+        "headers": {
+          "Authorization": "Bearer apk_live_01j7xyz890abcdef12345678"
+        },
+        "route": {
+          "price_base_units": 500000,
+          "allowed_payment_methods": "both"
+        },
+        "wallet_balance": {
+          "available": 200000,
+          "held": 0,
+          "status": "active"
+        }
+      },
+      "expected": {
+        "http_status": 402,
+        "error_code": "ERR_WALLET_INSUFFICIENT_BALANCE",
+        "auto_downgrade_to_onchain": false,
+        "action": "REJECT"
+      }
+    },
+    {
+      "id": "TC_PROTO_04_WALLET_FROZEN_ARREARS",
+      "category": "WALLET_PAYMENT",
+      "description": "Wallet in arrears status (W6) -> reject new hold creation with 403",
+      "input": {
+        "headers": {
+          "Authorization": "Bearer apk_live_01j7xyz890abcdef12345678"
+        },
+        "wallet_balance": {
+          "available": -50000,
+          "held": 0,
+          "status": "frozen_arrears"
+        }
+      },
+      "expected": {
+        "http_status": 403,
+        "error_code": "ERR_WALLET_FROZEN",
+        "action": "REJECT"
+      }
+    },
+    {
+      "id": "TC_PROTO_05_PAYMENT_METHOD_MISMATCH",
+      "category": "ROUTING",
+      "description": "Route only allows wallet, but client sends onchain PAYMENT-SIGNATURE -> reject with 403",
+      "input": {
+        "headers": {
+          "PAYMENT-SIGNATURE": "eyJ2ZXJzaW9uIjoiMi4wIiwiY2hhbGxlbmdlSWQiOiJjaF8wMSJ9"
+        },
+        "route": {
+          "route_id": "rou_internal_only",
+          "allowed_payment_methods": "wallet"
+        }
+      },
+      "expected": {
+        "http_status": 403,
+        "error_code": "ERR_PAYMENT_METHOD_NOT_ALLOWED",
+        "action": "REJECT"
+      }
+    },
+    {
+      "id": "TC_PROTO_06_IDEMPOTENCY_CONFLICT",
+      "category": "IDEMPOTENCY",
+      "description": "Same Idempotency-Key with different payload hash in same tenant -> reject with 409",
+      "input": {
+        "tenant_id": "ten_alpha",
+        "idempotency_key": "idemp_same_key_001",
+        "original_payload_hash": "sha256_hash_aaa",
+        "incoming_payload_hash": "sha256_hash_bbb"
+      },
+      "expected": {
+        "http_status": 409,
+        "error_code": "ERR_IDEMPOTENCY_CONFLICT",
+        "action": "REJECT"
+      }
+    }
+  ]
+}
