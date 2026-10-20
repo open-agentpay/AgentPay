@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI"></a>
   <a href="https://open-agentpay.github.io/AgentPay/zh/"><img src="https://img.shields.io/badge/文档站-在线阅读-blue?logo=vitepress&logoColor=white" alt="文档站"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/关注-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
@@ -107,6 +108,10 @@ Total Funds Saved by AgentPay: $2.54 USDC (拦截并保护了 96.6% 的资金)
 ### 1. 环境准备与安装
 
 ```bash
+# 方式 A：通过 PyPI 一键安装
+pip install open-agentpay agentpay-gateway
+
+# 方式 B：从源码克隆并本地安装开发模式
 git clone https://github.com/open-agentpay/AgentPay.git
 cd AgentPay
 python3 -m venv .venv && source .venv/bin/activate

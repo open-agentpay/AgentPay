@@ -28,11 +28,11 @@ Both sync and async usage are supported (see [Sync and async](#sync-and-async)).
 Requires **Python 3.10+**.
 
 ```bash
-# from the repository root
-python3 -m venv .venv
-source .venv/bin/activate
+# Install canonical SDK package from PyPI
+pip install open-agentpay
+
+# Or install in editable mode for development from repository root
 pip install -e python/packages/agentpay
-python -c "import agentpay; print('agentpay OK')"
 ```
 
 ---

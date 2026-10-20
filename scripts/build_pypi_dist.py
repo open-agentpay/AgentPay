@@ -4,8 +4,7 @@ Build all PyPI distributions for AgentPay:
 1. open-agentpay (Canonical SDK)
 2. agentpay-gateway (Gateway Service)
 3. agentpay-core (Metapackage alias)
-4. agent-pay (Metapackage alias)
-5. agentpay-firewall (Metapackage alias)
+4. agentpay-firewall (Metapackage alias)
 """
 
 import os
@@ -24,14 +23,18 @@ STUB_PACKAGES = [
         "description": "Core payment infrastructure for AI agents (Official alias for open-agentpay)",
     },
     {
-        "name": "agent-pay",
-        "description": "Payments & financial firewall for AI agents (Official alias for open-agentpay)",
-    },
-    {
         "name": "agentpay-firewall",
         "description": "Financial firewall & runaway circuit breaker for AI agents (Official alias for open-agentpay)",
     },
 ]
+
+
+def get_version() -> str:
+    init_py = ROOT_DIR / "python" / "packages" / "agentpay" / "src" / "agentpay" / "__init__.py"
+    for line in init_py.read_text(encoding="utf-8").splitlines():
+        if line.startswith("__version__"):
+            return line.split("=")[1].strip().strip('"').strip("'")
+    return "0.2.0"
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> None:
@@ -51,11 +54,11 @@ def build_primary_packages() -> None:
     run([sys.executable, "-m", "build", "--no-isolation", "--outdir", str(DIST_DIR)], cwd=gateway_pkg)
 
 
-def build_stub_packages() -> None:
+def build_stub_packages(version: str) -> None:
     for pkg in STUB_PACKAGES:
         name = pkg["name"]
         desc = pkg["description"]
-        print(f"\n--> Preparing alias package: {name}")
+        print(f"\n--> Preparing alias package: {name} (v{version})")
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
@@ -72,7 +75,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "{name}"
-version = "0.1.0"
+version = "{version}"
 description = "{desc}"
 readme = "README.md"
 license = "Apache-2.0"
@@ -81,12 +84,12 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "open-agentpay>=0.1.0"
+    "open-agentpay>={version}"
 ]
 
 [project.urls]
 Homepage = "https://github.com/open-agentpay/AgentPay"
-Documentation = "https://github.com/open-agentpay/AgentPay#readme"
+Documentation = "https://open-agentpay.github.io/AgentPay/"
 Repository = "https://github.com/open-agentpay/AgentPay"
 
 [tool.hatch.build.targets.wheel]
@@ -108,12 +111,13 @@ pip install {name}
 In your Python code, import `agentpay` directly:
 
 ```python
-from agentpay.client import AgentPayClient, LocalSigner
+from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 ```
 
 For documentation and full source code, visit:
-https://github.com/open-agentpay/AgentPay
+- **Official Documentation**: https://open-agentpay.github.io/AgentPay/
+- **GitHub Repository**: https://github.com/open-agentpay/AgentPay
 """
             (tmp_path / "README.md").write_text(readme_content, encoding="utf-8")
 
@@ -121,15 +125,18 @@ https://github.com/open-agentpay/AgentPay
 
 
 def main() -> None:
+    version = get_version()
+    print(f"=== AgentPay Python Distribution Build (Target Version: v{version}) ===")
+
     if DIST_DIR.exists():
         shutil.rmtree(DIST_DIR)
     DIST_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("=== Step 1: Building primary packages (open-agentpay & agentpay-gateway) ===")
+    print("\n=== Step 1: Building primary packages (open-agentpay & agentpay-gateway) ===")
     build_primary_packages()
 
-    print("\n=== Step 2: Building alias stub packages ===")
-    build_stub_packages()
+    print(f"\n=== Step 2: Building alias stub packages (v{version}) ===")
+    build_stub_packages(version)
 
     print("\n=== SUCCESS: All packages built in dist_all/ ===")
     for f in sorted(DIST_DIR.iterdir()):

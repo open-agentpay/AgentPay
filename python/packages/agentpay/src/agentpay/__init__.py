@@ -3,7 +3,7 @@ AgentPay Python SDK
 The Open-Source Payment Infrastructure & Financial Firewall for Autonomous AI Agents.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from agentpay.client import (
     AgentPayClient,

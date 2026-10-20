@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration test-e2e vectors lint format format-check check clean demo
+.PHONY: test test-unit test-integration test-e2e vectors lint format format-check check clean demo pypi-build pypi-upload
 
 PYTHON ?= python3
 
@@ -60,6 +60,14 @@ docker-build:
 
 docker-push:
 	./scripts/docker-build-push.sh --push
+
+# Build all PyPI distribution packages (.whl & .tar.gz)
+pypi-build:
+	$(PYTHON) scripts/build_pypi_dist.py
+
+# Publish all built packages to PyPI via twine
+pypi-upload:
+	twine upload dist_all/*
 
 compose-up:
 	docker compose up -d --build

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "open-agentpay"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Open-Source Payment Infrastructure & Financial Firewall for Autonomous AI Agents"
 readme = "README.md"
 license = "Apache-2.0"
@@ -45,7 +45,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/open-agentpay/AgentPay"
-Documentation = "https://github.com/open-agentpay/AgentPay#readme"
+Documentation = "https://open-agentpay.github.io/AgentPay/"
 Repository = "https://github.com/open-agentpay/AgentPay"
 
 [tool.hatch.build.targets.wheel]

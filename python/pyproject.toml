@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentpay"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Open-Source Payment Infrastructure & Financial Firewall for Autonomous AI Agents"
 readme = "README.md"
 license = "Apache-2.0"
@@ -12,6 +12,18 @@ authors = [
     { name = "AgentPay Contributors" }
 ]
 requires-python = ">=3.10"
+keywords = ["agent", "ai", "llm", "x402", "usdc", "eip-712", "financial-firewall", "arbitrum", "langchain"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
+]
 dependencies = [
     "eth-account>=0.11.0",
     "web3>=6.15.0",
@@ -37,6 +49,11 @@ dev = [
     "ruff>=0.3.0",
     "mypy>=1.9.0"
 ]
+
+[project.urls]
+Homepage = "https://github.com/open-agentpay/AgentPay"
+Documentation = "https://open-agentpay.github.io/AgentPay/"
+Repository = "https://github.com/open-agentpay/AgentPay"
 
 [tool.hatch.build.targets.wheel]
 packages = ["packages/agentpay/src/agentpay"]

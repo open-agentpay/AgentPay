@@ -28,11 +28,11 @@ AgentPay 尚未经过审计，仅适用于测试网与沙箱环境。切勿向�
 需要 **Python 3.10+**。
 
 ```bash
-# 在仓库根目录执行
-python3 -m venv .venv
-source .venv/bin/activate
+# 从 PyPI 安装标准 SDK 包
+pip install open-agentpay
+
+# 或在仓库根目录以可编辑模式本地安装进行开发
 pip install -e python/packages/agentpay
-python -c "import agentpay; print('agentpay OK')"
 ```
 
 ---
