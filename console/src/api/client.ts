@@ -1015,7 +1015,7 @@ export const agentApi = {
     }
   },
 
-  // T5.8 先预留：如果后端有 T5.8 时间线读模型则直接调用，未就绪时启用预留 Mock 引擎
+  // 时间线读取：如果后端有时间线读模型则直接调用，未就绪时启用预留 Mock 引擎
   async getAgentTimeline(
     tenantId: string,
     agentId: string,
@@ -1033,7 +1033,7 @@ export const agentApi = {
         return response.data.items;
       }
     } catch {
-      // T5.8 reserved fallback to Mock Timeline
+      // fallback to Mock Timeline
     }
 
     let events = MOCK_AGENT_TIMELINE[agentId] ? [...MOCK_AGENT_TIMELINE[agentId]] : [];

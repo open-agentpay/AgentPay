@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { ConfigDraftDiff } from '@/types/config';
+import { useI18n } from '@/i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   modelValue: boolean;
@@ -21,11 +24,11 @@ const activeTab = ref('routes');
 function getActionLabel(action: string): string {
   switch (action) {
     case 'added':
-      return '新增';
+      return t('新增');
     case 'modified':
-      return '修改';
+      return t('修改');
     case 'deleted':
-      return '删除';
+      return t('删除');
     default:
       return action;
   }
@@ -53,7 +56,7 @@ function formatPrice(units?: unknown): string {
 <template>
   <el-drawer
     v-model="drawerVisible"
-    title="网关配置草稿 vs 生效快照 差异比对"
+    :title="$t('网关配置草稿 vs 生效快照 差异比对')"
     size="720px"
     destroy-on-close
   >
@@ -61,35 +64,35 @@ function formatPrice(units?: unknown): string {
       <!-- Overview Bar -->
       <div class="diff-overview">
         <div class="overview-item">
-          <span class="label">基准生效版本</span>
-          <el-tag size="small" type="info">{{ diff.active_version_id || '初始空快照' }}</el-tag>
+          <span class="label">{{ $t('基准生效版本') }}</span>
+          <el-tag size="small" type="info">{{ diff.active_version_id || $t('初始空快照') }}</el-tag>
         </div>
         <div class="overview-item">
-          <span class="label">草稿变更状态</span>
-          <el-tag v-if="diff.has_changes" type="warning" size="small">存在未发布变更</el-tag>
-          <el-tag v-else type="success" size="small">与已发布版本一致</el-tag>
+          <span class="label">{{ $t('草稿变更状态') }}</span>
+          <el-tag v-if="diff.has_changes" type="warning" size="small">{{ $t('存在未发布变更') }}</el-tag>
+          <el-tag v-else type="success" size="small">{{ $t('与已发布版本一致') }}</el-tag>
         </div>
         <div class="overview-item">
-          <span class="label">路由变更数</span>
+          <span class="label">{{ $t('路由变更数') }}</span>
           <span class="count">{{ diff.route_diffs?.length || 0 }}</span>
         </div>
         <div class="overview-item">
-          <span class="label">策略变更数</span>
+          <span class="label">{{ $t('策略变更数') }}</span>
           <span class="count">{{ diff.policy_diffs?.length || 0 }}</span>
         </div>
       </div>
 
       <!-- No changes -->
       <div v-if="!diff.has_changes" class="empty-diff">
-        <el-empty description="当前草稿与已生效网关快照完全一致，暂无未发布的变更。" />
+        <el-empty :description="$t('当前草稿与已生效网关快照完全一致，暂无未发布的变更。')" />
       </div>
 
       <!-- Changes tabs -->
       <div v-else class="diff-tabs-wrap">
         <el-tabs v-model="activeTab">
-          <el-tab-pane :label="`路由变更 (${diff.route_diffs?.length || 0})`" name="routes">
+          <el-tab-pane :label="`${$t('路由变更数')} (${diff.route_diffs?.length || 0})`" name="routes">
             <div v-if="!diff.route_diffs || diff.route_diffs.length === 0" class="sub-empty">
-              暂无路由层级的变更
+              {{ $t('暂无路由层级的变更') }}
             </div>
             <div v-else class="diff-list">
               <el-card
@@ -111,7 +114,7 @@ function formatPrice(units?: unknown): string {
                 <!-- Modified details comparison -->
                 <div v-if="item.action === 'modified'" class="diff-details">
                   <div class="diff-row">
-                    <span class="diff-key">上游地址:</span>
+                    <span class="diff-key">{{ $t('上游地址:') }}</span>
                     <div class="diff-val">
                       <span class="old-val">{{ item.before?.upstream_url }}</span>
                       <el-icon class="arrow-icon"><Right /></el-icon>
@@ -120,7 +123,7 @@ function formatPrice(units?: unknown): string {
                   </div>
 
                   <div class="diff-row">
-                    <span class="diff-key">支付方式:</span>
+                    <span class="diff-key">{{ $t('支付方式:') }}</span>
                     <div class="diff-val">
                       <span class="old-val">{{ item.before?.allowed_payment_methods }}</span>
                       <el-icon class="arrow-icon"><Right /></el-icon>
@@ -129,7 +132,7 @@ function formatPrice(units?: unknown): string {
                   </div>
 
                   <div class="diff-row">
-                    <span class="diff-key">单价金额:</span>
+                    <span class="diff-key">{{ $t('单价金额:') }}</span>
                     <div class="diff-val">
                       <span class="old-val">{{ formatPrice(item.before?.price_base_units) }}</span>
                       <el-icon class="arrow-icon"><Right /></el-icon>
@@ -138,11 +141,11 @@ function formatPrice(units?: unknown): string {
                   </div>
 
                   <div class="diff-row">
-                    <span class="diff-key">收款地址:</span>
+                    <span class="diff-key">{{ $t('收款地址:') }}</span>
                     <div class="diff-val">
-                      <span class="old-val">{{ item.before?.payee_address || '(虚拟钱包)' }}</span>
+                      <span class="old-val">{{ item.before?.payee_address || $t('(虚拟钱包)') }}</span>
                       <el-icon class="arrow-icon"><Right /></el-icon>
-                      <span class="new-val">{{ item.after?.payee_address || '(虚拟钱包)' }}</span>
+                      <span class="new-val">{{ item.after?.payee_address || $t('(虚拟钱包)') }}</span>
                     </div>
                   </div>
                 </div>
@@ -150,15 +153,15 @@ function formatPrice(units?: unknown): string {
                 <!-- Added details -->
                 <div v-else-if="item.action === 'added'" class="diff-details added-box">
                   <div class="field-item">
-                    <span class="field-label">目标上游:</span>
+                    <span class="field-label">{{ $t('目标上游:') }}</span>
                     <span>{{ item.after?.upstream_url }}</span>
                   </div>
                   <div class="field-item">
-                    <span class="field-label">支付方式:</span>
+                    <span class="field-label">{{ $t('支付方式:') }}</span>
                     <span>{{ item.after?.allowed_payment_methods }}</span>
                   </div>
                   <div class="field-item">
-                    <span class="field-label">单价:</span>
+                    <span class="field-label">{{ $t('单价:') }}</span>
                     <span>{{ formatPrice(item.after?.price_base_units) }}</span>
                   </div>
                 </div>
@@ -166,7 +169,7 @@ function formatPrice(units?: unknown): string {
                 <!-- Deleted details -->
                 <div v-else-if="item.action === 'deleted'" class="diff-details deleted-box">
                   <div class="field-item">
-                    <span class="field-label">已删除路由:</span>
+                    <span class="field-label">{{ $t('已删除路由:') }}</span>
                     <span class="deleted-text">{{ item.before?.upstream_url }}</span>
                   </div>
                 </div>
@@ -174,9 +177,9 @@ function formatPrice(units?: unknown): string {
             </div>
           </el-tab-pane>
 
-          <el-tab-pane :label="`策略变更 (${diff.policy_diffs?.length || 0})`" name="policies">
+          <el-tab-pane :label="`${$t('策略变更数')} (${diff.policy_diffs?.length || 0})`" name="policies">
             <div v-if="!diff.policy_diffs || diff.policy_diffs.length === 0" class="sub-empty">
-              暂无策略层级的变更
+              {{ $t('暂无策略层级的变更') }}
             </div>
             <div v-else class="diff-list">
               <el-card
@@ -190,14 +193,14 @@ function formatPrice(units?: unknown): string {
                     <el-tag :type="getActionTagType(item.action)" size="small">
                       {{ getActionLabel(item.action) }}
                     </el-tag>
-                    <span class="policy-title">安全策略: {{ item.policy_id }}</span>
+                    <span class="policy-title">{{ $t('安全策略:') }} {{ item.policy_id }}</span>
                   </div>
                 </div>
 
                 <!-- Modified policy comparison -->
                 <div v-if="item.action === 'modified'" class="diff-details">
                   <div class="diff-row">
-                    <span class="diff-key">单次上限:</span>
+                    <span class="diff-key">{{ $t('单次上限:') }}</span>
                     <div class="diff-val">
                       <span class="old-val">{{ formatPrice(item.before?.max_amount_per_request) }}</span>
                       <el-icon class="arrow-icon"><Right /></el-icon>
@@ -206,7 +209,7 @@ function formatPrice(units?: unknown): string {
                   </div>
 
                   <div class="diff-row">
-                    <span class="diff-key">24h预算上限:</span>
+                    <span class="diff-key">{{ $t('24h预算上限:') }}</span>
                     <div class="diff-val">
                       <span class="old-val">{{ formatPrice(item.before?.rolling_24h_budget_cap) }}</span>
                       <el-icon class="arrow-icon"><Right /></el-icon>
@@ -215,7 +218,7 @@ function formatPrice(units?: unknown): string {
                   </div>
 
                   <div class="diff-row">
-                    <span class="diff-key">熔断阈值 RPM:</span>
+                    <span class="diff-key">{{ $t('熔断阈值 RPM:') }}</span>
                     <div class="diff-val">
                       <span class="old-val">{{ item.before?.circuit_breaker_max_rpm }}</span>
                       <el-icon class="arrow-icon"><Right /></el-icon>
@@ -232,7 +235,7 @@ function formatPrice(units?: unknown): string {
 
     <template #footer>
       <div class="drawer-footer">
-        <el-button @click="drawerVisible = false">关闭</el-button>
+        <el-button @click="drawerVisible = false">{{ $t('关闭') }}</el-button>
       </div>
     </template>
   </el-drawer>

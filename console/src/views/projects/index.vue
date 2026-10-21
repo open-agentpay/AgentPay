@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useTenantStore } from '@/stores/tenant';
 import type { Project } from '@/types/tenant';
 import PermissionGate from '@/components/PermissionGate.vue';
+import { t } from '@/i18n';
 
 const authStore = useAuthStore();
 const tenantStore = useTenantStore();
@@ -17,7 +18,7 @@ async function refreshProjects() {
   try {
     await tenantStore.loadProjects();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '加载项目列表失败';
+    const msg = err instanceof Error ? err.message : t('加载项目列表失败');
     ElMessage.error(msg);
   } finally {
     loading.value = false;
@@ -41,15 +42,15 @@ const createForm = reactive({
 
 const projectRules: FormRules = {
   name: [
-    { required: true, message: '请输入项目名称', trigger: 'blur' },
-    { min: 2, max: 50, message: '长度在 2 到 50 个字符', trigger: 'blur' }
+    { required: true, message: t('请输入项目名称'), trigger: 'blur' },
+    { min: 2, max: 50, message: t('长度在 2 到 50 个字符'), trigger: 'blur' }
   ],
   budget_cap_usdc: [
-    { required: true, message: '请输入预算上限', trigger: 'blur' },
+    { required: true, message: t('请输入预算上限'), trigger: 'blur' },
     {
       validator: (_rule, value, callback) => {
         if (value < 0) {
-          callback(new Error('预算上限不能小于 0'));
+          callback(new Error(t('预算上限不能小于 0')));
         } else {
           callback();
         }
@@ -76,11 +77,11 @@ async function handleCreateProject() {
         name: createForm.name.trim(),
         budget_cap_base_units: budgetCapBaseUnits
       });
-      ElMessage.success('项目创建成功');
+      ElMessage.success(t('项目创建成功'));
       createDialogVisible.value = false;
       await refreshProjects();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '创建项目失败';
+      const msg = err instanceof Error ? err.message : t('创建项目失败');
       ElMessage.error(msg);
     } finally {
       createLoading.value = false;
@@ -121,11 +122,11 @@ async function handleUpdateProject() {
         budget_cap_base_units: budgetCapBaseUnits,
         status: editForm.status
       });
-      ElMessage.success('项目更新成功');
+      ElMessage.success(t('项目更新成功'));
       editDialogVisible.value = false;
       await refreshProjects();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '更新项目失败';
+      const msg = err instanceof Error ? err.message : t('更新项目失败');
       ElMessage.error(msg);
     } finally {
       editLoading.value = false;
@@ -138,23 +139,23 @@ async function handleUpdateProject() {
 // ----------------------------------------------------------------------------
 async function toggleArchive(prj: Project) {
   const targetStatus = prj.status === 'active' ? 'archived' : 'active';
-  const actionText = targetStatus === 'active' ? '激活' : '归档';
+  const actionText = targetStatus === 'active' ? t('激活') : t('归档');
 
   try {
-    await ElMessageBox.confirm(`确定要${actionText}项目 "${prj.name}" 吗？`, '项目状态确认', {
+    await ElMessageBox.confirm(`${t('确定要')}${actionText}${t('项目')} "${prj.name}" ${t('吗？')}`, t('项目状态确认'), {
       type: 'warning',
-      confirmButtonText: '确定',
-      cancelButtonText: '取消'
+      confirmButtonText: t('确定'),
+      cancelButtonText: t('取消')
     });
 
     await tenantStore.updateProject(prj.project_id, {
       status: targetStatus
     });
-    ElMessage.success(`项目已${actionText}`);
+    ElMessage.success(`${t('项目已')}${actionText}`);
     await refreshProjects();
   } catch (err: unknown) {
     if (err !== 'cancel') {
-      const msg = err instanceof Error ? err.message : '操作失败';
+      const msg = err instanceof Error ? err.message : t('操作失败');
       ElMessage.error(msg);
     }
   }
@@ -163,21 +164,21 @@ async function toggleArchive(prj: Project) {
 async function handleDeleteProject(prj: Project) {
   try {
     await ElMessageBox.confirm(
-      `确定要删除项目 "${prj.name}" 吗？该操作不可逆，请谨慎操作。`,
-      '删除项目确认',
+      `${t('确定要删除项目')} "${prj.name}" ${t('吗？该操作不可逆，请谨慎操作。')}`,
+      t('删除项目确认'),
       {
         type: 'error',
-        confirmButtonText: '确认删除',
-        cancelButtonText: '取消'
+        confirmButtonText: t('确认删除'),
+        cancelButtonText: t('取消')
       }
     );
 
     await tenantStore.deleteProject(prj.project_id);
-    ElMessage.success('项目已删除');
+    ElMessage.success(t('项目已删除'));
     await refreshProjects();
   } catch (err: unknown) {
     if (err !== 'cancel') {
-      const msg = err instanceof Error ? err.message : '删除失败';
+      const msg = err instanceof Error ? err.message : t('删除失败');
       ElMessage.error(msg);
     }
   }
@@ -185,7 +186,7 @@ async function handleDeleteProject(prj: Project) {
 
 function handleSetCurrentProject(projectId: string) {
   tenantStore.switchProject(projectId);
-  ElMessage.success('已切换为当前工作项目');
+  ElMessage.success(t('已切换为当前工作项目'));
 }
 </script>
 
@@ -195,15 +196,15 @@ function handleSetCurrentProject(projectId: string) {
       <template #header>
         <div class="header-box">
           <div>
-            <span class="title">业务项目管理 (Project Management)</span>
-            <span class="subtitle">所属组织: {{ tenantStore.currentTenant?.name }}</span>
+            <span class="title">{{ $t('业务项目管理 (Project Management)') }}</span>
+            <span class="subtitle">{{ $t('所属组织:') }} {{ tenantStore.currentTenant?.name }}</span>
           </div>
           <PermissionGate :roles="['owner', 'admin']">
             <el-button type="primary" icon="Plus" @click="openCreateDialog">
-              新建业务项目
+              {{ $t('新建业务项目') }}
             </el-button>
             <template #fallback>
-              <el-tag type="info">当前角色 ({{ authStore.currentRole }}) 为只读视图</el-tag>
+              <el-tag type="info">{{ $t('当前角色') }} ({{ authStore.currentRole }}) {{ $t('为只读视图') }}</el-tag>
             </template>
           </PermissionGate>
         </div>
@@ -211,7 +212,7 @@ function handleSetCurrentProject(projectId: string) {
 
       <!-- Projects Table -->
       <el-table v-loading="loading" :data="tenantStore.availableProjects" stripe style="width: 100%">
-        <el-table-column prop="name" label="项目名称" min-width="180">
+        <el-table-column prop="name" :label="$t('项目名称')" min-width="180">
           <template #default="{ row }">
             <div class="project-name-cell">
               <span class="name-text">{{ row.name }}</span>
@@ -221,19 +222,19 @@ function handleSetCurrentProject(projectId: string) {
                 size="small"
                 effect="dark"
               >
-                当前工作项目
+                {{ $t('当前工作项目') }}
               </el-tag>
             </div>
           </template>
         </el-table-column>
 
-        <el-table-column prop="project_id" label="项目 ID" width="200">
+        <el-table-column prop="project_id" :label="$t('项目 ID')" width="200">
           <template #default="{ row }">
             <code class="code-id">{{ row.project_id }}</code>
           </template>
         </el-table-column>
 
-        <el-table-column label="预算上限" width="160">
+        <el-table-column :label="$t('预算上限')" width="160">
           <template #default="{ row }">
             <span class="budget-text">
               {{ ((row.budget_cap_base_units || 0) / 1000000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }} USDC
@@ -241,15 +242,15 @@ function handleSetCurrentProject(projectId: string) {
           </template>
         </el-table-column>
 
-        <el-table-column label="状态" width="110">
+        <el-table-column :label="$t('状态')" width="110">
           <template #default="{ row }">
             <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
-              {{ row.status === 'active' ? '正常' : '已归档' }}
+              {{ row.status === 'active' ? $t('正常') : $t('已归档') }}
             </el-tag>
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column :label="$t('操作')" width="220" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="row.project_id !== tenantStore.currentProjectId"
@@ -258,7 +259,7 @@ function handleSetCurrentProject(projectId: string) {
               size="small"
               @click="handleSetCurrentProject(row.project_id)"
             >
-              设为当前
+              {{ $t('设为当前') }}
             </el-button>
             <el-button
               link
@@ -267,7 +268,7 @@ function handleSetCurrentProject(projectId: string) {
               :disabled="!canManage"
               @click="openEditDialog(row)"
             >
-              编辑
+              {{ $t('编辑') }}
             </el-button>
             <el-button
               link
@@ -276,7 +277,7 @@ function handleSetCurrentProject(projectId: string) {
               :disabled="!canManage"
               @click="toggleArchive(row)"
             >
-              {{ row.status === 'active' ? '归档' : '恢复' }}
+              {{ row.status === 'active' ? $t('归档') : $t('恢复') }}
             </el-button>
             <el-button
               link
@@ -285,7 +286,7 @@ function handleSetCurrentProject(projectId: string) {
               :disabled="!canManage"
               @click="handleDeleteProject(row)"
             >
-              删除
+              {{ $t('删除') }}
             </el-button>
           </template>
         </el-table-column>
@@ -295,7 +296,7 @@ function handleSetCurrentProject(projectId: string) {
     <!-- Create Project Dialog -->
     <el-dialog
       v-model="createDialogVisible"
-      title="新建业务项目"
+      :title="$t('新建业务项目')"
       width="520px"
       :close-on-click-modal="false"
     >
@@ -306,15 +307,15 @@ function handleSetCurrentProject(projectId: string) {
         label-width="110px"
         status-icon
       >
-        <el-form-item label="项目名称" prop="name">
+        <el-form-item :label="$t('项目名称')" prop="name">
           <el-input
             v-model="createForm.name"
-            placeholder="例如: 智能投研业务线"
+            :placeholder="$t('例如: 智能投研业务线')"
             clearable
           />
         </el-form-item>
 
-        <el-form-item label="预算上限" prop="budget_cap_usdc">
+        <el-form-item :label="$t('预算上限')" prop="budget_cap_usdc">
           <el-input-number
             v-model="createForm.budget_cap_usdc"
             :min="0"
@@ -323,15 +324,15 @@ function handleSetCurrentProject(projectId: string) {
             style="width: 220px"
           />
           <span style="margin-left: 8px; font-weight: 500">USDC</span>
-          <div class="form-hint">项目在结算周期内允许消费的最大预算上限</div>
+          <div class="form-hint">{{ $t('项目在结算周期内允许消费的最大预算上限') }}</div>
         </el-form-item>
       </el-form>
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="createDialogVisible = false">取消</el-button>
+          <el-button @click="createDialogVisible = false">{{ $t('取消') }}</el-button>
           <el-button type="primary" :loading="createLoading" @click="handleCreateProject">
-            确认新建
+            {{ $t('确认新建') }}
           </el-button>
         </span>
       </template>
@@ -340,7 +341,7 @@ function handleSetCurrentProject(projectId: string) {
     <!-- Edit Project Dialog -->
     <el-dialog
       v-model="editDialogVisible"
-      title="编辑业务项目"
+      :title="$t('编辑业务项目')"
       width="520px"
       :close-on-click-modal="false"
     >
@@ -351,11 +352,11 @@ function handleSetCurrentProject(projectId: string) {
         label-width="110px"
         status-icon
       >
-        <el-form-item label="项目名称" prop="name">
+        <el-form-item :label="$t('项目名称')" prop="name">
           <el-input v-model="editForm.name" clearable />
         </el-form-item>
 
-        <el-form-item label="预算上限" prop="budget_cap_usdc">
+        <el-form-item :label="$t('预算上限')" prop="budget_cap_usdc">
           <el-input-number
             v-model="editForm.budget_cap_usdc"
             :min="0"
@@ -366,19 +367,19 @@ function handleSetCurrentProject(projectId: string) {
           <span style="margin-left: 8px; font-weight: 500">USDC</span>
         </el-form-item>
 
-        <el-form-item label="项目状态">
+        <el-form-item :label="$t('项目状态')">
           <el-radio-group v-model="editForm.status">
-            <el-radio value="active">正常运行 (Active)</el-radio>
-            <el-radio value="archived">已归档 (Archived)</el-radio>
+            <el-radio value="active">{{ $t('正常运行 (Active)') }}</el-radio>
+            <el-radio value="archived">{{ $t('已归档 (Archived)') }}</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button @click="editDialogVisible = false">{{ $t('取消') }}</el-button>
           <el-button type="primary" :loading="editLoading" @click="handleUpdateProject">
-            保存修改
+            {{ $t('保存修改') }}
           </el-button>
         </span>
       </template>

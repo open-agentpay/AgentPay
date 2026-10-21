@@ -16,12 +16,21 @@ type PostgresService struct {
 
 // NewPostgresService creates an instance of PostgresService.
 func NewPostgresService(db *sql.DB) *PostgresService {
+	if db != nil {
+		// Drop foreign key constraint on config_version_id if it exists.
+		// Snapshot/sync config versions (e.g. ver_sync_..., ver_default) are runtime dynamic
+		// and do not exist in the ap_config_version release table.
+		_, _ = db.Exec("ALTER TABLE ap_payment_intent DROP CONSTRAINT IF EXISTS ap_payment_intent_config_version_id_fkey;")
+	}
 	return &PostgresService{db: db}
 }
 
 func (p *PostgresService) CreateIntent(ctx context.Context, intent *PaymentIntent) error {
 	if intent == nil || intent.IntentID == "" {
 		return errors.New("invalid payment intent")
+	}
+	if intent.ConfigVersionID == "" {
+		intent.ConfigVersionID = "ver_default"
 	}
 
 	query := `
@@ -110,6 +119,9 @@ func (p *PostgresService) UpdateIntentStatus(ctx context.Context, intentID strin
 func (p *PostgresService) RecordSettlement(ctx context.Context, s *SettlementRecord) error {
 	if s == nil || s.SettlementID == "" || s.IntentID == "" {
 		return errors.New("invalid settlement record")
+	}
+	if s.Nonce == "" {
+		s.Nonce = fmt.Sprintf("nonce_%s", s.SettlementID)
 	}
 
 	query := `
@@ -371,7 +383,7 @@ func (p *PostgresService) GetPaymentAudit(ctx context.Context, tenantID, intentI
 		LEFT JOIN ap_settlement_record s ON s.intent_id = i.intent_id
 		LEFT JOIN ap_fulfillment_record f ON f.intent_id = i.intent_id
 		LEFT JOIN ap_hold h ON h.payment_intent_id = i.intent_id
-		LEFT JOIN ap_ledger_entry l ON (l.ref_type = 'PaymentIntent' AND l.ref_id = i.intent_id)
+		LEFT JOIN ap_ledger_entry l ON ((l.ref_type = 'PaymentIntent' AND l.ref_id = i.intent_id) OR (l.ref_type = 'Hold' AND l.ref_id = h.hold_id))
 		WHERE i.intent_id = $1
 	`
 	row := p.db.QueryRowContext(ctx, query, intentID)
@@ -411,7 +423,7 @@ func (p *PostgresService) GetPaymentAuditByRequestID(ctx context.Context, tenant
 		LEFT JOIN ap_settlement_record s ON s.intent_id = i.intent_id
 		LEFT JOIN ap_fulfillment_record f ON f.intent_id = i.intent_id
 		LEFT JOIN ap_hold h ON h.payment_intent_id = i.intent_id
-		LEFT JOIN ap_ledger_entry l ON (l.ref_type = 'PaymentIntent' AND l.ref_id = i.intent_id)
+		LEFT JOIN ap_ledger_entry l ON ((l.ref_type = 'PaymentIntent' AND l.ref_id = i.intent_id) OR (l.ref_type = 'Hold' AND l.ref_id = h.hold_id))
 		WHERE i.request_id = $1
 	`
 	row := p.db.QueryRowContext(ctx, query, requestID)
@@ -516,7 +528,7 @@ func (p *PostgresService) ListPaymentAudits(ctx context.Context, filter PaymentA
 		LEFT JOIN ap_settlement_record s ON s.intent_id = i.intent_id
 		LEFT JOIN ap_fulfillment_record f ON f.intent_id = i.intent_id
 		LEFT JOIN ap_hold h ON h.payment_intent_id = i.intent_id
-		LEFT JOIN ap_ledger_entry l ON (l.ref_type = 'PaymentIntent' AND l.ref_id = i.intent_id)
+		LEFT JOIN ap_ledger_entry l ON ((l.ref_type = 'PaymentIntent' AND l.ref_id = i.intent_id) OR (l.ref_type = 'Hold' AND l.ref_id = h.hold_id))
 		%s
 		ORDER BY i.created_at DESC
 		LIMIT $%d OFFSET $%d

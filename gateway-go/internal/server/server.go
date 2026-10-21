@@ -200,6 +200,7 @@ func NewWithWalletAndTransport(
 	}
 	adminSvc.SetTimelineService(timelineSvc)
 	processor.SetAuditEmitter(timeline.NewTimelineAuditEmitter(timelineSvc, processor.GetAuditEmitter()))
+	processor.SetAgentRegistry(agentRegistry)
 
 	// Wire admin service to RCU Manager and run initial synchronization
 	if adminSvc != nil && rcuMgr != nil {

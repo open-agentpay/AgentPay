@@ -27,6 +27,8 @@ import (
 type WalletAccount struct {
 	WalletID         string
 	TenantID         string
+	ProjectID        string
+	AgentID          string
 	Status           string // active, frozen, frozen_arrears, closed
 	AvailableBalance int64
 	HeldBalance      int64
@@ -315,6 +317,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				tID = route.TenantID
 			}
 			pID := projectID
+			if (pID == "" || pID == "prj_default") && route != nil && route.ProjectID != "" {
+				pID = route.ProjectID
+			}
 			if pID == "" {
 				pID = "prj_default"
 			}
@@ -348,6 +353,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				tID = route.TenantID
 			}
 			pID := projectID
+			if (pID == "" || pID == "prj_default") && route != nil && route.ProjectID != "" {
+				pID = route.ProjectID
+			}
 			if pID == "" {
 				pID = "prj_default"
 			}
@@ -376,6 +384,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				tID = route.TenantID
 			}
 			pID := projectID
+			if (pID == "" || pID == "prj_default") && route != nil && route.ProjectID != "" {
+				pID = route.ProjectID
+			}
 			if pID == "" {
 				pID = "prj_default"
 			}
@@ -527,6 +538,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 	authHeader := r.Header.Get(HeaderPaymentSignature)
 	bearerHeader := r.Header.Get("Authorization")
 	apiKeyHeader := r.Header.Get("X-API-Key")
+	agentKeyHeader := r.Header.Get("X-Agent-Key")
 
 	// Determine client-provided credentials
 	var apiKey string
@@ -534,6 +546,8 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		apiKey = strings.TrimSpace(bearerHeader[7:])
 	} else if apiKeyHeader != "" {
 		apiKey = apiKeyHeader
+	} else if agentKeyHeader != "" {
+		apiKey = agentKeyHeader
 	}
 
 	// ------------------------------------------------------------------------
@@ -573,10 +587,15 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 		resolvedAgent, agentPolicy, _ := p.agentRegistry.ResolveAPIKey(apiKey)
 		if resolvedAgent == nil {
+			agentID := wallet.AgentID
+			projectID := wallet.ProjectID
+			if projectID == "" {
+				projectID = "prj_default"
+			}
 			resolvedAgent = &agent.AgentIdentity{
-				AgentID:   "agt_wallet_" + wallet.WalletID,
+				AgentID:   agentID,
 				TenantID:  wallet.TenantID,
-				ProjectID: "prj_default",
+				ProjectID: projectID,
 				Name:      "DefaultAgent",
 				Status:    agent.AgentStatusActive,
 			}
@@ -591,7 +610,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 		// 2. Synchronous In-Path Agent Policy Enforcement (T2.9)
 		decision := p.agentEnforcer.Evaluate(r.Context(), resolvedAgent, agentPolicy, route.RouteID, r.URL.Path, route.PriceBaseUnits)
-		if p.auditEmitter != nil {
+		if p.auditEmitter != nil && resolvedAgent.AgentID != "" {
 			p.auditEmitter.Emit(agent.BuildPolicyDecisionEvent(
 				resolvedAgent,
 				decision,
@@ -618,7 +637,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		// Helper closure to emit agent.request audit event upon completion
 		emitRequestAudit := func(statusCode int, isReplay bool, errCode string) {
 			durationMs := time.Since(startTime).Milliseconds()
-			if p.auditEmitter != nil {
+			if p.auditEmitter != nil && resolvedAgent.AgentID != "" {
 				p.auditEmitter.Emit(agent.BuildRequestEvent(
 					resolvedAgent,
 					correlation,
@@ -642,7 +661,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		// Helper closure to emit agent.spend audit event
 		emitSpendAudit := func(holdID string, action string) {
 			correlation.HoldID = holdID
-			if p.auditEmitter != nil {
+			if p.auditEmitter != nil && resolvedAgent.AgentID != "" {
 				corr := correlation
 				corr.HoldID = holdID
 				p.auditEmitter.Emit(agent.BuildSpendEvent(
@@ -660,7 +679,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			settlementID := fmt.Sprintf("stl_%s", holdID)
 			if action == "hold" {
 				initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusAuthorized)
-				initSettlement(settlementID, intentID, "wallet", payment.SettlementStatusHeld, wallet.WalletID, route.PayeeAddress, "", holdID)
+				initSettlement(settlementID, intentID, "wallet", payment.SettlementStatusHeld, wallet.WalletID, route.PayeeAddress, holdID, holdID)
 				fulfillmentID := fmt.Sprintf("ful_%s", requestID)
 				initFulfillment(fulfillmentID, intentID)
 				if p.paymentService != nil {

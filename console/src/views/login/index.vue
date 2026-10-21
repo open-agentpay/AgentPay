@@ -4,10 +4,16 @@ import { useRouter, useRoute } from 'vue-router';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { useAuthStore } from '@/stores/auth';
 import type { UserRole } from '@/types/auth';
+import { useI18n, type LocaleKey } from '@/i18n';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const { locale, setLocale, t } = useI18n();
+
+function handleLanguageChange(lang: string | number | object) {
+  setLocale(lang as LocaleKey);
+}
 
 const activeTab = ref<'login' | 'register'>('login');
 const loading = ref(false);
@@ -22,12 +28,12 @@ const loginForm = reactive({
 
 const loginRules: FormRules = {
   email: [
-    { required: true, message: '请输入登录邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }
+    { required: true, message: t('请输入登录邮箱'), trigger: 'blur' },
+    { type: 'email', message: t('请输入有效的邮箱地址'), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入访问密码', trigger: 'blur' },
-    { min: 8, message: '密码不能少于 8 位字符', trigger: 'blur' }
+    { required: true, message: t('请输入访问密码'), trigger: 'blur' },
+    { min: 8, message: t('密码不能少于 8 位字符'), trigger: 'blur' }
   ]
 };
 
@@ -42,23 +48,23 @@ const registerForm = reactive({
 
 const registerRules: FormRules = {
   tenant_name: [
-    { required: true, message: '请输入组织 / 租户名称', trigger: 'blur' },
-    { min: 2, max: 64, message: '租户名称长度应为 2~64 位', trigger: 'blur' }
+    { required: true, message: t('请输入组织 / 租户名称'), trigger: 'blur' },
+    { min: 2, max: 64, message: t('租户名称长度应为 2~64 位'), trigger: 'blur' }
   ],
   email: [
-    { required: true, message: '请输入管理员邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' }
+    { required: true, message: t('请输入管理员邮箱'), trigger: 'blur' },
+    { type: 'email', message: t('请输入有效的邮箱地址'), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请设置初始访问密码', trigger: 'blur' },
-    { min: 8, message: '密码安全要求最少 8 位字符', trigger: 'blur' }
+    { required: true, message: t('请设置初始访问密码'), trigger: 'blur' },
+    { min: 8, message: t('密码安全要求最少 8 位字符'), trigger: 'blur' }
   ],
   confirm_password: [
-    { required: true, message: '请确认访问密码', trigger: 'blur' },
+    { required: true, message: t('请确认访问密码'), trigger: 'blur' },
     {
       validator: (_rule, value, callback) => {
         if (value !== registerForm.password) {
-          callback(new Error('两次输入的密码不一致'));
+          callback(new Error(t('两次输入的密码不一致')));
         } else {
           callback();
         }
@@ -79,11 +85,11 @@ async function handleLoginSubmit() {
         email: loginForm.email,
         password: loginForm.password
       });
-      ElMessage.success('登录成功，欢迎进入 AgentPay 工作台');
+      ElMessage.success(t('登录成功，欢迎进入 AgentPay 工作台'));
       const redirect = (route.query.redirect as string) || '/';
       router.push(redirect);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '登录失败，请检查账号密码';
+      const msg = err instanceof Error ? err.message : t('登录失败，请检查账号密码');
       ElMessage.error(msg);
     } finally {
       loading.value = false;
@@ -103,10 +109,10 @@ async function handleRegisterSubmit() {
         email: registerForm.email,
         password: registerForm.password
       });
-      ElMessage.success(`开户成功！已为您初始化租户「${res.tenant.name}」与主钱包`);
+      ElMessage.success(`${t('开户成功！已为您初始化租户')}「${res.tenant.name}」`);
       router.push('/dashboard');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '开户失败，请重试';
+      const msg = err instanceof Error ? err.message : t('开户失败，请重试');
       ElMessage.error(msg);
     } finally {
       loading.value = false;
@@ -122,7 +128,7 @@ async function handleQuickRoleLogin(role: UserRole) {
       email: `${role}@agentpay.io`,
       role
     });
-    ElMessage.info(`已以 ${role.toUpperCase()} 模式进入控制台`);
+    ElMessage.info(`${t('已以')} ${role.toUpperCase()} ${t('模式进入控制台')}`);
     router.push('/');
   } finally {
     loading.value = false;
@@ -132,16 +138,35 @@ async function handleQuickRoleLogin(role: UserRole) {
 
 <template>
   <div class="login-wrapper">
+    <div style="position: absolute; top: 20px; right: 24px; z-index: 10;">
+      <el-dropdown trigger="click" @command="handleLanguageChange">
+        <el-button size="small" plain>
+          {{ locale === 'zh-cn' ? '🇨🇳 简体中文' : '🇺🇸 English' }}
+          <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="zh-cn" :disabled="locale === 'zh-cn'">
+              🇨🇳 简体中文
+            </el-dropdown-item>
+            <el-dropdown-item command="en" :disabled="locale === 'en'">
+              🇺🇸 English
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </div>
+
     <div class="login-card">
       <div class="login-header">
-        <div class="brand-title">AgentPay Console</div>
-        <div class="brand-subtitle">面向自主 AI Agent 的 HTTP 402 支付防火墙与管理控制台</div>
+        <div class="brand-title">{{ t('login.title') }}</div>
+        <div class="brand-subtitle">{{ t('login.subtitle') }}</div>
       </div>
 
       <!-- Tab Switcher -->
       <el-tabs v-model="activeTab" class="auth-tabs" stretch>
         <!-- 登录 Tab -->
-        <el-tab-pane label="密码登录" name="login">
+        <el-tab-pane :label="t('login.accountLogin')" name="login">
           <el-form
             ref="loginFormRef"
             :model="loginForm"
@@ -150,7 +175,7 @@ async function handleQuickRoleLogin(role: UserRole) {
             class="auth-form"
             @keyup.enter="handleLoginSubmit"
           >
-            <el-form-item label="登录邮箱" prop="email">
+            <el-form-item :label="$t('登录邮箱')" prop="email">
               <el-input
                 v-model="loginForm.email"
                 placeholder="name@company.com"
@@ -159,11 +184,11 @@ async function handleQuickRoleLogin(role: UserRole) {
               />
             </el-form-item>
 
-            <el-form-item label="访问密码" prop="password">
+            <el-form-item :label="$t('访问密码')" prop="password">
               <el-input
                 v-model="loginForm.password"
                 type="password"
-                placeholder="输入访问密码 (≥ 8 位)"
+                :placeholder="$t('输入访问密码 (≥ 8 位)')"
                 prefix-icon="Lock"
                 show-password
                 size="large"
@@ -177,39 +202,39 @@ async function handleQuickRoleLogin(role: UserRole) {
               :loading="loading"
               @click="handleLoginSubmit"
             >
-              登 录
+              {{ t('login.signInButton') }}
             </el-button>
           </el-form>
 
           <el-divider>
-            <span class="divider-text">本地联调快速体验不同 RBAC 权限</span>
+            <span class="divider-text">{{ $t('本地联调快速体验不同 RBAC 权限') }}</span>
           </el-divider>
 
           <div class="role-quick-cards">
             <div class="role-btn-item" @click="handleQuickRoleLogin('owner')">
-              <div class="role-title">Owner 模式</div>
-              <div class="role-desc">全部权限 (发布/调账/Kill)</div>
+              <div class="role-title">{{ $t('Owner 模式') }}</div>
+              <div class="role-desc">{{ $t('全部权限 (发布/调账/Kill)') }}</div>
             </div>
 
             <div class="role-btn-item" @click="handleQuickRoleLogin('admin')">
-              <div class="role-title">Admin 模式</div>
-              <div class="role-desc">管理权限 (配置/发布/Kill)</div>
+              <div class="role-title">{{ $t('Admin 模式') }}</div>
+              <div class="role-desc">{{ $t('管理权限 (配置/发布/Kill)') }}</div>
             </div>
 
             <div class="role-btn-item" @click="handleQuickRoleLogin('operator')">
-              <div class="role-title">Operator 模式</div>
-              <div class="role-desc">运维权限 (编辑草稿/不可发布)</div>
+              <div class="role-title">{{ $t('Operator 模式') }}</div>
+              <div class="role-desc">{{ $t('运维权限 (编辑草稿/不可发布)') }}</div>
             </div>
 
             <div class="role-btn-item" @click="handleQuickRoleLogin('viewer')">
-              <div class="role-title">Viewer 模式</div>
-              <div class="role-desc">只读审计 (无写操作权限)</div>
+              <div class="role-title">{{ $t('Viewer 模式') }}</div>
+              <div class="role-desc">{{ $t('只读审计 (无写操作权限)') }}</div>
             </div>
           </div>
         </el-tab-pane>
 
         <!-- 开户注册 Tab -->
-        <el-tab-pane label="开户注册" name="register">
+        <el-tab-pane :label="$t('开户注册')" name="register">
           <el-form
             ref="registerFormRef"
             :model="registerForm"
@@ -218,40 +243,40 @@ async function handleQuickRoleLogin(role: UserRole) {
             class="auth-form"
             @keyup.enter="handleRegisterSubmit"
           >
-            <el-form-item label="组织 / 租户名称 (Tenant)" prop="tenant_name">
+            <el-form-item :label="$t('组织 / 租户名称 (Tenant)')" prop="tenant_name">
               <el-input
                 v-model="registerForm.tenant_name"
-                placeholder="例如: DeepSeek Autonomous Labs"
+                :placeholder="$t('例如: DeepSeek Autonomous Labs')"
                 prefix-icon="OfficeBuilding"
                 size="large"
               />
             </el-form-item>
 
-            <el-form-item label="管理员邮箱 (Owner Email)" prop="email">
+            <el-form-item :label="$t('管理员邮箱 (Owner Email)')" prop="email">
               <el-input
                 v-model="registerForm.email"
-                placeholder="例如: founder@deepseek.com"
+                :placeholder="$t('例如: founder@deepseek.com')"
                 prefix-icon="Message"
                 size="large"
               />
             </el-form-item>
 
-            <el-form-item label="设置初始访问密码" prop="password">
+            <el-form-item :label="$t('设置初始访问密码')" prop="password">
               <el-input
                 v-model="registerForm.password"
                 type="password"
-                placeholder="至少 8 位包含数字与字母"
+                :placeholder="$t('至少 8 位包含数字与字母')"
                 prefix-icon="Lock"
                 show-password
                 size="large"
               />
             </el-form-item>
 
-            <el-form-item label="再次确认访问密码" prop="confirm_password">
+            <el-form-item :label="$t('再次确认访问密码')" prop="confirm_password">
               <el-input
                 v-model="registerForm.confirm_password"
                 type="password"
-                placeholder="再次输入设置的密码"
+                :placeholder="$t('再次输入设置的密码')"
                 prefix-icon="Check"
                 show-password
                 size="large"
@@ -265,7 +290,7 @@ async function handleQuickRoleLogin(role: UserRole) {
               :loading="loading"
               @click="handleRegisterSubmit"
             >
-              一键开户注册并进入工作台
+              {{ $t('一键开户注册并进入工作台') }}
             </el-button>
           </el-form>
         </el-tab-pane>
@@ -276,91 +301,77 @@ async function handleQuickRoleLogin(role: UserRole) {
 
 <style scoped>
 .login-wrapper {
-  height: 100vh;
-  width: 100vw;
+  min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
-  background: radial-gradient(circle at 50% 50%, #1f2327 0%, #0d0f12 100%);
+  background: radial-gradient(circle at top left, #f0f4ff, #e8effe, #f8f9fc);
+  padding: 24px;
 }
-
 .login-card {
-  width: 500px;
+  width: 100%;
+  max-width: 480px;
   background: #ffffff;
-  border-radius: 14px;
-  padding: 36px 36px 30px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  padding: 36px 32px;
 }
-
 .login-header {
   text-align: center;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
-
 .brand-title {
   font-size: 24px;
   font-weight: 700;
   color: #1a1a1a;
-  letter-spacing: 0.5px;
+  letter-spacing: -0.5px;
 }
-
 .brand-subtitle {
   font-size: 13px;
-  color: #606266;
+  color: #8c8c8c;
   margin-top: 6px;
-  line-height: 1.4;
 }
-
 .auth-tabs {
-  margin-top: 8px;
+  margin-top: 12px;
 }
-
 .auth-form {
   margin-top: 16px;
 }
-
 .submit-btn {
   width: 100%;
+  margin-top: 8px;
   font-weight: 600;
-  margin-top: 10px;
 }
-
 .divider-text {
   font-size: 12px;
   color: #909399;
 }
-
 .role-quick-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
-
 .role-btn-item {
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  padding: 10px 12px;
+  border: 1px dashed #dcdfe6;
+  border-radius: 6px;
+  padding: 8px 10px;
   cursor: pointer;
-  background-color: #fafafa;
   transition: all 0.2s;
+  background: #fafafa;
 }
-
 .role-btn-item:hover {
   border-color: #409eff;
-  background-color: #ecf5ff;
+  background: #f0f7ff;
 }
-
 .role-title {
   font-size: 13px;
   font-weight: 600;
   color: #303133;
 }
-
 .role-desc {
   font-size: 11px;
   color: #909399;
-  margin-top: 4px;
-  line-height: 1.3;
+  margin-top: 2px;
 }
 </style>

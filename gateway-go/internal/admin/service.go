@@ -1172,7 +1172,7 @@ func (s *MemoryService) CreateAPIKey(ctx context.Context, tenantID, projectID, a
 	if s.walletSvc != nil {
 		memWlt, ok := s.walletSvc.(*wallet.MemoryService)
 		if ok {
-			memWlt.RegisterAPIKey(rawKey, tenantID, projectID)
+			memWlt.RegisterAPIKey(rawKey, tenantID, projectID, agentID)
 		}
 	}
 

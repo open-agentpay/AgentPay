@@ -131,6 +131,7 @@ type APIKeyRecord struct {
 	KeyID     string    `json:"key_id"`
 	TenantID  string    `json:"tenant_id"`
 	ProjectID string    `json:"project_id"`
+	AgentID   string    `json:"agent_id,omitempty"`
 	KeyHash   string    `json:"key_hash"`
 	KeyPrefix string    `json:"key_prefix"`
 	Status    string    `json:"status"` // active, revoked, expired

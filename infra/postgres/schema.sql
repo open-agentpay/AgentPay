@@ -266,7 +266,7 @@ CREATE TABLE IF NOT EXISTS ap_payment_intent (
     status VARCHAR(32) NOT NULL DEFAULT 'created' CHECK (status IN (
         'created', 'challenged', 'authorized', 'rejected', 'expired', 'completed', 'failed', 'needs_review'
     )),
-    config_version_id VARCHAR(64) NOT NULL REFERENCES ap_config_version(version_id),
+    config_version_id VARCHAR(64) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_tenant_idempotency_intent UNIQUE (tenant_id, idempotency_key)

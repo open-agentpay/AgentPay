@@ -10,14 +10,14 @@ const authStore = useAuthStore();
   <div class="error-page">
     <el-result
       icon="warning"
-      title="403 访问被拒绝 (Forbidden)"
-      sub-title="您当前的角色权限不足以访问此模块或执行该操作。"
+      :title="$t('403 访问被拒绝 (Forbidden)')"
+      :sub-title="$t('您当前的角色权限不足以访问此模块或执行该操作。')"
     >
       <template #extra>
         <div class="role-hint">
-          当前登录角色: <b>{{ authStore.currentRole?.toUpperCase() }}</b>
+          {{ $t('当前登录角色:') }} <b>{{ authStore.currentRole?.toUpperCase() }}</b>
         </div>
-        <el-button type="primary" @click="router.push('/dashboard')">返回工作台总览</el-button>
+        <el-button type="primary" @click="router.push('/dashboard')">{{ $t('返回工作台总览') }}</el-button>
       </template>
     </el-result>
   </div>

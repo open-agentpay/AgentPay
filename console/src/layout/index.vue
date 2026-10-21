@@ -8,11 +8,17 @@ import { routes } from '@/router';
 import type { UserRole } from '@/types/auth';
 import { MOCK_USERS } from '@/api/mockData';
 import { authApi } from '@/api/client';
+import { useI18n, type LocaleKey } from '@/i18n';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const tenantStore = useTenantStore();
+const { locale, setLocale, t } = useI18n();
+
+function handleLanguageChange(lang: string | number | object) {
+  setLocale(lang as LocaleKey);
+}
 
 // Password Change Dialog State
 const pwdDialogVisible = ref(false);
@@ -25,17 +31,17 @@ const pwdForm = reactive({
 });
 
 const pwdRules: FormRules = {
-  old_password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
+  old_password: [{ required: true, message: t('请输入当前密码'), trigger: 'blur' }],
   new_password: [
-    { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 8, message: '新密码不能少于 8 位字符', trigger: 'blur' }
+    { required: true, message: t('请输入新密码'), trigger: 'blur' },
+    { min: 8, message: t('新密码不能少于 8 位字符'), trigger: 'blur' }
   ],
   confirm_password: [
-    { required: true, message: '请确认新密码', trigger: 'blur' },
+    { required: true, message: t('请确认新密码'), trigger: 'blur' },
     {
       validator: (_rule, value, callback) => {
         if (value !== pwdForm.new_password) {
-          callback(new Error('两次输入的新密码不一致'));
+          callback(new Error(t('两次输入的新密码不一致')));
         } else {
           callback();
         }
@@ -59,11 +65,11 @@ async function handlePasswordSubmit() {
     pwdLoading.value = true;
     try {
       await authApi.changePassword(pwdForm.old_password, pwdForm.new_password);
-      ElMessage.success('密码修改成功，请重新登录');
+      ElMessage.success(t('密码修改成功，请重新登录'));
       pwdDialogVisible.value = false;
       handleLogout();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '修改密码失败';
+      const msg = err instanceof Error ? err.message : t('修改密码失败');
       ElMessage.error(msg);
     } finally {
       pwdLoading.value = false;
@@ -170,7 +176,7 @@ function switchRole(role: UserRole) {
             <component :is="item.meta.icon" />
           </el-icon>
           <template #title>
-            <span>{{ item.meta?.title }}</span>
+            <span>{{ item.meta?.titleKey ? t(String(item.meta.titleKey)) : item.meta?.title }}</span>
           </template>
         </el-menu-item>
       </el-menu>
@@ -187,31 +193,31 @@ function switchRole(role: UserRole) {
       <el-header height="60px" class="top-header">
         <div class="header-left">
           <!-- Tenant Switcher -->
-          <span class="selector-label">租户:</span>
+          <span class="selector-label">{{ t('layout.tenant') }}:</span>
           <el-select
             v-model="tenantStore.currentTenantId"
-            placeholder="选择租户"
+            :placeholder="t('layout.selectTenant')"
             style="width: 220px; margin-right: 16px"
             @change="handleTenantChange"
           >
             <el-option
-              v-for="t in tenantStore.tenants"
-              :key="t.tenant_id"
-              :label="t.name"
-              :value="t.tenant_id"
+              v-for="tItem in tenantStore.tenants"
+              :key="tItem.tenant_id"
+              :label="tItem.name"
+              :value="tItem.tenant_id"
             >
               <div class="tenant-option-item">
-                <span>{{ t.name }}</span>
-                <el-tag size="small" type="info" effect="plain">{{ t.tenant_id.slice(0, 8) }}</el-tag>
+                <span>{{ tItem.name }}</span>
+                <el-tag size="small" type="info" effect="plain">{{ tItem.tenant_id.slice(0, 8) }}</el-tag>
               </div>
             </el-option>
           </el-select>
 
           <!-- Project Switcher -->
-          <span class="selector-label">项目:</span>
+          <span class="selector-label">{{ t('layout.project') }}:</span>
           <el-select
             v-model="tenantStore.currentProjectId"
-            placeholder="选择项目"
+            :placeholder="t('layout.selectProject')"
             style="width: 240px"
             @change="handleProjectChange"
           >
@@ -225,25 +231,43 @@ function switchRole(role: UserRole) {
         </div>
 
         <div class="header-right">
+          <!-- Language Switcher -->
+          <el-dropdown trigger="click" style="margin-right: 14px" @command="handleLanguageChange">
+            <el-button size="small" plain>
+              {{ locale === 'zh-cn' ? '🇨🇳 简体中文' : '🇺🇸 English' }}
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="zh-cn" :disabled="locale === 'zh-cn'">
+                  🇨🇳 简体中文
+                </el-dropdown-item>
+                <el-dropdown-item command="en" :disabled="locale === 'en'">
+                  🇺🇸 English
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
           <!-- Current Role Badge -->
-          <el-tooltip content="当前会话的角色权限等级" placement="bottom">
+          <el-tooltip :content="t('layout.roleTooltip')" placement="bottom">
             <el-tag :type="roleTagType" effect="dark" class="role-badge">
-              角色: {{ authStore.currentRole?.toUpperCase() }}
+              {{ t('layout.role') }}: {{ authStore.currentRole?.toUpperCase() }}
             </el-tag>
           </el-tooltip>
 
           <!-- Fast Role Switcher for Demo -->
           <el-dropdown trigger="click" style="margin-right: 16px">
             <el-button size="small" type="primary" plain>
-              快速切角色
+              {{ t('layout.quickRoleSwitch') }}
               <el-icon class="el-icon--right"><ArrowDown /></el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="switchRole('owner')">切换为 Owner (最高权限)</el-dropdown-item>
-                <el-dropdown-item @click="switchRole('admin')">切换为 Admin (管理权限)</el-dropdown-item>
-                <el-dropdown-item @click="switchRole('operator')">切换为 Operator (运维操作)</el-dropdown-item>
-                <el-dropdown-item @click="switchRole('viewer')">切换为 Viewer (只读审计)</el-dropdown-item>
+                <el-dropdown-item @click="switchRole('owner')">{{ t('layout.switchRoleOwner') }}</el-dropdown-item>
+                <el-dropdown-item @click="switchRole('admin')">{{ t('layout.switchRoleAdmin') }}</el-dropdown-item>
+                <el-dropdown-item @click="switchRole('operator')">{{ t('layout.switchRoleOperator') }}</el-dropdown-item>
+                <el-dropdown-item @click="switchRole('viewer')">{{ t('layout.switchRoleViewer') }}</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -261,10 +285,10 @@ function switchRole(role: UserRole) {
                   ID: {{ authStore.currentUser?.member_id }}
                 </el-dropdown-item>
                 <el-dropdown-item @click="openPasswordDialog">
-                  <el-icon><Key /></el-icon>修改访问密码
+                  <el-icon><Key /></el-icon>{{ t('layout.changePassword') }}
                 </el-dropdown-item>
                 <el-dropdown-item divided @click="handleLogout">
-                  <el-icon><SwitchButton /></el-icon>退出登录
+                  <el-icon><SwitchButton /></el-icon>{{ t('layout.logout') }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -283,33 +307,33 @@ function switchRole(role: UserRole) {
     </el-container>
 
     <!-- Dialog: Change Password -->
-    <el-dialog v-model="pwdDialogVisible" title="修改访问密码" width="460px">
+    <el-dialog v-model="pwdDialogVisible" :title="t('layout.changePassword')" width="460px">
       <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-position="top">
-        <el-form-item label="当前密码" prop="old_password">
+        <el-form-item :label="t('layout.currentPassword')" prop="old_password">
           <el-input
             v-model="pwdForm.old_password"
             type="password"
-            placeholder="请输入当前访问密码"
+            :placeholder="t('layout.currentPasswordPlaceholder')"
             prefix-icon="Lock"
             show-password
           />
         </el-form-item>
 
-        <el-form-item label="新密码 (≥ 8 位)" prop="new_password">
+        <el-form-item :label="t('layout.newPassword')" prop="new_password">
           <el-input
             v-model="pwdForm.new_password"
             type="password"
-            placeholder="请输入新密码"
+            :placeholder="t('layout.newPasswordPlaceholder')"
             prefix-icon="Lock"
             show-password
           />
         </el-form-item>
 
-        <el-form-item label="确认新密码" prop="confirm_password">
+        <el-form-item :label="t('layout.confirmPassword')" prop="confirm_password">
           <el-input
             v-model="pwdForm.confirm_password"
             type="password"
-            placeholder="请再次输入新密码"
+            :placeholder="t('layout.confirmPasswordPlaceholder')"
             prefix-icon="Check"
             show-password
           />
@@ -317,9 +341,9 @@ function switchRole(role: UserRole) {
       </el-form>
 
       <template #footer>
-        <el-button @click="pwdDialogVisible = false">取消</el-button>
+        <el-button @click="pwdDialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="pwdLoading" @click="handlePasswordSubmit">
-          确认修改
+          {{ t('common.confirm') }}
         </el-button>
       </template>
     </el-dialog>

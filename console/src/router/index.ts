@@ -1,10 +1,12 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { t } from '@/i18n';
 import type { UserRole } from '@/types/auth';
 
 declare module 'vue-router' {
   interface RouteMeta {
     title: string;
+    titleKey?: string;
     requiresAuth?: boolean;
     roles?: UserRole[];
     icon?: string;
@@ -30,7 +32,8 @@ export const routes: RouteRecordRaw[] = [
         name: 'Dashboard',
         component: () => import('@/views/dashboard/index.vue'),
         meta: {
-          title: '总览看板',
+          title: '控制台概览',
+          titleKey: 'menu.dashboard',
           icon: 'Odometer',
           requiresAuth: true,
           roles: ['owner', 'admin', 'operator', 'viewer']
@@ -42,6 +45,7 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/views/projects/index.vue'),
         meta: {
           title: '业务项目管理',
+          titleKey: 'menu.projects',
           icon: 'Folder',
           requiresAuth: true,
           roles: ['owner', 'admin', 'operator', 'viewer']
@@ -52,7 +56,8 @@ export const routes: RouteRecordRaw[] = [
         name: 'Members',
         component: () => import('@/views/members/index.vue'),
         meta: {
-          title: '组织团队与成员 (T4.1)',
+          title: '组织团队与成员',
+          titleKey: 'menu.members',
           icon: 'User',
           requiresAuth: true,
           roles: ['owner', 'admin', 'operator', 'viewer']
@@ -63,7 +68,8 @@ export const routes: RouteRecordRaw[] = [
         name: 'Routes',
         component: () => import('@/views/routes/index.vue'),
         meta: {
-          title: '路由与上游 (T4.2)',
+          title: '路由与上游',
+          titleKey: 'menu.routes',
           icon: 'Connection',
           requiresAuth: true,
           roles: ['owner', 'admin', 'operator', 'viewer']
@@ -74,7 +80,8 @@ export const routes: RouteRecordRaw[] = [
         name: 'Versions',
         component: () => import('@/views/versions/index.vue'),
         meta: {
-          title: '发布与回滚 (T4.4)',
+          title: '发布与回滚',
+          titleKey: 'menu.versions',
           icon: 'Files',
           requiresAuth: true,
           roles: ['owner', 'admin'] // Operator & Viewer cannot access releases
@@ -85,7 +92,8 @@ export const routes: RouteRecordRaw[] = [
         name: 'Wallet',
         component: () => import('@/views/wallet/index.vue'),
         meta: {
-          title: '虚拟钱包与账本 (T4.6)',
+          title: '虚拟钱包与账本',
+          titleKey: 'menu.wallet',
           icon: 'Wallet',
           requiresAuth: true,
           roles: ['owner', 'admin', 'operator', 'viewer']
@@ -96,7 +104,8 @@ export const routes: RouteRecordRaw[] = [
         name: 'Agents',
         component: () => import('@/views/agents/index.vue'),
         meta: {
-          title: 'Agent 管理与审计 (T4.7)',
+          title: 'Agent 管理与审计',
+          titleKey: 'menu.agents',
           icon: 'Cpu',
           requiresAuth: true,
           roles: ['owner', 'admin', 'operator', 'viewer']
@@ -107,7 +116,8 @@ export const routes: RouteRecordRaw[] = [
         name: 'Payments',
         component: () => import('@/views/payments/index.vue'),
         meta: {
-          title: '消费与履约审计 (T5.3)',
+          title: '消费与履约审计',
+          titleKey: 'menu.payments',
           icon: 'Tickets',
           requiresAuth: true,
           roles: ['owner', 'admin', 'operator', 'viewer']
@@ -118,7 +128,8 @@ export const routes: RouteRecordRaw[] = [
         name: 'Audit',
         component: () => import('@/views/audit/index.vue'),
         meta: {
-          title: '管理操作审计 (T5.4)',
+          title: '管理操作审计',
+          titleKey: 'menu.audit',
           icon: 'DocumentChecked',
           requiresAuth: true,
           roles: ['owner', 'admin']
@@ -130,13 +141,13 @@ export const routes: RouteRecordRaw[] = [
     path: '/403',
     name: 'Forbidden',
     component: () => import('@/views/403.vue'),
-    meta: { title: '403 无权访问', requiresAuth: true, hideInMenu: true }
+    meta: { title: '403 无权访问', titleKey: '403 访问被拒绝 (Forbidden)', requiresAuth: true, hideInMenu: true }
   },
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('@/views/404.vue'),
-    meta: { title: '404 页面不存在', hideInMenu: true }
+    meta: { title: '404 页面不存在', titleKey: '404 页面未找到', hideInMenu: true }
   }
 ];
 
@@ -178,6 +189,13 @@ router.beforeEach((to, _from, next) => {
   }
 
   next();
+});
+
+router.afterEach((to) => {
+  const pageTitle = to.meta.titleKey ? t(to.meta.titleKey) : (to.meta.title ? t(to.meta.title as string) : '');
+  if (typeof document !== 'undefined') {
+    document.title = pageTitle ? `${pageTitle} - AgentPay` : 'AgentPay';
+  }
 });
 
 export default router;

@@ -34,7 +34,8 @@ func (p *PostgresService) GetWalletByAPIKey(ctx context.Context, apiKey string) 
 
 	query := `
 		SELECT ak.tenant_id, ak.status, ak.expires_at,
-		       w.wallet_id, w.status, w.available_cache, w.held_cache
+		       w.wallet_id, w.status, w.available_cache, w.held_cache,
+		       ak.project_id, ak.agent_id
 		FROM ap_api_key ak
 		JOIN ap_wallet w ON w.tenant_id = ak.tenant_id
 		WHERE (ak.key_hash = $1 OR ak.key_id = $2) AND ak.status = 'active'
@@ -49,6 +50,8 @@ func (p *PostgresService) GetWalletByAPIKey(ctx context.Context, apiKey string) 
 		walletStatus     string
 		availableBalance int64
 		heldBalance      int64
+		projectID        sql.NullString
+		agentID          sql.NullString
 	)
 
 	err := p.db.QueryRowContext(ctx, query, keyHash, apiKey).Scan(
@@ -59,6 +62,8 @@ func (p *PostgresService) GetWalletByAPIKey(ctx context.Context, apiKey string) 
 		&walletStatus,
 		&availableBalance,
 		&heldBalance,
+		&projectID,
+		&agentID,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrAPIKeyInvalid
@@ -71,9 +76,19 @@ func (p *PostgresService) GetWalletByAPIKey(ctx context.Context, apiKey string) 
 		return nil, ErrAPIKeyInvalid
 	}
 
+	var pID, aID string
+	if projectID.Valid {
+		pID = projectID.String
+	}
+	if agentID.Valid {
+		aID = agentID.String
+	}
+
 	return &x402.WalletAccount{
 		WalletID:         walletID,
 		TenantID:         tenantID,
+		ProjectID:        pID,
+		AgentID:          aID,
 		Status:           walletStatus,
 		AvailableBalance: availableBalance,
 		HeldBalance:      heldBalance,

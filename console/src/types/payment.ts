@@ -1,6 +1,6 @@
 /**
- * Payment, Settlement and Fulfillment Correlation Types (T5.2 & T5.3)
- * Conforms to T1.1 Specification v2.1 (specs/payment-state-machine-v2.md)
+ * Payment, Settlement and Fulfillment Correlation Types
+ * Conforms to Specification v2.1 (specs/payment-state-machine-v2.md)
  */
 
 export type PaymentMethod = 'wallet' | 'onchain';
@@ -120,7 +120,7 @@ export interface PaymentAuditRecord {
   amount_base_units: number;
   asset: string;
 
-  // Composite Status & Notes (T1.1 §5)
+  // Composite Status & Notes
   display_status: DisplayStatus;
   display_note: string;
   is_recovery_required: boolean;

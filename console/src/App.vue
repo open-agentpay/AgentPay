@@ -1,9 +1,13 @@
 <script setup lang="ts">
-// Main App Component
+import { useI18n } from '@/i18n';
+
+const { elLocale } = useI18n();
 </script>
 
 <template>
-  <router-view />
+  <el-config-provider :locale="elLocale">
+    <router-view />
+  </el-config-provider>
 </template>
 
 <style>

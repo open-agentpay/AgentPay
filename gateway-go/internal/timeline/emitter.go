@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/open-agentpay/agentpay-gateway-go/internal/agent"
 )
@@ -26,7 +27,9 @@ func (e *TimelineAuditEmitter) Emit(event *agent.AuditEvent) {
 		return
 	}
 	if e.timelineSvc != nil {
-		_ = e.timelineSvc.RecordEvent(context.Background(), event)
+		if err := e.timelineSvc.RecordEvent(context.Background(), event); err != nil {
+			slog.Error("failed to record timeline event", slog.String("event_id", event.EventID), slog.Any("error", err))
+		}
 	}
 	if e.underlying != nil {
 		e.underlying.Emit(event)

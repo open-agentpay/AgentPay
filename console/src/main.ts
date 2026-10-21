@@ -6,8 +6,12 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 
 import App from './App.vue';
 import router from './router';
+import { i18nPlugin } from './i18n';
 
 const app = createApp(App);
+
+// Register i18n
+app.use(i18nPlugin);
 
 // Register Pinia
 const pinia = createPinia();

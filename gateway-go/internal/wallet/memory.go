@@ -55,14 +55,20 @@ func (m *MemoryService) RegisterWallet(w *Wallet) {
 }
 
 // RegisterAPIKey binds an API key token to a tenant.
-func (m *MemoryService) RegisterAPIKey(apiKey, tenantID, projectID string) {
+func (m *MemoryService) RegisterAPIKey(apiKey, tenantID, projectID string, agentID ...string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	var aID string
+	if len(agentID) > 0 {
+		aID = agentID[0]
+	}
 
 	rec := &APIKeyRecord{
 		KeyID:     apiKey,
 		TenantID:  tenantID,
 		ProjectID: projectID,
+		AgentID:   aID,
 		KeyHash:   HashAPIKey(apiKey),
 		KeyPrefix: apiKey[:min(len(apiKey), 8)],
 		Status:    "active",
@@ -104,6 +110,8 @@ func (m *MemoryService) GetWalletByAPIKey(ctx context.Context, apiKey string) (*
 	return &x402.WalletAccount{
 		WalletID:         w.WalletID,
 		TenantID:         w.TenantID,
+		ProjectID:        rec.ProjectID,
+		AgentID:          rec.AgentID,
 		Status:           string(w.Status),
 		AvailableBalance: w.AvailableCache,
 		HeldBalance:      w.HeldCache,

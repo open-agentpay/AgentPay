@@ -6,6 +6,7 @@ import { useTenantStore } from '@/stores/tenant';
 import { paymentApi, agentApi } from '@/api/client';
 import type { PaymentAuditRecord, DisplayStatus } from '@/types/payment';
 import type { Agent } from '@/types/agent';
+import { t } from '@/i18n';
 
 const route = useRoute();
 const tenantStore = useTenantStore();
@@ -118,7 +119,7 @@ function getSubsystemTagType(_subsystem: 'intent' | 'settlement' | 'fulfillment'
 // Copy helper
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text);
-  ElMessage.success('已复制到剪贴板');
+  ElMessage.success(t('已复制到剪贴板'));
 }
 
 // Load data
@@ -149,7 +150,7 @@ async function loadPayments() {
     payments.value = res.payments || [];
     totalCount.value = res.total || 0;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '获取消费记录失败';
+    const msg = err instanceof Error ? err.message : t('获取消费记录失败');
     ElMessage.error(msg);
   } finally {
     loading.value = false;
@@ -229,12 +230,12 @@ watch(
       <el-col :xs="24" :sm="12" :md="6">
         <el-card shadow="never" class="metric-card">
           <div class="metric-header">
-            <span class="label">消费交易总量 (T5.3)</span>
+            <span class="label">{{ $t('消费交易总量') }}</span>
             <el-icon class="icon"><Tickets /></el-icon>
           </div>
-          <div class="metric-value">{{ totalCount }} <span class="unit">笔</span></div>
+          <div class="metric-value">{{ totalCount }} <span class="unit">{{ $t('笔') }}</span></div>
           <div class="metric-footer">
-            <span class="sub-label">累计金额：</span>
+            <span class="sub-label">{{ $t('累计金额：') }}</span>
             <span class="sub-value">{{ formatUSDC(Number(metrics.totalSpentUsdc) * 1_000_000) }}</span>
           </div>
         </el-card>
@@ -243,13 +244,13 @@ watch(
       <el-col :xs="24" :sm="12" :md="6">
         <el-card shadow="never" class="metric-card">
           <div class="metric-header">
-            <span class="label">履约达成率 (COMPLETED)</span>
+            <span class="label">{{ $t('履约达成率 (COMPLETED)') }}</span>
             <el-icon class="icon success"><CircleCheck /></el-icon>
           </div>
           <div class="metric-value success">{{ metrics.successRate }}%</div>
           <div class="metric-footer">
-            <span class="sub-label">确权交付保障</span>
-            <el-tag size="small" type="success" effect="plain">正交一致性验证</el-tag>
+            <span class="sub-label">{{ $t('确权交付保障') }}</span>
+            <el-tag size="small" type="success" effect="plain">{{ $t('正交一致性验证') }}</el-tag>
           </div>
         </el-card>
       </el-col>
@@ -262,13 +263,13 @@ watch(
           @click="filterRecoveryRequired"
         >
           <div class="metric-header">
-            <span class="label">异常待恢复 (RECOVERY_REQUIRED)</span>
+            <span class="label">{{ $t('异常待恢复 (RECOVERY_REQUIRED)') }}</span>
             <el-icon class="icon danger"><Warning /></el-icon>
           </div>
-          <div class="metric-value danger">{{ metrics.recoveryCount }} <span class="unit">笔</span></div>
+          <div class="metric-value danger">{{ metrics.recoveryCount }} <span class="unit">{{ $t('笔') }}</span></div>
           <div class="metric-footer">
-            <span class="sub-label">上游超时/5xx，钱包严格锁定中</span>
-            <el-button v-if="metrics.recoveryCount > 0" link type="danger" size="small">立即核验</el-button>
+            <span class="sub-label">{{ $t('上游超时/5xx，钱包严格锁定中') }}</span>
+            <el-button v-if="metrics.recoveryCount > 0" link type="danger" size="small">{{ $t('立即核验') }}</el-button>
           </div>
         </el-card>
       </el-col>
@@ -276,13 +277,13 @@ watch(
       <el-col :xs="24" :sm="12" :md="6">
         <el-card shadow="never" class="metric-card">
           <div class="metric-header">
-            <span class="label">无损解冻挽回 (RELEASED_UNBILLED)</span>
+            <span class="label">{{ $t('无损解冻挽回 (RELEASED_UNBILLED)') }}</span>
             <el-icon class="icon info"><Lock /></el-icon>
           </div>
           <div class="metric-value info">{{ formatUSDC(Number(metrics.unbilledSavedUsdc) * 1_000_000) }}</div>
           <div class="metric-footer">
-            <span class="sub-label">上游 4xx 失败自动全额解冻</span>
-            <el-tag size="small" type="info" effect="plain">买方零扣费保障</el-tag>
+            <span class="sub-label">{{ $t('上游 4xx 失败自动全额解冻') }}</span>
+            <el-tag size="small" type="info" effect="plain">{{ $t('买方零扣费保障') }}</el-tag>
           </div>
         </el-card>
       </el-col>
@@ -291,22 +292,22 @@ watch(
     <!-- Filter Card -->
     <el-card shadow="never" class="filter-card">
       <el-form :inline="true" class="filter-form">
-        <el-form-item label="时间范围">
+        <el-form-item :label="$t('时间范围')">
           <el-date-picker
             v-model="dateRange"
             type="datetimerange"
-            range-separator="至"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
+            :range-separator="$t('至')"
+            :start-placeholder="$t('开始时间')"
+            :end-placeholder="$t('结束时间')"
             format="YYYY-MM-DD HH:mm:ss"
             size="default"
             style="width: 320px"
           />
         </el-form-item>
 
-        <el-form-item label="所属 Agent">
-          <el-select v-model="selectedAgent" placeholder="全部 Agent" clearable filterable style="width: 200px">
-            <el-option label="全部 Agent" value="all" />
+        <el-form-item :label="$t('所属 Agent')">
+          <el-select v-model="selectedAgent" :placeholder="$t('全部 Agent')" clearable filterable style="width: 200px">
+            <el-option :label="$t('全部 Agent')" value="all" />
             <el-option
               v-for="a in agentList"
               :key="a.agent_id"
@@ -316,30 +317,30 @@ watch(
           </el-select>
         </el-form-item>
 
-        <el-form-item label="支付方式">
-          <el-select v-model="selectedPaymentMethod" placeholder="全部方式" style="width: 140px">
-            <el-option label="全部方式" value="all" />
-            <el-option label="企业虚拟钱包" value="wallet" />
-            <el-option label="链上 x402" value="onchain" />
+        <el-form-item :label="$t('支付方式')">
+          <el-select v-model="selectedPaymentMethod" :placeholder="$t('全部方式')" style="width: 140px">
+            <el-option :label="$t('全部方式')" value="all" />
+            <el-option :label="$t('企业虚拟钱包')" value="wallet" />
+            <el-option :label="$t('链上 x402')" value="onchain" />
           </el-select>
         </el-form-item>
 
-        <el-form-item label="复合审计状态">
-          <el-select v-model="selectedDisplayStatus" placeholder="全部状态" style="width: 220px">
-            <el-option label="全部状态" value="all" />
-            <el-option label="COMPLETED (交易顺利完成)" value="COMPLETED" />
-            <el-option label="RELEASED_UNBILLED (无损解冻未计费)" value="RELEASED_UNBILLED" />
-            <el-option label="RECOVERY_REQUIRED (需人工对账恢复)" value="RECOVERY_REQUIRED" />
-            <el-option label="PAYMENT_FAILED (支付前失败/超额)" value="PAYMENT_FAILED" />
-            <el-option label="SETTLEMENT_IN_PROGRESS (链上广播确认中)" value="SETTLEMENT_IN_PROGRESS" />
-            <el-option label="WALLET_HOLD_PROCESSING (钱包锁定调用中)" value="WALLET_HOLD_PROCESSING" />
+        <el-form-item :label="$t('复合审计状态')">
+          <el-select v-model="selectedDisplayStatus" :placeholder="$t('全部状态')" style="width: 220px">
+            <el-option :label="$t('全部状态')" value="all" />
+            <el-option :label="$t('COMPLETED (交易顺利完成)')" value="COMPLETED" />
+            <el-option :label="$t('RELEASED_UNBILLED (无损解冻未计费)')" value="RELEASED_UNBILLED" />
+            <el-option :label="$t('RECOVERY_REQUIRED (需人工对账恢复)')" value="RECOVERY_REQUIRED" />
+            <el-option :label="$t('PAYMENT_FAILED (支付前失败/超额)')" value="PAYMENT_FAILED" />
+            <el-option :label="$t('SETTLEMENT_IN_PROGRESS (链上广播确认中)')" value="SETTLEMENT_IN_PROGRESS" />
+            <el-option :label="$t('WALLET_HOLD_PROCESSING (钱包锁定调用中)')" value="WALLET_HOLD_PROCESSING" />
           </el-select>
         </el-form-item>
 
-        <el-form-item label="检索">
+        <el-form-item :label="$t('检索')">
           <el-input
             v-model="searchRouteOrReq"
-            placeholder="搜索请求 ID / 路由 ID / 意图 ID"
+            :placeholder="$t('搜索请求 ID / 路由 ID / 意图 ID')"
             clearable
             style="width: 240px"
             @keyup.enter="loadPayments"
@@ -348,9 +349,9 @@ watch(
 
         <el-form-item>
           <el-button type="primary" @click="() => { currentPage = 1; loadPayments(); }">
-            <el-icon><Search /></el-icon> 查询
+            <el-icon><Search /></el-icon> {{ $t('查询') }}
           </el-button>
-          <el-button @click="resetFilters">重置</el-button>
+          <el-button @click="resetFilters">{{ $t('重置') }}</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -360,12 +361,12 @@ watch(
       <template #header>
         <div class="table-header">
           <div class="title-wrap">
-            <span class="table-title">消费记录与三正交生命周期关联</span>
-            <span class="table-subtitle">（Intent 意图 / Settlement 结算 / Fulfillment 履约 / Virtual Wallet 联动）</span>
+            <span class="table-title">{{ $t('消费记录与三正交生命周期关联') }}</span>
+            <span class="table-subtitle">{{ $t('（Intent 意图 / Settlement 结算 / Fulfillment 履约 / Virtual Wallet 联动）') }}</span>
           </div>
           <div class="header-actions">
             <el-button size="small" @click="loadPayments">
-              <el-icon><Refresh /></el-icon> 刷新数据
+              <el-icon><Refresh /></el-icon> {{ $t('刷新数据') }}
             </el-button>
           </div>
         </div>
@@ -373,7 +374,7 @@ watch(
 
       <el-table :data="payments" v-loading="loading" stripe style="width: 100%">
         <!-- Intent ID & Request ID -->
-        <el-table-column label="支付意图 / 请求标识" min-width="200">
+        <el-table-column :label="$t('支付意图 / 请求标识')" min-width="200">
           <template #default="{ row }">
             <div class="id-cell">
               <div class="primary-id">
@@ -391,28 +392,28 @@ watch(
         </el-table-column>
 
         <!-- Agent Identification -->
-        <el-table-column label="所属 Agent" min-width="160">
+        <el-table-column :label="$t('所属 Agent')" min-width="160">
           <template #default="{ row }">
             <div class="agent-cell" v-if="row.agent_id">
               <el-tag size="small" effect="light" class="agent-tag">
                 <el-icon><Cpu /></el-icon> {{ row.agent_id }}
               </el-tag>
             </div>
-            <span v-else class="text-muted">租户直接调用</span>
+            <span v-else class="text-muted">{{ $t('租户直接调用') }}</span>
           </template>
         </el-table-column>
 
         <!-- Route & Method -->
-        <el-table-column label="路由 / 支付方式" min-width="180">
+        <el-table-column :label="$t('路由 / 支付方式')" min-width="180">
           <template #default="{ row }">
             <div class="route-cell">
               <div class="route-id">{{ row.route_id }}</div>
               <div class="method-tag">
                 <el-tag v-if="row.payment_method === 'wallet'" size="small" type="success" effect="plain">
-                  <el-icon><Wallet /></el-icon> 虚拟钱包
+                  <el-icon><Wallet /></el-icon> {{ $t('虚拟钱包') }}
                 </el-tag>
                 <el-tag v-else size="small" type="primary" effect="plain">
-                  <el-icon><Connection /></el-icon> 链上 x402
+                  <el-icon><Connection /></el-icon> {{ $t('链上 x402') }}
                 </el-tag>
               </div>
             </div>
@@ -420,7 +421,7 @@ watch(
         </el-table-column>
 
         <!-- Amount -->
-        <el-table-column label="消费金额" width="140" align="right">
+        <el-table-column :label="$t('消费金额')" width="140" align="right">
           <template #default="{ row }">
             <div class="amount-cell">
               <span class="amount-val">{{ formatUSDC(row.amount_base_units) }}</span>
@@ -429,24 +430,24 @@ watch(
         </el-table-column>
 
         <!-- Three Orthogonal Lifecycles -->
-        <el-table-column label="三大正交生命周期状态" min-width="240">
+        <el-table-column :label="$t('三大正交生命周期状态')" min-width="240">
           <template #default="{ row }">
             <div class="lifecycles-badges">
-              <el-tooltip content="业务意图状态 (PaymentIntent)" placement="top">
+              <el-tooltip :content="$t('业务意图状态 (PaymentIntent)')" placement="top">
                 <el-tag size="small" :type="getSubsystemTagType('intent', row.intent_status)">
-                  意图: {{ row.intent_status }}
+                  {{ $t('意图:') }} {{ row.intent_status }}
                 </el-tag>
               </el-tooltip>
 
-              <el-tooltip content="资金划转结算状态 (SettlementRecord)" placement="top">
+              <el-tooltip :content="$t('资金划转结算状态 (SettlementRecord)')" placement="top">
                 <el-tag size="small" :type="getSubsystemTagType('settlement', row.settlement_status)">
-                  结算: {{ row.settlement_status }}
+                  {{ $t('结算:') }} {{ row.settlement_status }}
                 </el-tag>
               </el-tooltip>
 
-              <el-tooltip content="上游 API 履约交付状态 (FulfillmentRecord)" placement="top">
+              <el-tooltip :content="$t('上游 API 履约交付状态 (FulfillmentRecord)')" placement="top">
                 <el-tag size="small" :type="getSubsystemTagType('fulfillment', row.fulfillment_status)">
-                  履约: {{ row.fulfillment_status }}
+                  {{ $t('履约:') }} {{ row.fulfillment_status }}
                 </el-tag>
               </el-tooltip>
             </div>
@@ -454,7 +455,7 @@ watch(
         </el-table-column>
 
         <!-- Canonical Composite Display Status -->
-        <el-table-column label="复合审计状态 (T1.1)" min-width="180">
+        <el-table-column :label="$t('复合审计状态')" min-width="180">
           <template #default="{ row }">
             <div class="composite-status-cell">
               <el-tag :type="getCompositeTagType(row.display_status)" effect="dark" class="status-tag">
@@ -466,17 +467,17 @@ watch(
         </el-table-column>
 
         <!-- Created At -->
-        <el-table-column prop="created_at" label="记录时间" width="165">
+        <el-table-column prop="created_at" :label="$t('记录时间')" width="165">
           <template #default="{ row }">
             <span class="timestamp">{{ formatDate(row.created_at) }}</span>
           </template>
         </el-table-column>
 
         <!-- Operations -->
-        <el-table-column label="操作" width="110" fixed="right" align="center">
+        <el-table-column :label="$t('操作')" width="110" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="viewDetails(row)">
-              全景审计
+              {{ $t('全景审计') }}
             </el-button>
           </template>
         </el-table-column>
@@ -499,7 +500,7 @@ watch(
     <!-- Detail Drawer: Full Three-Orthogonal-Lifecycle Audit View -->
     <el-drawer
       v-model="detailDrawerVisible"
-      title="全生命周期证据链审计 (T5.2 & T5.3)"
+      :title="$t('全生命周期证据链审计')"
       size="680px"
       direction="rtl"
       destroy-on-close
@@ -508,7 +509,7 @@ watch(
         <div class="drawer-content" v-if="activeRecord">
           <!-- Banner Alert for Status -->
           <el-alert
-            :title="`复合判定状态：${activeRecord.display_status}`"
+            :title="`${$t('复合判定状态：')}${activeRecord.display_status}`"
             :description="activeRecord.display_note"
             :type="getCompositeTagType(activeRecord.display_status)"
             show-icon
@@ -521,7 +522,7 @@ watch(
             <div class="stage-header">
               <div class="stage-title">
                 <el-icon class="icon"><Document /></el-icon>
-                <span>1. 业务意图 (Payment Intent)</span>
+                <span>{{ $t('1. 业务意图 (Payment Intent)') }}</span>
               </div>
               <el-tag :type="getSubsystemTagType('intent', activeRecord.intent_status)">
                 {{ activeRecord.intent_status }}
@@ -529,25 +530,25 @@ watch(
             </div>
             <div class="stage-body">
               <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="意图 ID (Intent ID)" :span="2">
+                <el-descriptions-item :label="$t('意图 ID (Intent ID)')" :span="2">
                   <span class="mono">{{ activeRecord.intent_id }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="请求 ID (Request ID)">
+                <el-descriptions-item :label="$t('请求 ID (Request ID)')">
                   <span class="mono">{{ activeRecord.request_id }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="幂等键 (Idempotency)">
-                  <span class="mono">{{ activeRecord.idempotency_key || '未指定' }}</span>
+                <el-descriptions-item :label="$t('幂等键 (Idempotency)')">
+                  <span class="mono">{{ activeRecord.idempotency_key || $t('未指定') }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="所属 Agent">
-                  <span class="mono">{{ activeRecord.agent_id || '租户直连' }}</span>
+                <el-descriptions-item :label="$t('所属 Agent')">
+                  <span class="mono">{{ activeRecord.agent_id || $t('租户直连') }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="所属项目">
+                <el-descriptions-item :label="$t('所属项目')">
                   <span class="mono">{{ activeRecord.project_id }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="意图金额">
+                <el-descriptions-item :label="$t('意图金额')">
                   <span class="bold-text">{{ formatUSDC(activeRecord.amount_base_units) }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="创建时间">
+                <el-descriptions-item :label="$t('创建时间')">
                   {{ formatDate(activeRecord.created_at) }}
                 </el-descriptions-item>
               </el-descriptions>
@@ -559,7 +560,7 @@ watch(
             <div class="stage-header">
               <div class="stage-title">
                 <el-icon class="icon"><Coin /></el-icon>
-                <span>2. 资金结算与冻结 (Settlement Record)</span>
+                <span>{{ $t('2. 资金结算与冻结 (Settlement Record)') }}</span>
               </div>
               <el-tag :type="getSubsystemTagType('settlement', activeRecord.settlement_status)">
                 {{ activeRecord.settlement_status }}
@@ -567,24 +568,24 @@ watch(
             </div>
             <div class="stage-body">
               <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="结算模式">
+                <el-descriptions-item :label="$t('结算模式')">
                   <el-tag size="small" :type="activeRecord.payment_method === 'wallet' ? 'success' : 'primary'">
-                    {{ activeRecord.payment_method === 'wallet' ? '虚拟钱包 (双式记账)' : '链上 x402 授权签名' }}
+                    {{ activeRecord.payment_method === 'wallet' ? $t('虚拟钱包 (双式记账)') : $t('链上 x402 授权签名') }}
                   </el-tag>
                 </el-descriptions-item>
-                <el-descriptions-item label="结算状态">
+                <el-descriptions-item :label="$t('结算状态')">
                   <span class="mono">{{ activeRecord.settlement_status }}</span>
                 </el-descriptions-item>
 
                 <!-- Wallet specifics -->
                 <template v-if="activeRecord.payment_method === 'wallet'">
-                  <el-descriptions-item label="关联冻结 ID (Hold ID)" :span="2">
+                  <el-descriptions-item :label="$t('关联冻结 ID (Hold ID)')" :span="2">
                     <span class="mono">{{ activeRecord.hold?.hold_id || activeRecord.settlement?.settlement_id }}</span>
                     <el-tag v-if="activeRecord.hold" size="small" class="ml-2" type="info">
                       Hold: {{ activeRecord.hold.status }}
                     </el-tag>
                   </el-descriptions-item>
-                  <el-descriptions-item label="账本流水 (Ledger Entry)" :span="2" v-if="activeRecord.ledger">
+                  <el-descriptions-item :label="$t('账本流水 (Ledger Entry)')" :span="2" v-if="activeRecord.ledger">
                     <span class="mono">{{ activeRecord.ledger.entry_id }}</span>
                     <el-tag size="small" class="ml-2" :type="activeRecord.ledger.type === 'capture' ? 'success' : 'warning'">
                       {{ activeRecord.ledger.type }} ({{ activeRecord.ledger.amount > 0 ? '+' : '' }}{{ activeRecord.ledger.amount / 1000000 }} USDC)
@@ -594,10 +595,10 @@ watch(
 
                 <!-- Onchain specifics -->
                 <template v-else>
-                  <el-descriptions-item label="目标网络">
+                  <el-descriptions-item :label="$t('目标网络')">
                     <span class="mono">{{ activeRecord.settlement?.network_id || 'eip155:84532' }}</span>
                   </el-descriptions-item>
-                  <el-descriptions-item label="交易哈希 / Nonce" :span="2">
+                  <el-descriptions-item :label="$t('交易哈希 / Nonce')" :span="2">
                     <span class="mono">{{ activeRecord.settlement?.tx_hash || activeRecord.settlement?.nonce }}</span>
                   </el-descriptions-item>
                 </template>
@@ -610,7 +611,7 @@ watch(
             <div class="stage-header">
               <div class="stage-title">
                 <el-icon class="icon"><Service /></el-icon>
-                <span>3. 上游交付与履约 (Fulfillment Record)</span>
+                <span>{{ $t('3. 上游交付与履约 (Fulfillment Record)') }}</span>
               </div>
               <el-tag :type="getSubsystemTagType('fulfillment', activeRecord.fulfillment_status)">
                 {{ activeRecord.fulfillment_status }}
@@ -618,21 +619,21 @@ watch(
             </div>
             <div class="stage-body">
               <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="上游地址 (Upstream URL)" :span="2">
+                <el-descriptions-item :label="$t('上游地址 (Upstream URL)')" :span="2">
                   <span class="mono">{{ activeRecord.fulfillment?.upstream_url || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="HTTP 响应码">
+                <el-descriptions-item :label="$t('HTTP 响应码')">
                   <el-tag
                     size="small"
                     :type="(activeRecord.fulfillment?.upstream_status || 0) < 400 ? 'success' : 'danger'"
                   >
-                    {{ activeRecord.fulfillment?.upstream_status || '未收到' }}
+                    {{ activeRecord.fulfillment?.upstream_status || $t('未收到') }}
                   </el-tag>
                 </el-descriptions-item>
-                <el-descriptions-item label="端到端耗时">
+                <el-descriptions-item :label="$t('端到端耗时')">
                   <span class="mono">{{ activeRecord.fulfillment?.latency_ms || 0 }} ms</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="响应摘要 (SHA-256)" :span="2" v-if="activeRecord.fulfillment?.response_body_hash">
+                <el-descriptions-item :label="$t('响应摘要 (SHA-256)')" :span="2" v-if="activeRecord.fulfillment?.response_body_hash">
                   <span class="mono hash-text">{{ activeRecord.fulfillment.response_body_hash }}</span>
                 </el-descriptions-item>
               </el-descriptions>
@@ -641,7 +642,7 @@ watch(
 
           <!-- Raw JSON Audit Collapsible -->
           <el-collapse class="json-collapse">
-            <el-collapse-item title="查看不可篡改原始审计 JSON (Raw Evidence)" name="raw">
+            <el-collapse-item :title="$t('查看不可篡改原始审计 JSON (Raw Evidence)')" name="raw">
               <div class="json-box">
                 <pre>{{ JSON.stringify(activeRecord, null, 2) }}</pre>
               </div>

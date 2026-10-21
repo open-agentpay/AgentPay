@@ -2,7 +2,10 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { routeApi } from '@/api/client';
+import { useI18n } from '@/i18n';
 import type { AuthTypeSchema, UpstreamAuthConfig, TestUpstreamResult } from '@/types/auth_config';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   modelValue?: UpstreamAuthConfig;
@@ -116,7 +119,7 @@ function handleSecretChange() {
 // Test connection using backend gateway proxy tester
 async function handleTestConnection() {
   if (!props.upstreamUrl) {
-    ElMessage.warning('请先输入上游地址 (URL) 后再测试连通性');
+    ElMessage.warning(t('请先输入上游地址 (URL) 后再测试连通性'));
     return;
   }
 
@@ -140,12 +143,12 @@ async function handleTestConnection() {
 
     testResult.value = res;
     if (res.success) {
-      ElMessage.success(`上游测试连通成功 (HTTP ${res.status_code})`);
+      ElMessage.success(t('上游测试连通成功') + ` (HTTP ${res.status_code})`);
     } else {
-      ElMessage.error(res.error || `上游返回异常状态 HTTP ${res.status_code}`);
+      ElMessage.error(res.error || t('上游返回异常状态 HTTP') + ` ${res.status_code}`);
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : '上游测试异常';
+    const msg = err instanceof Error ? err.message : t('上游测试异常');
     testResult.value = {
       success: false,
       status_code: 0,
@@ -168,27 +171,27 @@ onMounted(() => {
 <template>
   <div class="auth-config-container">
     <!-- Auth Strategy Selector -->
-    <el-form-item label="上游鉴权方式">
+    <el-form-item :label="$t('上游鉴权方式')">
       <el-select
         v-model="selectedType"
-        placeholder="选择上游 API 认证方式"
+        :placeholder="$t('选择上游 API 认证方式')"
         style="width: 100%"
         @change="handleTypeChange"
       >
         <el-option
-          v-for="t in authTypes"
-          :key="t.type"
-          :label="t.label"
-          :value="t.type"
+          v-for="tItem in authTypes"
+          :key="tItem.type"
+          :label="$t(tItem.label)"
+          :value="tItem.type"
         >
           <div class="type-option">
-            <span class="type-title">{{ t.label }}</span>
-            <span class="type-desc">{{ t.description }}</span>
+            <span class="type-title">{{ $t(tItem.label) }}</span>
+            <span class="type-desc">{{ $t(tItem.description) }}</span>
           </div>
         </el-option>
       </el-select>
       <div v-if="currentSchema" class="type-hint">
-        {{ currentSchema.description }}
+        {{ $t(currentSchema.description) }}
       </div>
     </el-form-item>
 
@@ -198,7 +201,7 @@ onMounted(() => {
         <!-- Sensitive / Secret field -->
         <el-form-item
           v-if="field.secret"
-          :label="field.label"
+          :label="$t(field.label)"
           :required="field.required && !hasSecret"
         >
           <div class="secret-input-wrap">
@@ -207,20 +210,20 @@ onMounted(() => {
               type="password"
               show-password
               clearable
-              :placeholder="hasSecret ? '●●●●●● (已安全加密存储，留空保持不变)' : (field.description || '请输入密钥')"
+              :placeholder="hasSecret ? $t('●●●●●● (已安全加密存储，留空保持不变)') : $t(field.description || '请输入密钥')"
               @input="handleSecretChange"
             />
             <el-tag v-if="hasSecret && !secrets[field.key]" type="success" size="small" effect="plain" class="secret-tag">
-              已配置
+              {{ $t('已配置') }}
             </el-tag>
           </div>
-          <div v-if="field.description" class="field-desc">{{ field.description }}</div>
+          <div v-if="field.description" class="field-desc">{{ $t(field.description) }}</div>
         </el-form-item>
 
         <!-- Non-sensitive field: Select -->
         <el-form-item
           v-else-if="field.kind === 'select'"
-          :label="field.label"
+          :label="$t(field.label)"
           :required="field.required"
         >
           <el-select
@@ -231,41 +234,41 @@ onMounted(() => {
             <el-option
               v-for="opt in field.options || []"
               :key="opt"
-              :label="opt"
+              :label="$t(opt)"
               :value="opt"
             />
           </el-select>
-          <div v-if="field.description" class="field-desc">{{ field.description }}</div>
+          <div v-if="field.description" class="field-desc">{{ $t(field.description) }}</div>
         </el-form-item>
 
         <!-- Non-sensitive field: Textarea -->
         <el-form-item
           v-else-if="field.kind === 'textarea'"
-          :label="field.label"
+          :label="$t(field.label)"
           :required="field.required"
         >
           <el-input
             v-model="params[field.key]"
             type="textarea"
             :rows="3"
-            :placeholder="field.description"
+            :placeholder="$t(field.description || '')"
             @input="handleParamChange"
           />
-          <div v-if="field.description" class="field-desc">{{ field.description }}</div>
+          <div v-if="field.description" class="field-desc">{{ $t(field.description) }}</div>
         </el-form-item>
 
         <!-- Default: Text Input -->
         <el-form-item
           v-else
-          :label="field.label"
+          :label="$t(field.label)"
           :required="field.required"
         >
           <el-input
             v-model="params[field.key]"
-            :placeholder="field.description"
+            :placeholder="$t(field.description || '')"
             @input="handleParamChange"
           />
-          <div v-if="field.description" class="field-desc">{{ field.description }}</div>
+          <div v-if="field.description" class="field-desc">{{ $t(field.description) }}</div>
         </el-form-item>
       </div>
     </div>
@@ -281,23 +284,23 @@ onMounted(() => {
           :loading="testing"
           @click="handleTestConnection"
         >
-          测试上游鉴权连通性
+          {{ $t('测试上游鉴权连通性') }}
         </el-button>
-        <span class="test-tip">通过网关向目标上游发起探测请求，验证凭证有效性与脱敏后的请求头</span>
+        <span class="test-tip">{{ $t('通过网关向目标上游发起探测请求，验证凭证有效性与脱敏后的请求头') }}</span>
       </div>
 
       <!-- Test Result Report -->
       <div v-if="testResult" class="test-result-card">
         <el-alert
           v-if="testResult.success"
-          :title="`连通性测试成功 - 状态码: ${testResult.status_code} (${testResult.status_text}) | 耗时: ${testResult.latency_ms}ms`"
+          :title="`${$t('连通性测试成功')} - HTTP ${testResult.status_code} (${testResult.status_text}) | ${testResult.latency_ms}ms`"
           type="success"
           show-icon
           :closable="false"
         />
         <el-alert
           v-else
-          :title="`连通性测试未通过 - ${testResult.error || testResult.status_text} (状态码: ${testResult.status_code}) | 耗时: ${testResult.latency_ms}ms`"
+          :title="`${$t('连通性测试未通过')} - ${testResult.error || testResult.status_text} (HTTP ${testResult.status_code}) | ${testResult.latency_ms}ms`"
           type="error"
           show-icon
           :closable="false"
@@ -305,7 +308,7 @@ onMounted(() => {
 
         <!-- Sent headers preview -->
         <div v-if="testResult.sent_headers && Object.keys(testResult.sent_headers).length > 0" class="headers-preview">
-          <div class="headers-title">网关转发请求头快照 (敏感凭据已自动脱敏):</div>
+          <div class="headers-title">{{ $t('网关转发请求头快照 (敏感凭据已自动脱敏):') }}</div>
           <div class="headers-code">
             <div v-for="(val, key) in testResult.sent_headers" :key="key" class="header-line">
               <span class="hdr-key">{{ key }}:</span>
