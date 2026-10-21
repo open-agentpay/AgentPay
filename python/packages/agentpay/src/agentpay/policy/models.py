@@ -17,7 +17,7 @@ from __future__ import annotations
 import enum
 import re
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from agentpay.policy.errors import PolicyErrorCode
 
@@ -30,6 +30,8 @@ _CAIP2_RE = re.compile(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$")
 
 # Canonical EVM address: 0x followed by exactly 40 hex chars
 _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+_AGENTPAY_ROUTE_RE = re.compile(r"^agentpay:route:[A-Za-z0-9_-]+$")
+_AGENTPAY_INTERNAL_NETWORK = "agentpay:internal-ledger"
 
 
 # ---------------------------------------------------------------------------
@@ -278,17 +280,39 @@ class PaymentRequest(BaseModel):
     @field_validator("payee")
     @classmethod
     def _normalise_payee(cls, v: str) -> str:
+        if _AGENTPAY_ROUTE_RE.fullmatch(v):
+            return v
         return _validate_evm_address(v, "payee")
 
     @field_validator("asset")
     @classmethod
     def _normalise_asset(cls, v: str) -> str:
+        if v == "USD":
+            return v
         return _validate_evm_address(v, "asset")
 
     @field_validator("network")
     @classmethod
     def _validate_network(cls, v: str) -> str:
+        if v == _AGENTPAY_INTERNAL_NETWORK:
+            return v
         return _validate_caip2(v)
+
+    @model_validator(mode="after")
+    def _validate_payment_identifiers(self) -> PaymentRequest:
+        wallet_fields = (
+            self.network == _AGENTPAY_INTERNAL_NETWORK,
+            self.asset == "USD",
+            bool(_AGENTPAY_ROUTE_RE.fullmatch(self.payee)),
+        )
+        if any(wallet_fields) and not all(wallet_fields):
+            raise ValueError("AgentPay wallet requests require internal-ledger, USD, and an agentpay:route payee")
+        return self
+
+    @property
+    def is_agentpay_wallet(self) -> bool:
+        """Whether this request uses AgentPay's internal wallet ledger rather than EVM settlement."""
+        return self.network == _AGENTPAY_INTERNAL_NETWORK
 
     @field_validator("domain", mode="before")
     @classmethod

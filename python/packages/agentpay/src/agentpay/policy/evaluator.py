@@ -60,26 +60,35 @@ def evaluate_static_rules(
             reason=f"Invalid payment amount: {request.amount!r}",
         )
 
-    # 3. Whitelist Matrix (Strict Order: Network -> Asset -> Payee -> Domain)
-    if request.network not in config.whitelist_networks:
-        return StaticEvaluationResult(
-            passed=False,
-            error_code=PolicyErrorCode.NETWORK_NOT_WHITELISTED,
-            reason=f"Network {request.network} is not in whitelisted networks",
-        )
+    # 3. Whitelist Matrix (EVM only). AgentPay's internal wallet ledger uses
+    # non-EVM identifiers; its trust boundary is the required gateway domain.
+    if not request.is_agentpay_wallet:
+        if request.network not in config.whitelist_networks:
+            return StaticEvaluationResult(
+                passed=False,
+                error_code=PolicyErrorCode.NETWORK_NOT_WHITELISTED,
+                reason=f"Network {request.network} is not in whitelisted networks",
+            )
 
-    if request.asset not in config.whitelist_assets:
-        return StaticEvaluationResult(
-            passed=False,
-            error_code=PolicyErrorCode.ASSET_NOT_WHITELISTED,
-            reason=f"Asset {request.asset} is not in whitelisted assets",
-        )
+        if request.asset not in config.whitelist_assets:
+            return StaticEvaluationResult(
+                passed=False,
+                error_code=PolicyErrorCode.ASSET_NOT_WHITELISTED,
+                reason=f"Asset {request.asset} is not in whitelisted assets",
+            )
 
-    if request.payee not in config.whitelist_payees:
+        if request.payee not in config.whitelist_payees:
+            return StaticEvaluationResult(
+                passed=False,
+                error_code=PolicyErrorCode.PAYEE_NOT_WHITELISTED,
+                reason=f"Payee {request.payee} is not in whitelisted payees",
+            )
+
+    if request.is_agentpay_wallet and request.domain is None:
         return StaticEvaluationResult(
             passed=False,
-            error_code=PolicyErrorCode.PAYEE_NOT_WHITELISTED,
-            reason=f"Payee {request.payee} is not in whitelisted payees",
+            error_code=PolicyErrorCode.DOMAIN_NOT_WHITELISTED,
+            reason="AgentPay wallet requests require a whitelisted gateway domain",
         )
 
     if request.domain is not None and request.domain.lower() not in config.whitelist_domains:
