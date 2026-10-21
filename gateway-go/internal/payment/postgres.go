@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // PostgresService implements payment.Service with PostgreSQL persistence.
@@ -23,6 +25,79 @@ func NewPostgresService(db *sql.DB) *PostgresService {
 		_, _ = db.Exec("ALTER TABLE ap_payment_intent DROP CONSTRAINT IF EXISTS ap_payment_intent_config_version_id_fkey;")
 	}
 	return &PostgresService{db: db}
+}
+
+func (p *PostgresService) CreateWalletChallenge(ctx context.Context, ch *WalletChallenge) error {
+	if ch == nil || ch.ChallengeID == "" || ch.IntentID == "" || ch.Amount <= 0 {
+		return errors.New("invalid wallet challenge")
+	}
+	_, err := p.db.ExecContext(ctx, `
+		INSERT INTO ap_wallet_challenge (
+			challenge_id, tenant_id, wallet_id, api_key_hash, route_id, intent_id, idempotency_key,
+			request_binding, amount_base_units, asset, resource_uri, valid_after, valid_before, status
+		) VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,''),$8,$9,$10,$11,$12,$13,'issued')
+	`, ch.ChallengeID, ch.TenantID, ch.WalletID, ch.APIKeyHash, ch.RouteID, ch.IntentID,
+		ch.IdempotencyKey, ch.RequestBinding, ch.Amount, ch.Asset, ch.ResourceURI, ch.ValidAfter, ch.ValidBefore)
+	return err
+}
+
+// ConsumeWalletChallenge uses a conditional UPDATE as the cross-instance one-time claim.
+// SECURITY-REVIEW: only a matching, unexpired issued row can transition to consuming; the
+// unique (wallet_id, nonce) constraint prevents nonce reuse across challenge IDs.
+func (p *PostgresService) ConsumeWalletChallenge(ctx context.Context, challengeID, tenantID, walletID, apiKeyHash, routeID, requestBinding, nonce, idempotencyKey string, amount int64, now time.Time) (*WalletChallenge, error) {
+	var ch WalletChallenge
+	err := p.db.QueryRowContext(ctx, `
+		UPDATE ap_wallet_challenge
+		SET status = 'consuming', nonce = $8, consumed_at = $9
+		WHERE challenge_id = $1 AND tenant_id = $2 AND wallet_id = $3 AND api_key_hash = $4
+		  AND route_id = $5 AND request_binding = $6 AND amount_base_units = $7
+		  AND COALESCE(idempotency_key, '') = $10
+		  AND status = 'issued' AND valid_after <= $9 AND valid_before >= $9
+		RETURNING challenge_id, tenant_id, wallet_id, api_key_hash, route_id, intent_id,
+		          request_binding, amount_base_units, asset, resource_uri, valid_after,
+		          valid_before, status, nonce, COALESCE(hold_id, '')
+	`, challengeID, tenantID, walletID, apiKeyHash, routeID, requestBinding, amount, nonce, now, idempotencyKey).Scan(
+		&ch.ChallengeID, &ch.TenantID, &ch.WalletID, &ch.APIKeyHash, &ch.RouteID, &ch.IntentID,
+		&ch.RequestBinding, &ch.Amount, &ch.Asset, &ch.ResourceURI, &ch.ValidAfter,
+		&ch.ValidBefore, &ch.Status, &ch.Nonce, &ch.HoldID,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrWalletChallengeInvalid
+		}
+		if pgErr, ok := err.(*pq.Error); ok && pgErr.Code == "23505" {
+			return nil, ErrWalletChallengeReplay
+		}
+		return nil, err
+	}
+	return &ch, nil
+}
+
+func (p *PostgresService) SetWalletChallengeHold(ctx context.Context, challengeID, holdID string) error {
+	res, err := p.db.ExecContext(ctx, `
+		UPDATE ap_wallet_challenge SET hold_id = $1, status = 'consumed'
+		WHERE challenge_id = $2 AND status = 'consuming' AND hold_id IS NULL
+	`, holdID, challengeID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n != 1 {
+		return ErrWalletChallengeInvalid
+	}
+	return nil
+}
+
+func (p *PostgresService) RejectWalletChallenge(ctx context.Context, challengeID string) error {
+	res, err := p.db.ExecContext(ctx, `UPDATE ap_wallet_challenge SET status = 'rejected' WHERE challenge_id = $1 AND status = 'consuming'`, challengeID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n != 1 {
+		return ErrWalletChallengeInvalid
+	}
+	return nil
 }
 
 func (p *PostgresService) CreateIntent(ctx context.Context, intent *PaymentIntent) error {

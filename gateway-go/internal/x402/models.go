@@ -4,8 +4,10 @@ package x402
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -16,24 +18,52 @@ const (
 	HeaderIdempotencyKey   = "Idempotency-Key"
 	DefaultVersion         = "2.0"
 	DefaultScheme          = "EIP-3009"
+	WalletScheme           = "agentpay-wallet"
 	DefaultChallengeTTL    = 300 * time.Second // 5 minutes
 )
 
 // PaymentChallenge represents the structured 402 challenge issued to the buyer.
 type PaymentChallenge struct {
+	Version        string                 `json:"version"`
+	ChallengeID    string                 `json:"challengeId"`
+	Network        string                 `json:"network"` // CAIP-2, e.g. eip155:84532
+	Asset          string                 `json:"asset"`   // Token contract address
+	AssetSymbol    string                 `json:"assetSymbol"`
+	Decimals       int                    `json:"decimals"`
+	Amount         string                 `json:"amount"` // Base units integer string
+	Payee          string                 `json:"payee"`  // Payee treasury address
+	Scheme         string                 `json:"scheme"` // EIP-3009
+	ValidAfter     int64                  `json:"validAfter"`
+	ValidBefore    int64                  `json:"validBefore"`
+	FacilitatorURL string                 `json:"facilitatorUrl,omitempty"`
+	ResourceURI    string                 `json:"resourceUri,omitempty"`
+	Extensions     map[string]interface{} `json:"extensions,omitempty"`
+}
+
+// WalletAuthorization is the AgentPay wallet-specific PAYMENT-SIGNATURE payload.
+// It is authenticated by the API key and never represents an EIP-712 signature.
+type WalletAuthorization struct {
 	Version        string `json:"version"`
 	ChallengeID    string `json:"challengeId"`
-	Network        string `json:"network"` // CAIP-2, e.g. eip155:84532
-	Asset          string `json:"asset"`   // Token contract address
-	AssetSymbol    string `json:"assetSymbol"`
-	Decimals       int    `json:"decimals"`
-	Amount         string `json:"amount"` // Base units integer string
-	Payee          string `json:"payee"`  // Payee treasury address
-	Scheme         string `json:"scheme"` // EIP-3009
+	Scheme         string `json:"scheme"`
+	Nonce          string `json:"nonce"`
 	ValidAfter     int64  `json:"validAfter"`
 	ValidBefore    int64  `json:"validBefore"`
-	FacilitatorURL string `json:"facilitatorUrl,omitempty"`
-	ResourceURI    string `json:"resourceUri,omitempty"`
+	Amount         string `json:"amount"`
+	ResourceURI    string `json:"resourceUri"`
+	RequestBinding string `json:"requestBinding"`
+}
+
+// ComputeRequestBinding implements the cross-language canonical request digest in the wallet scheme spec.
+func ComputeRequestBinding(method string, requestURL *url.URL, body []byte) string {
+	path := requestURL.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	bodyDigest := sha256.Sum256(body)
+	canonical := strings.ToUpper(method) + "\n" + path + "\n" + requestURL.RawQuery + "\n" + hex.EncodeToString(bodyDigest[:])
+	digest := sha256.Sum256([]byte(canonical))
+	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
 // PaymentAuthorization represents the buyer's signed payment authorization payload.

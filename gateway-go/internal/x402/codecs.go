@@ -5,8 +5,46 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
+
+var walletNoncePattern = regexp.MustCompile(`^0x[0-9a-f]{64}$`)
+
+func decodeHeaderJSON(headerVal string) ([]byte, error) {
+	headerVal = strings.TrimSpace(headerVal)
+	if headerVal == "" {
+		return nil, ErrEmptyHeader
+	}
+	if strings.HasPrefix(headerVal, "{") {
+		return []byte(headerVal), nil
+	}
+	decoded, err := Base64URLDecode(headerVal)
+	if err != nil {
+		return nil, fmt.Errorf("%w: base64 decode failed: %v", ErrMalformedHeader, err)
+	}
+	return decoded, nil
+}
+
+// DecodeWalletAuthorization parses and validates the AgentPay virtual-wallet extension payload.
+func DecodeWalletAuthorization(headerVal string) (*WalletAuthorization, error) {
+	raw, err := decodeHeaderJSON(headerVal)
+	if err != nil {
+		return nil, err
+	}
+	var auth WalletAuthorization
+	if err := json.Unmarshal(raw, &auth); err != nil {
+		return nil, fmt.Errorf("%w: json parse error: %v", ErrMalformedHeader, err)
+	}
+	if auth.Version != DefaultVersion || auth.ChallengeID == "" || auth.Scheme != WalletScheme || auth.Amount == "" || auth.ResourceURI == "" || auth.RequestBinding == "" || !walletNoncePattern.MatchString(auth.Nonce) || auth.ValidBefore <= auth.ValidAfter {
+		return nil, fmt.Errorf("%w: invalid agentpay-wallet authorization fields", ErrMissingRequiredField)
+	}
+	if amount, err := strconv.ParseInt(auth.Amount, 10, 64); err != nil || amount <= 0 {
+		return nil, fmt.Errorf("%w: amount must be a positive int64 decimal string", ErrMalformedHeader)
+	}
+	return &auth, nil
+}
 
 var (
 	ErrEmptyHeader          = errors.New("header value is empty")

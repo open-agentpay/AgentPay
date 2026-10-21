@@ -199,7 +199,13 @@ class PolicyConfig(BaseModel):
         for addr in v:
             if not isinstance(addr, str):
                 raise TypeError(f"whitelist_payees elements must be strings, got {type(addr).__name__}")
-        return frozenset(_validate_evm_address(addr, "whitelist_payees") for addr in v)
+        normalized: list[str] = []
+        for addr in v:
+            if addr.startswith("agentpay:route:") and len(addr) > len("agentpay:route:"):
+                normalized.append(addr)
+            else:
+                normalized.append(_validate_evm_address(addr, "whitelist_payees"))
+        return frozenset(normalized)
 
     @field_validator("whitelist_assets", mode="before")
     @classmethod
@@ -211,7 +217,10 @@ class PolicyConfig(BaseModel):
         for addr in v:
             if not isinstance(addr, str):
                 raise TypeError(f"whitelist_assets elements must be strings, got {type(addr).__name__}")
-        return frozenset(_validate_evm_address(addr, "whitelist_assets") for addr in v)
+        normalized: list[str] = []
+        for addr in v:
+            normalized.append("USD" if addr == "USD" else _validate_evm_address(addr, "whitelist_assets"))
+        return frozenset(normalized)
 
     @field_validator("whitelist_networks", mode="before")
     @classmethod

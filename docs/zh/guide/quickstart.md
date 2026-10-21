@@ -113,7 +113,7 @@ curl -si "http://127.0.0.1:8080/weather/current?city=SanFrancisco" \
   | python3 -c "import sys,base64,json; s=sys.stdin.read().strip(); s+='='*(-len(s)%4); print(json.dumps(json.loads(base64.urlsafe_b64decode(s)),indent=2))"
 ```
 
-你会看到 `network`、`asset`、`amount`（最小单位 —— USDC 为 6 位小数，`100000` 即 0.1 USDC）、`payee`、`validBefore` 与 `scheme` 等字段。这就是**链上路径**：买方需要针对这个金额签署 EIP-3009 授权。下一步你将使用**钱包路径**，它完全不需要签名。
+你会看到 `network`、`asset`、`amount`（最小单位 —— USDC 为 6 位小数，`100000` 即 0.1 USDC）、`payee`、`validBefore` 与 `scheme` 等字段。这个未认证请求展示的是**链上路径**。API Key 钱包路径同样先返回 x402 风格的 `402` 价格挑战：网关先报价，SDK 用本地策略检查价格，再携带钱包授权重试。这个流程不会生成 EIP-3009 签名，也不会调用 Facilitator。
 
 ## 4. 安装 Python SDK
 
@@ -138,10 +138,10 @@ from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import MemoryPolicyEngine
 
 # 1. 本地财务防火墙：防止 Agent 陷入循环刷爆预算。
-#    金额为最小单位整数（USDC 为 6 位小数）。
+#    金额为最小单位整数；钱包挑战使用 USD 计价。
 policy = MemoryPolicyEngine(
-    max_per_tx=1_000_000,       # 单笔最多 1 USDC
-    daily_budget=10_000_000,    # 24 小时最多 10 USDC
+    max_per_tx=1_000_000,       # 单笔最多 1 USD
+    daily_budget=10_000_000,    # 24 小时最多 10 USD
 )
 
 # 2. 签名器。钱包模式不需要链上签名，这里仅作占位。
@@ -153,28 +153,32 @@ signer = LocalSigner(
 # 3. 为 Agent 颁发的 API Key（开发密钥，已预置测试钱包余额）。
 api_key = os.getenv("AGENTPAY_API_KEY", "apk_live_valid123")
 
-# 4. 客户端的用法与标准 httpx.Client 一致。Authorization 头会选择钱包路径：
-#    网关从租户钱包扣款，无需签名。
+# 4. 开启价格感知钱包模式。SDK 先接收 402 报价，用本地策略检查确切金额，
+#    获准后再携带钱包授权重试请求。
 client = AgentPayClient(
     signer=signer,
     policy=policy,
     headers={"Authorization": f"Bearer {api_key}"},
+    wallet_challenge_mode=True,
 )
 
-# 网关会校验密钥、检查策略、在租户钱包中冻结价格（Hold）、调用上游，
-# 然后确认扣款（Capture）。
+# 首次请求会收到价格挑战。只有本地策略批准后 SDK 才重试；随后网关冻结租户钱包余额，
+# 并调用上游。
 response = client.get("http://127.0.0.1:8080/weather/current?city=SanFrancisco")
 print("Response status:", response.status_code)
 print("Data:", response.json())
 ```
 
-`AgentPayClient` 继承自 `httpx.Client`，因此 `get`、`post`、超时设置等 `httpx` 用法都可以照常使用。它接收三个参数：
+`AgentPayClient` 继承自 `httpx.Client`，因此 `get`、`post`、超时设置等 `httpx` 用法都可以照常使用。主要 AgentPay 参数如下：
 
 | 参数 | 作用 |
 | --- | --- |
-| `policy` | **本地**防火墙（单笔上限、滚动预算、收款人白名单），在任何支付发生前先行评估。 |
-| `signer` | 为**链上路径**签署 EIP-712 / EIP-3009 授权；使用 API Key 认证时不会用到。 |
-| `headers` | 默认请求头。`Authorization: Bearer <api_key>` 用于选择**钱包路径**。 |
+| `policy` | **本地**防火墙（单笔上限、滚动预算、收款人白名单）；钱包挑战模式会在网关冻结余额前评估报价。 |
+| `signer` | 为**链上路径**签署 EIP-712 / EIP-3009 授权。钱包挑战模式不会调用它，但当前客户端构造函数仍要求传入 signer。 |
+| `headers` | 默认请求头。`Authorization: Bearer <api_key>` 用于认证钱包请求。 |
+| `wallet_challenge_mode` | 调用 AgentPay 网关 API Key 钱包路由时设为 `True`。SDK 等待价格挑战、评估本地策略，再携带 `PAYMENT-SIGNATURE` 重试；默认是 `False`。 |
+
+如果配置了白名单，钱包挑战使用 `USD` 资产与 `agentpay:route:<route-id>` 形式的收款方；链上挑战仍使用代币合约地址。
 
 更喜欢异步？可以从同一个对象获取异步客户端：
 
@@ -204,10 +208,10 @@ Data: {...天气数据...}
 
 这一次调用背后，网关依次完成了：
 
-1. **鉴权** —— 校验 API Key，并据此解析出租户、项目与 Agent。
-2. **策略评估** —— 单笔上限、滚动预算、频率限制、路由白名单。
-3. **冻结（Hold）** —— 在租户钱包中预留路由价格（已预留，尚未花出）。
-4. **转发** —— 将请求转发到上游，上游凭证由网关自行注入。
+1. **报价** —— 通过 `402` `agentpay-wallet` 挑战返回路由价格，此时不会冻结资金。
+2. **本地策略评估** —— 针对确切报价检查策略并预留 SDK 预算。
+3. **授权** —— SDK 携带 `PAYMENT-SIGNATURE` 重试原请求；网关验证并一次性消费挑战。
+4. **冻结（Hold）** —— 网关冻结租户钱包余额，再注入上游凭证并转发请求。
 5. **确认扣款（Capture）** —— 上游返回 `2xx` 后确认扣款，并追加一条不可变的账本流水。
 
 如果上游返回 `4xx`，冻结会被**释放**，不产生任何费用；如果上游返回 `5xx` 或超时，冻结会保持不动，支付被标记为待核查——既不会自动扣款，也不会自动释放。
@@ -279,8 +283,8 @@ docker compose down -v       # …或同时删除数据，得到完全干净的�
 
 ```text
                     ┌─ 钱包路径（步骤 5–6）──────┐
-Agent ── API Key ──▶│  网关：鉴权 → 策略 →       │──▶ 上游 API
-                    │  HOLD → 转发 → CAPTURE     │
+Agent ── API Key ──▶│  402 报价 → SDK 策略 →     │──▶ 上游 API
+                    │  授权 → HOLD → CAPTURE     │
                     └────────────┬───────────────┘
                                  ▼
                        PostgreSQL 账本 + 审计轨迹
@@ -289,6 +293,7 @@ Agent ── 无凭证 ───▶ 网关 ──▶ 402 + PAYMENT-REQUIRED   �
 ```
 
 - Agent 使用**可撤销的 API Key** 认证，钱包路径下不持有任何私钥。
+- SDK 钱包挑战模式会先用本地策略检查报价，再允许网关冻结钱包余额。请设置 `wallet_challenge_mode=True`。
 - 每笔扣费都经过 **Hold →（履约）→ Capture 或 Release**，因此只为成功交付的调用付费。
 - **幂等键**让重试变得安全。
 - 花费限额与熔断器在**模型之外**执行，提示词无法绕过。

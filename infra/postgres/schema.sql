@@ -278,6 +278,34 @@ CREATE INDEX IF NOT EXISTS idx_intent_active_status ON ap_payment_intent(status)
 CREATE TRIGGER trg_intent_updated_at BEFORE UPDATE ON ap_payment_intent
     FOR EACH ROW EXECUTE FUNCTION set_updated_at_timestamp();
 
+-- AgentPay virtual-wallet challenge lifecycle. A durable row is required so a
+-- retry routed to another Gateway instance cannot bypass one-time consumption.
+-- SECURITY-REVIEW: challenge claim + nonce uniqueness gate creation of wallet holds.
+CREATE TABLE IF NOT EXISTS ap_wallet_challenge (
+    challenge_id VARCHAR(64) PRIMARY KEY,
+    tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE RESTRICT,
+    wallet_id VARCHAR(64) NOT NULL REFERENCES ap_wallet(wallet_id) ON DELETE RESTRICT,
+    api_key_hash VARCHAR(128) NOT NULL,
+    route_id VARCHAR(64) NOT NULL REFERENCES ap_route(route_id) ON DELETE RESTRICT,
+    intent_id VARCHAR(64) NOT NULL UNIQUE REFERENCES ap_payment_intent(intent_id) ON DELETE RESTRICT,
+    idempotency_key VARCHAR(128) NULL,
+    request_binding VARCHAR(80) NOT NULL,
+    amount_base_units BIGINT NOT NULL CHECK (amount_base_units > 0),
+    asset VARCHAR(16) NOT NULL,
+    resource_uri VARCHAR(512) NOT NULL,
+    valid_after TIMESTAMPTZ NOT NULL,
+    valid_before TIMESTAMPTZ NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'issued' CHECK (status IN ('issued', 'consuming', 'consumed', 'rejected', 'expired')),
+    nonce VARCHAR(66) NULL,
+    hold_id VARCHAR(64) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    consumed_at TIMESTAMPTZ NULL,
+    CHECK (valid_before > valid_after),
+    CONSTRAINT uq_wallet_challenge_nonce UNIQUE (wallet_id, nonce)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_challenge_expiry ON ap_wallet_challenge(status, valid_before);
+
 CREATE TABLE IF NOT EXISTS ap_settlement_record (
     settlement_id VARCHAR(64) PRIMARY KEY,
     intent_id VARCHAR(64) NOT NULL UNIQUE REFERENCES ap_payment_intent(intent_id) ON DELETE CASCADE,

@@ -11,6 +11,10 @@ import (
 // Service defines operations for managing PaymentIntent, SettlementRecord, FulfillmentRecord,
 // and assembling composite payment audit records (T5.2).
 type Service interface {
+	CreateWalletChallenge(ctx context.Context, challenge *WalletChallenge) error
+	ConsumeWalletChallenge(ctx context.Context, challengeID, tenantID, walletID, apiKeyHash, routeID, requestBinding, nonce, idempotencyKey string, amount int64, now time.Time) (*WalletChallenge, error)
+	SetWalletChallengeHold(ctx context.Context, challengeID, holdID string) error
+	RejectWalletChallenge(ctx context.Context, challengeID string) error
 	CreateIntent(ctx context.Context, intent *PaymentIntent) error
 	GetIntent(ctx context.Context, intentID string) (*PaymentIntent, error)
 	UpdateIntentStatus(ctx context.Context, intentID string, status string) error
@@ -45,6 +49,8 @@ type MemoryService struct {
 	fulfillmentByIntent map[string]string // intent_id -> fulfillment_id
 	holdsByIntent       map[string]*WalletHoldAssociation
 	ledgersByIntent     map[string]*LedgerAssociation
+	walletChallenges    map[string]*WalletChallenge
+	walletNonces        map[string]bool
 }
 
 // NewMemoryService creates a thread-safe in-memory payment correlation service.
@@ -58,7 +64,68 @@ func NewMemoryService() *MemoryService {
 		fulfillmentByIntent: make(map[string]string),
 		holdsByIntent:       make(map[string]*WalletHoldAssociation),
 		ledgersByIntent:     make(map[string]*LedgerAssociation),
+		walletChallenges:    make(map[string]*WalletChallenge),
+		walletNonces:        make(map[string]bool),
 	}
+}
+
+// CreateWalletChallenge saves the server-priced wallet quote before returning it to a buyer.
+func (m *MemoryService) CreateWalletChallenge(ctx context.Context, ch *WalletChallenge) error {
+	if ch == nil || ch.ChallengeID == "" || ch.IntentID == "" || ch.Amount <= 0 {
+		return errors.New("invalid wallet challenge")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.walletChallenges[ch.ChallengeID]; exists {
+		return errors.New("wallet challenge already exists")
+	}
+	cp := *ch
+	cp.Status = "issued"
+	m.walletChallenges[ch.ChallengeID] = &cp
+	return nil
+}
+
+// ConsumeWalletChallenge atomically checks all challenge bindings and claims its one-time nonce.
+// SECURITY-REVIEW: callers must do this before creating a wallet hold; failed claims must fail closed.
+func (m *MemoryService) ConsumeWalletChallenge(ctx context.Context, challengeID, tenantID, walletID, apiKeyHash, routeID, requestBinding, nonce, idempotencyKey string, amount int64, now time.Time) (*WalletChallenge, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ch, ok := m.walletChallenges[challengeID]
+	if !ok || ch.Status != "issued" || now.Before(ch.ValidAfter) || now.After(ch.ValidBefore) ||
+		ch.TenantID != tenantID || ch.WalletID != walletID || ch.APIKeyHash != apiKeyHash || ch.RouteID != routeID ||
+		ch.RequestBinding != requestBinding || ch.IdempotencyKey != idempotencyKey || ch.Amount != amount || nonce == "" {
+		return nil, ErrWalletChallengeInvalid
+	}
+	if m.walletNonces[walletID+":"+nonce] {
+		return nil, ErrWalletChallengeReplay
+	}
+	m.walletNonces[walletID+":"+nonce] = true
+	ch.Status = "consuming"
+	cp := *ch
+	return &cp, nil
+}
+
+func (m *MemoryService) SetWalletChallengeHold(ctx context.Context, challengeID, holdID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ch, ok := m.walletChallenges[challengeID]
+	if !ok || ch.Status != "consuming" || holdID == "" {
+		return ErrWalletChallengeInvalid
+	}
+	ch.HoldID = holdID
+	ch.Status = "consumed"
+	return nil
+}
+
+func (m *MemoryService) RejectWalletChallenge(ctx context.Context, challengeID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ch, ok := m.walletChallenges[challengeID]
+	if !ok || ch.Status != "consuming" {
+		return ErrWalletChallengeInvalid
+	}
+	ch.Status = "rejected"
+	return nil
 }
 
 func (m *MemoryService) CreateIntent(ctx context.Context, intent *PaymentIntent) error {

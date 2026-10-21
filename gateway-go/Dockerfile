@@ -19,7 +19,7 @@ RUN go mod download
 COPY . .
 
 # Build static executable
-ARG VERSION=2.0.0
+ARG VERSION=2.1.0
 ARG COMMIT=docker
 ARG BUILD_DATE
 RUN CGO_ENABLED=0 GOOS=linux go build \

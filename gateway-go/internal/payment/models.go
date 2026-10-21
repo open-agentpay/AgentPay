@@ -48,26 +48,28 @@ const (
 
 // Canonical composite display statuses (T1.1 §5 & state-machine.json)
 const (
-	DisplayWalletHoldProcessing               = "WALLET_HOLD_PROCESSING"
-	DisplaySettlementInProgress               = "SETTLEMENT_IN_PROGRESS"
-	DisplayFulfillmentInProgress              = "FULFILLMENT_IN_PROGRESS"
-	DisplayCompleted                          = "COMPLETED"
-	DisplaySettledFulfillmentRefundRequired   = "SETTLED_FULFILLMENT_FAILED_REFUND_REQUIRED"
-	DisplaySettledFulfillmentNeedsReview      = "SETTLED_FULFILLMENT_UNKNOWN_NEEDS_REVIEW"
-	DisplayReleasedUnbilled                   = "RELEASED_UNBILLED"
-	DisplayPaymentFailed                      = "PAYMENT_FAILED"
-	DisplayRecoveryRequired                   = "RECOVERY_REQUIRED"
-	DisplayRejected                           = "REJECTED"
-	DisplayExpired                            = "EXPIRED"
+	DisplayWalletHoldProcessing             = "WALLET_HOLD_PROCESSING"
+	DisplaySettlementInProgress             = "SETTLEMENT_IN_PROGRESS"
+	DisplayFulfillmentInProgress            = "FULFILLMENT_IN_PROGRESS"
+	DisplayCompleted                        = "COMPLETED"
+	DisplaySettledFulfillmentRefundRequired = "SETTLED_FULFILLMENT_FAILED_REFUND_REQUIRED"
+	DisplaySettledFulfillmentNeedsReview    = "SETTLED_FULFILLMENT_UNKNOWN_NEEDS_REVIEW"
+	DisplayReleasedUnbilled                 = "RELEASED_UNBILLED"
+	DisplayPaymentFailed                    = "PAYMENT_FAILED"
+	DisplayRecoveryRequired                 = "RECOVERY_REQUIRED"
+	DisplayRejected                         = "REJECTED"
+	DisplayExpired                          = "EXPIRED"
 )
 
 // Standard domain errors
 var (
-	ErrIntentNotFound       = errors.New("payment intent not found")
-	ErrSettlementNotFound   = errors.New("settlement record not found")
-	ErrFulfillmentNotFound  = errors.New("fulfillment record not found")
-	ErrTenantMismatch       = errors.New("tenant boundary violation: resource belongs to another tenant")
-	ErrTerminalState        = errors.New("HARD RULE VIOLATION: cannot mutate a payment entity in terminal state")
+	ErrIntentNotFound         = errors.New("payment intent not found")
+	ErrSettlementNotFound     = errors.New("settlement record not found")
+	ErrFulfillmentNotFound    = errors.New("fulfillment record not found")
+	ErrTenantMismatch         = errors.New("tenant boundary violation: resource belongs to another tenant")
+	ErrTerminalState          = errors.New("HARD RULE VIOLATION: cannot mutate a payment entity in terminal state")
+	ErrWalletChallengeInvalid = errors.New("wallet challenge is invalid, expired, or already consumed")
+	ErrWalletChallengeReplay  = errors.New("wallet challenge nonce was already used")
 )
 
 // PaymentIntent tracks the high-level business payment lifecycle (T1.1 §4.1).
@@ -129,6 +131,27 @@ type WalletHoldAssociation struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// WalletChallenge persists an AgentPay wallet quote and its one-time authorization state.
+// SECURITY-REVIEW: this record gates money-moving wallet holds and must be consumed atomically.
+type WalletChallenge struct {
+	ChallengeID    string
+	TenantID       string
+	WalletID       string
+	APIKeyHash     string
+	RouteID        string
+	IntentID       string
+	IdempotencyKey string
+	RequestBinding string
+	Amount         int64
+	Asset          string
+	ResourceURI    string
+	ValidAfter     time.Time
+	ValidBefore    time.Time
+	Status         string
+	Nonce          string
+	HoldID         string
+}
+
 // LedgerAssociation represents linked virtual wallet double-entry ledger flow.
 type LedgerAssociation struct {
 	EntryID   string    `json:"entry_id"`
@@ -140,16 +163,16 @@ type LedgerAssociation struct {
 
 // PaymentAuditRecord is the consolidated composite correlation model (T5.2 Deliverable).
 type PaymentAuditRecord struct {
-	IntentID           string `json:"intent_id"`
-	TenantID           string `json:"tenant_id"`
-	ProjectID          string `json:"project_id"`
-	AgentID            string `json:"agent_id,omitempty"`
-	RouteID            string `json:"route_id"`
-	RequestID          string `json:"request_id"`
-	IdempotencyKey     string `json:"idempotency_key,omitempty"`
-	PaymentMethod      string `json:"payment_method"`
-	AmountBaseUnits    int64  `json:"amount_base_units"`
-	Asset              string `json:"asset"`
+	IntentID        string `json:"intent_id"`
+	TenantID        string `json:"tenant_id"`
+	ProjectID       string `json:"project_id"`
+	AgentID         string `json:"agent_id,omitempty"`
+	RouteID         string `json:"route_id"`
+	RequestID       string `json:"request_id"`
+	IdempotencyKey  string `json:"idempotency_key,omitempty"`
+	PaymentMethod   string `json:"payment_method"`
+	AmountBaseUnits int64  `json:"amount_base_units"`
+	Asset           string `json:"asset"`
 
 	// Composite Status & Human Readable Notes (T1.1 §5)
 	DisplayStatus      string `json:"display_status"`
@@ -157,16 +180,16 @@ type PaymentAuditRecord struct {
 	IsRecoveryRequired bool   `json:"is_recovery_required"`
 
 	// Three Orthogonal Subsystem States
-	IntentStatus       string `json:"intent_status"`
-	SettlementStatus   string `json:"settlement_status"`
-	FulfillmentStatus  string `json:"fulfillment_status"`
+	IntentStatus      string `json:"intent_status"`
+	SettlementStatus  string `json:"settlement_status"`
+	FulfillmentStatus string `json:"fulfillment_status"`
 
 	// Linked Entities
-	Intent      *PaymentIntent          `json:"intent,omitempty"`
-	Settlement  *SettlementRecord       `json:"settlement,omitempty"`
-	Fulfillment *FulfillmentRecord      `json:"fulfillment,omitempty"`
-	Hold        *WalletHoldAssociation  `json:"hold,omitempty"`
-	Ledger      *LedgerAssociation      `json:"ledger,omitempty"`
+	Intent      *PaymentIntent         `json:"intent,omitempty"`
+	Settlement  *SettlementRecord      `json:"settlement,omitempty"`
+	Fulfillment *FulfillmentRecord     `json:"fulfillment,omitempty"`
+	Hold        *WalletHoldAssociation `json:"hold,omitempty"`
+	Ledger      *LedgerAssociation     `json:"ledger,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

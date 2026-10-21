@@ -23,7 +23,7 @@ from agentpay.core.errors import (
     X402ErrorCode,
     X402ValidationError,
 )
-from agentpay.core.models import PaymentAuthorization, PaymentChallenge
+from agentpay.core.models import PaymentAuthorization, PaymentChallenge, WalletAuthorization
 
 # Standard HTTP Header Constants (RFC-compliant uppercase default)
 HEADER_PAYMENT_REQUIRED = "PAYMENT-REQUIRED"
@@ -174,6 +174,15 @@ def encode_authorization(authorization: PaymentAuthorization, *, base64_url: boo
             f"Failed to encode authorization: {exc}",
             code=X402ErrorCode.MALFORMED_HEADER,
         ) from exc
+
+
+def encode_wallet_authorization(authorization: WalletAuthorization, *, base64_url: bool = True) -> str:
+    """Encode AgentPay's non-EIP-3009 wallet authorization in PAYMENT-SIGNATURE."""
+    try:
+        payload = authorization.model_dump_json(by_alias=True, exclude_none=True)
+        return base64url_encode(payload.encode("utf-8")) if base64_url else payload
+    except Exception as exc:  # noqa: BLE001
+        raise X402EncodeError("Failed to encode wallet authorization", code=X402ErrorCode.MALFORMED_HEADER) from exc
 
 
 def decode_authorization(header_value: str) -> PaymentAuthorization:

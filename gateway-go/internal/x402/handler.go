@@ -3,7 +3,10 @@ package x402
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,7 +24,6 @@ import (
 	"github.com/open-agentpay/agentpay-gateway-go/internal/recovery"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/usage"
 )
-
 
 // WalletAccount represents the state of a virtual wallet.
 type WalletAccount struct {
@@ -258,7 +260,6 @@ func (p *PaymentProcessor) SetIdempotencyStore(store idempotency.Store) {
 	}
 }
 
-
 // SetRecoveryCoordinator sets a custom recovery coordinator.
 func (p *PaymentProcessor) SetRecoveryCoordinator(coord *recovery.RecoveryCoordinator) {
 	if coord != nil {
@@ -434,11 +435,11 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 	initFulfillment := func(fulfillmentID, intentID string) {
 		if p.paymentService != nil {
 			if err := p.paymentService.RecordFulfillment(r.Context(), &payment.FulfillmentRecord{
-				FulfillmentID:  fulfillmentID,
-				IntentID:       intentID,
-				UpstreamURL:    route.UpstreamURL,
-				Status:         payment.FulfillmentStatusInProgress,
-				CreatedAt:      startTime,
+				FulfillmentID: fulfillmentID,
+				IntentID:      intentID,
+				UpstreamURL:   route.UpstreamURL,
+				Status:        payment.FulfillmentStatusInProgress,
+				CreatedAt:     startTime,
 			}); err != nil {
 				slog.Error("failed to record fulfillment record", slog.String("request_id", requestID), slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
 			}
@@ -535,6 +536,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 	requestHash := idempotency.ComputeRequestHash(r.Method, r.URL.Path, r.URL.RawQuery, bodyBytes)
 	idemKey := r.Header.Get(HeaderIdempotencyKey)
 
+	var intentID string
 	authHeader := r.Header.Get(HeaderPaymentSignature)
 	bearerHeader := r.Header.Get("Authorization")
 	apiKeyHeader := r.Header.Get("X-API-Key")
@@ -580,6 +582,90 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			return
 		}
 
+		// API-key wallet requests first receive a price challenge. Only the SDK's
+		// approved wallet authorization may claim it and proceed to a Hold.
+		// SECURITY-REVIEW: challenge claim is durable and one-time before any money-moving operation.
+		var walletChallenge *payment.WalletChallenge
+		if authHeader == "" {
+			if route.AllowedPaymentMethods == "onchain" {
+				WriteProtocolError(w, ErrCodePaymentMethodNotAllowed, requestID, map[string]interface{}{"allowed_payment_methods": route.AllowedPaymentMethods})
+				return
+			}
+			challengeID := generateChallengeID()
+			intentID = "pi_" + challengeID
+			now := time.Now()
+			validBefore := now.Add(DefaultChallengeTTL)
+			requestBinding := ComputeRequestBinding(r.Method, r.URL, bodyBytes)
+			keyDigest := sha256.Sum256([]byte(apiKey))
+			resourceURI := r.URL.EscapedPath()
+			if resourceURI == "" {
+				resourceURI = "/"
+			}
+			walletChallenge = &payment.WalletChallenge{
+				ChallengeID: challengeID, TenantID: wallet.TenantID, WalletID: wallet.WalletID,
+				APIKeyHash: hex.EncodeToString(keyDigest[:]), RouteID: route.RouteID, IntentID: intentID,
+				IdempotencyKey: idemKey,
+				RequestBinding: requestBinding, Amount: route.PriceBaseUnits, Asset: "USD", ResourceURI: resourceURI,
+				ValidAfter: now, ValidBefore: validBefore, Status: "issued",
+			}
+			projectID := wallet.ProjectID
+			if projectID == "" {
+				projectID = "prj_default"
+			}
+			// The retry's Idempotency-Key is separately bound to the durable challenge; keeping
+			// it off the provisional intent avoids colliding with an already completed request.
+			initIntent(wallet.TenantID, projectID, wallet.AgentID, intentID, "", "wallet", payment.IntentStatusChallenged)
+			if err := p.paymentService.CreateWalletChallenge(r.Context(), walletChallenge); err != nil {
+				WriteProtocolError(w, ErrCodeUpstreamBadGateway, requestID, map[string]interface{}{"reason": "failed to persist wallet challenge"})
+				return
+			}
+			ch := &PaymentChallenge{
+				Version: DefaultVersion, ChallengeID: challengeID, Network: "agentpay:internal-ledger",
+				Asset: "USD", AssetSymbol: "USD", Decimals: 6, Amount: fmt.Sprintf("%d", route.PriceBaseUnits),
+				Payee: "agentpay:route:" + route.RouteID, Scheme: WalletScheme,
+				ValidAfter: now.Unix(), ValidBefore: validBefore.Unix(), ResourceURI: resourceURI,
+				Extensions: map[string]interface{}{"paymentMethod": "wallet", "routeId": route.RouteID, "requestBinding": requestBinding},
+			}
+			encoded, err := EncodeChallenge(ch, true)
+			if err != nil {
+				WriteProtocolError(w, ErrCodeUpstreamBadGateway, requestID, nil)
+				return
+			}
+			w.Header().Set(HeaderPaymentRequired, encoded)
+			WriteProtocolError(w, ErrCodePaymentRequired, requestID, map[string]interface{}{"challenge": ch})
+			return
+		}
+
+		auth, err := DecodeWalletAuthorization(authHeader)
+		if err != nil {
+			WriteProtocolError(w, ErrCodeWalletAuthorizationInvalid, requestID, nil)
+			return
+		}
+		keyDigest := sha256.Sum256([]byte(apiKey))
+		requestBinding := ComputeRequestBinding(r.Method, r.URL, bodyBytes)
+		if auth.Amount != fmt.Sprintf("%d", route.PriceBaseUnits) || auth.ResourceURI != r.URL.EscapedPath() || auth.RequestBinding != requestBinding {
+			WriteProtocolError(w, ErrCodeWalletAuthorizationInvalid, requestID, nil)
+			return
+		}
+		walletChallenge, err = p.paymentService.ConsumeWalletChallenge(r.Context(), auth.ChallengeID, wallet.TenantID, wallet.WalletID,
+			hex.EncodeToString(keyDigest[:]), route.RouteID, requestBinding, auth.Nonce, idemKey, route.PriceBaseUnits, time.Now())
+		if err != nil || walletChallenge == nil || auth.ValidAfter != walletChallenge.ValidAfter.Unix() || auth.ValidBefore != walletChallenge.ValidBefore.Unix() {
+			if errors.Is(err, payment.ErrWalletChallengeReplay) {
+				WriteProtocolError(w, ErrCodeNonceReplay, requestID, nil)
+				return
+			}
+			WriteProtocolError(w, ErrCodeWalletAuthorizationInvalid, requestID, nil)
+			return
+		}
+		intentID = walletChallenge.IntentID
+		rejectChallenge := func() {
+			if walletChallenge != nil {
+				if err := p.paymentService.RejectWalletChallenge(r.Context(), walletChallenge.ChallengeID); err != nil {
+					slog.Error("failed to mark wallet challenge rejected", slog.String("challenge_id", walletChallenge.ChallengeID), slog.Any("error", err))
+				}
+			}
+		}
+
 		// 1. Agent resolution and context sanitization (T2.9 & T1.8)
 		declared := agent.ExtractDeclaredContext(r)
 		agent.SanitizeAndStripSpoofedAgentHeaders(r.Header)
@@ -601,7 +687,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			}
 		}
 
-		intentID := fmt.Sprintf("pi_%s", requestID)
+		if walletChallenge == nil {
+			intentID = fmt.Sprintf("pi_%s", requestID)
+		}
 		correlation := agent.CorrelationContext{
 			RequestID:      requestID,
 			IdempotencyKey: idemKey,
@@ -622,6 +710,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			))
 		}
 		if !decision.Allowed {
+			rejectChallenge()
 			p.metrics.IncPaymentsFailed()
 			initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusRejected)
 			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusForbidden, decision.ReasonCode, false)
@@ -746,6 +835,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 			// Case A: Conflict (in-flight or payload mismatch)
 			if checkRes == idempotency.ResultConflict {
+				rejectChallenge()
 				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusConflict, ErrCodeIdempotencyConflict, false)
 				WriteProtocolError(w, ErrCodeIdempotencyConflict, requestID, map[string]interface{}{
 					"idempotency_key": idemKey,
@@ -756,6 +846,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 			// Case B: Cache Hit (already succeeded previously)
 			if checkRes == idempotency.ResultCacheHit {
+				rejectChallenge()
 				WriteCachedResponse(w, rec)
 				emitRequestAudit(rec.StatusCode, true, "")
 				return
@@ -763,6 +854,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 			// Case C: Free Replay (previous attempt failed upstream with 5xx or timeout)
 			if checkRes == idempotency.ResultFreeReplay {
+				rejectChallenge()
 				// Anti-Double-Charge Invariant: Reuse existing HoldID without creating a second hold
 				pCtx := &proxy.PaymentContext{
 					PayerAddress:        wallet.WalletID,
@@ -830,6 +922,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 			// Case D: ResultNew (First time receiving this idempotent request)
 			if wallet.AvailableBalance < route.PriceBaseUnits {
+				rejectChallenge()
 				_ = p.idempotencyStore.ReleaseLock(r.Context(), tenantID, idemKey)
 				p.metrics.IncPaymentsFailed()
 				initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusFailed)
@@ -846,6 +939,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 			holdID, err := p.walletService.HoldFunds(r.Context(), wallet.WalletID, route.PriceBaseUnits, intentID)
 			if err != nil {
+				rejectChallenge()
 				_ = p.idempotencyStore.ReleaseLock(r.Context(), tenantID, idemKey)
 				p.metrics.IncPaymentsFailed()
 				initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusFailed)
@@ -853,6 +947,15 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
 				WriteProtocolError(w, ErrCodeWalletInsufficientBalance, requestID, nil)
 				return
+			}
+			// SECURITY-REVIEW: tie the durable one-time authorization to the created hold before upstream dispatch.
+			if walletChallenge != nil {
+				if err := p.paymentService.SetWalletChallengeHold(r.Context(), walletChallenge.ChallengeID, holdID); err != nil {
+					_ = p.walletService.ReleaseFunds(r.Context(), holdID)
+					rejectChallenge()
+					WriteProtocolError(w, ErrCodeUpstreamBadGateway, requestID, map[string]interface{}{"reason": "failed to link wallet challenge to hold"})
+					return
+				}
 			}
 			p.metrics.IncHoldsCreated()
 			emitSpendAudit(holdID, "hold")
@@ -924,6 +1027,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 		// 1.2 Non-Idempotent Request Path
 		if wallet.AvailableBalance < route.PriceBaseUnits {
+			rejectChallenge()
 			p.metrics.IncPaymentsFailed()
 			initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusFailed)
 			initSettlement(fmt.Sprintf("stl_%s", requestID), intentID, "wallet", payment.SettlementStatusFailed, wallet.WalletID, route.PayeeAddress, "", "")
@@ -939,12 +1043,22 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 		holdID, err := p.walletService.HoldFunds(r.Context(), wallet.WalletID, route.PriceBaseUnits, intentID)
 		if err != nil {
+			rejectChallenge()
 			p.metrics.IncPaymentsFailed()
 			initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusFailed)
 			initSettlement(fmt.Sprintf("stl_%s", requestID), intentID, "wallet", payment.SettlementStatusFailed, wallet.WalletID, route.PayeeAddress, "", "")
 			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
 			WriteProtocolError(w, ErrCodeWalletInsufficientBalance, requestID, nil)
 			return
+		}
+		// SECURITY-REVIEW: tie the durable one-time authorization to the created hold before upstream dispatch.
+		if walletChallenge != nil {
+			if err := p.paymentService.SetWalletChallengeHold(r.Context(), walletChallenge.ChallengeID, holdID); err != nil {
+				_ = p.walletService.ReleaseFunds(r.Context(), holdID)
+				rejectChallenge()
+				WriteProtocolError(w, ErrCodeUpstreamBadGateway, requestID, map[string]interface{}{"reason": "failed to link wallet challenge to hold"})
+				return
+			}
 		}
 		p.metrics.IncHoldsCreated()
 		emitSpendAudit(holdID, "hold")
@@ -1289,7 +1403,11 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 	// ------------------------------------------------------------------------
 	// PATH 3: Unauthenticated -> Issue HTTP 402 Payment Required Challenge
 	// ------------------------------------------------------------------------
-	intentID := fmt.Sprintf("pi_%s", requestID)
+	if route.AllowedPaymentMethods == "wallet" {
+		WriteProtocolError(w, ErrCodeWalletAuthRequired, requestID, nil)
+		return
+	}
+	intentID = fmt.Sprintf("pi_%s", requestID)
 	initIntent(route.TenantID, "prj_default", "", intentID, idemKey, "onchain", payment.IntentStatusChallenged)
 	recordReq(route.TenantID, "prj_default", "", "", intentID, http.StatusPaymentRequired, ErrCodePaymentRequired, false)
 	p.metrics.IncChallenges()

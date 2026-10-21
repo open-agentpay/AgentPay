@@ -8,6 +8,8 @@
 > - [`specs/test-vectors/dual-path-protocol.json`](./test-vectors/dual-path-protocol.json) (双轨协议一致性测试向量)  
 > - [`specs/conformance/state-machine.json`](./conformance/state-machine.json) (状态机迁移向量)  
 
+> **钱包通道扩展**：虚拟钱包通过 x402 V2 风格的 `PAYMENT-REQUIRED` / `PAYMENT-SIGNATURE` 往返执行，但使用 AgentPay 自有的 `agentpay-wallet` scheme，不属于 EIP-3009 标准支付授权。字段、校验和持久化防重放要求以 [`agentpay-wallet-x402-extension.md`](./agentpay-wallet-x402-extension.md) 为准。本文原先“API Key 到达后直接扣款”的虚拟钱包流程由该扩展取代。
+
 ---
 
 ## 1. 目标与设计原则
@@ -73,7 +75,11 @@
 | Header 名称 | 作用方 | 语法与格式 | 规范定义 |
 |---|---|---|---|
 | `Authorization` | Client → Gateway | `Authorization: Bearer apk_live_...` | 传递租户签发的 API Key |
+| `PAYMENT-REQUIRED` | Gateway → Client (402) | `PAYMENT-REQUIRED: <Base64URL(JSON_Payload)>` | 返回 `scheme=agentpay-wallet` 的报价 challenge；首个请求不得冻结或扣款 |
+| `PAYMENT-SIGNATURE` | Client → Gateway (重发) | `PAYMENT-SIGNATURE: <Base64URL(JSON_Payload)>` | 返回绑定 challenge 的 AgentPay 钱包授权；不含 EIP-712 签名，API Key 仍用于鉴权 |
 | `Idempotency-Key` | Client → Gateway | `Idempotency-Key: <string>` | 客户端业务级唯一键（最大 128 字符） |
+
+虚拟钱包请求的完整载荷、一次性 challenge 状态和跨实例防重放要求见扩展规范。网关必须在授权通过后才执行 Hold；API Key 单独出现只能取得报价 challenge，不能触发扣款。
 
 ---
 
@@ -85,15 +91,17 @@
 flowchart TD
     Req["网关收到 HTTP 请求"] --> CheckAuth{"请求头包含有效 API Key?"}
     
-    CheckAuth -- 是 --> CheckRouteWallet{"路由策略允许 wallet?"}
+    CheckAuth -- 是 --> CheckWalletAuth{"含有效 agentpay-wallet PAYMENT-SIGNATURE?"}
+    CheckWalletAuth -- 否 --> IssueWallet402["创建持久化钱包 challenge<br>返回 402，不冻结资金"]
+    CheckWalletAuth -- 是 --> CheckRouteWallet{"路由策略允许 wallet?"}
     CheckRouteWallet -- 否 --> ErrMethod["403 ERR_PAYMENT_METHOD_NOT_ALLOWED"]
     CheckRouteWallet -- 是 --> CheckWalletBal{"检查租户钱包状态与可用余额"}
     
     CheckWalletBal -- 状态为 frozen_arrears --> ErrFrozen["403 ERR_WALLET_FROZEN"]
     CheckWalletBal -- 可用余额不足 --> ErrBal["402 ERR_WALLET_INSUFFICIENT_BALANCE<br>(严格禁止自动降级链上!)"]
-    CheckWalletBal -- 充足 --> ExecHold["执行 Hold 冻结额度<br>调用上游服务"]
+    CheckWalletBal -- 充足 --> ExecHold["原子消费 challenge 并 Hold<br>调用上游服务"]
     
-    CheckAuth -- 否 --> CheckSig{"包含 PAYMENT-SIGNATURE?"}
+    CheckAuth -- 否 --> CheckSig{"包含 EIP-3009 PAYMENT-SIGNATURE?"}
     CheckSig -- 是 --> CheckRouteOnchain{"路由策略允许 onchain?"}
     CheckRouteOnchain -- 否 --> ErrMethod
     CheckRouteOnchain -- 是 --> VerifySig["校验 EIP-712 签名与策略<br>走链上结算通道"]
@@ -103,7 +111,7 @@ flowchart TD
 
 > [!CAUTION]
 > **绝对禁止自动降级原则 (No Auto-Downgrade Invariant)**  
-> 当客户端使用 API Key 走虚拟钱包扣费，若钱包余额不足，网关必须立刻返回 `402 ERR_WALLET_INSUFFICIENT_BALANCE` 并中断流程。**绝对禁止**擅自改向客户端下发 402 链上挑战；禁止未经用户授权产生链上私钥签名与 Gas 消耗！
+> 钱包模式必须先返回 `agentpay-wallet` challenge，待客户端策略批准并重试后才能扣款。若钱包余额不足，网关必须返回 `402 ERR_WALLET_INSUFFICIENT_BALANCE` 并中断流程。**绝对禁止**擅自改向客户端下发 EIP-3009 链上挑战；禁止未经用户授权产生链上私钥签名与 Gas 消耗！
 
 ---
 

@@ -16,8 +16,8 @@ AgentPay 尚未经过审计，仅适用于测试网与沙箱环境。切勿向�
 | 能力 | 说明 |
 | --- | --- |
 | **`AgentPayClient`** | `httpx.Client` 的子类，用法与 `httpx` 完全一致：`get`、`post`、超时、请求头等。 |
-| **两种支付模式** | *钱包模式*（API Key，租户虚拟钱包）与*链上模式*（本地签名器，x402 + EIP-3009）。 |
-| **本地金融防火墙** | 策略引擎（单笔上限、滚动预算、白名单、熔断器），在任何支付发生前先行评估。 |
+| **两种支付模式** | *价格感知钱包模式*（API Key、x402 风格的 `agentpay-wallet` 挑战、租户虚拟钱包）与*链上模式*（本地签名器，x402 + EIP-3009）。 |
+| **本地金融防火墙** | 策略引擎（单笔上限、滚动预算、白名单、熔断器）；开启钱包挑战模式后，会在网关冻结余额前检查报价。 |
 | **审计元数据** | 可选请求头，用于在控制台时间线中按会话、任务聚合 Agent 的调用。 |
 | **集成** | 面向 LangChain / CrewAI 的 `paid_tool`，以及 FastAPI 卖方中间件 `requires_payment`。 |
 
@@ -47,6 +47,7 @@ client = AgentPayClient(
     signer=LocalSigner(...),          # 为链上授权签名
     policy=MemoryPolicyEngine(...),   # 本地金融防火墙
     headers={...},                    # 默认请求头，例如 Authorization
+    wallet_challenge_mode=True,        # API Key 钱包调用先报价、后重试
 )
 ```
 
@@ -54,7 +55,8 @@ client = AgentPayClient(
 | --- | --- | --- |
 | `signer` | 是 | 为**链上路径**签署 EIP-712 / EIP-3009 授权。钱包模式不会产生签名，可以只是占位。 |
 | `policy` | 是 | 本地策略引擎，在任何支付之前评估。参见[策略配置](/zh/guide/policy)。 |
-| `headers` | 否 | 默认请求头。`Authorization: Bearer <api_key>` 用于选择**钱包模式**。 |
+| `headers` | 否 | 默认请求头。`Authorization: Bearer <api_key>` 用于认证钱包请求。 |
+| `wallet_challenge_mode` | 否 | 调用 AgentPay 网关钱包路由时设为 `True`。SDK 获取 402 报价、评估本地策略，再携带 `PAYMENT-SIGNATURE` 重试；默认是 `False`。 |
 
 由于 `AgentPayClient` 继承自 `httpx.Client`，`httpx` 的超时等标准选项均可照常使用。
 
@@ -70,7 +72,7 @@ client = AgentPayClient(
 | --- | --- | --- |
 | **凭证** | `Authorization` 头中的 API Key | 本地私钥（`LocalSigner`） |
 | **是否需要账号** | 需要：在[控制台](/zh/guide/console)创建租户、项目、Agent 与密钥 | 不需要 |
-| **支付方式** | 网关从租户钱包扣款：Hold → 上游 → Capture | 客户端签署 EIP-3009 授权，由 Facilitator 上链结算 |
+| **支付方式** | 网关返回 `agentpay-wallet` 价格挑战；SDK 策略批准后才进行钱包 Hold → 上游 → Capture | 客户端签署 EIP-3009 授权，由 Facilitator 上链结算 |
 | **延迟 / 成本** | 内部账本，无 Gas | 需等待网络确认，Gas 由 Facilitator 代付 |
 | **适用场景** | 同一组织内的 Agent 集群 | 跨组织调用、无事先合作关系 |
 
@@ -78,7 +80,11 @@ client = AgentPayClient(
 钱包模式请求余额不足时，会收到 `402 ERR_WALLET_INSUFFICIENT_BALANCE`。SDK **不会**自动改走链上，切换模式始终是你在代码中显式做出的决定。
 :::
 
-### 钱包模式（API Key）
+### 价格感知钱包模式（API Key）
+
+使用 AgentPay 网关 API Key 时，请开启 `wallet_challenge_mode=True`。网关首次返回包含确切路由价格的 `402`，此时不会冻结钱包余额，也不会调用上游。SDK 先用本地策略检查报价并预留本地预算，通过后再携带一次性 `PAYMENT-SIGNATURE` 钱包授权重试。随后网关消费该挑战，并执行钱包 Hold → 上游 → Capture 流程。
+
+这是 AgentPay 自有的 x402 扩展方案（`agentpay-wallet`），不是 EIP-3009，不会调用 signer 或 Facilitator。当前客户端构造函数仍要求传入 signer，但此路径不会使用它。
 
 ```python
 import os
@@ -87,8 +93,8 @@ from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import MemoryPolicyEngine
 
 policy = MemoryPolicyEngine(
-    max_per_tx=100_000,         # 单笔 0.10 USDC
-    daily_budget=5_000_000,     # 滚动 24 小时 5.00 USDC
+    max_per_tx=100_000,         # 单笔 0.10 USD（钱包最小单位）
+    daily_budget=5_000_000,     # 滚动 24 小时 5.00 USD
 )
 
 # 钱包模式不产生链上签名，因此 signer 只是占位。
@@ -101,15 +107,18 @@ client = AgentPayClient(
     signer=signer,
     policy=policy,
     headers={"Authorization": f"Bearer {os.environ['AGENTPAY_API_KEY']}"},
+    wallet_challenge_mode=True,
 )
 
 resp = client.get("https://gateway.example.com/v1/market-data?ticker=NVDA")
 print(resp.status_code, resp.json())
 ```
 
-网关会校验密钥、据此解析租户、项目与 Agent，应用网关策略，在租户钱包中冻结价格，用**网关自己持有**的凭证调用上游，并在 `2xx` 后确认扣款。你的代码永远看不到上游的密钥。
+本地策略批准后，网关会校验密钥、据此解析租户、项目与 Agent，重新核对服务端路由价格并一次性消费挑战，在租户钱包中冻结价格，用**网关自己持有**的凭证调用上游，并在 `2xx` 后确认扣款。你的代码永远看不到上游的密钥。
 
 除 `Authorization` 头外，也可使用 `X-API-Key`。
+
+钱包挑战模式需要显式开启；未开启时，携带凭证的请求仍按 SDK 的 `unmetered_credential_policy` 设置处理，不会走这个价格感知挑战流程。
 
 ### 链上模式（x402）
 
@@ -135,11 +144,11 @@ print(resp.json())
 当服务端返回携带 `PAYMENT-REQUIRED` 挑战的 `402` 时，客户端会透明地完成以下流程：
 
 ```text
-1. 解码挑战（价格、收款人、资产、网络、有效期）
-2. 策略：评估 → 原子地 RESERVE（预留）预算      （此处被拒 = 不会产生任何签名）
-3. 签名器：生成 EIP-712 / EIP-3009 授权
-4. 携带 PAYMENT-SIGNATURE 头重放请求
-5. 成功后：COMMIT（提交）预留
+1. 解码挑战（价格、收款人、资产、网络、有效期、scheme）
+2. 策略：评估 → 原子地 RESERVE（预留）预算（此处被拒 = 不会发出授权）
+3. 按 scheme 选择：签署 EIP-3009，或不调用 signer、直接生成 `agentpay-wallet` 授权
+4. 携带 `PAYMENT-SIGNATURE` 头重放原请求
+5. 成功后 COMMIT 本地预留；超时或 `5xx` 等结果不明确时保留预留
 ```
 
 **失败处理至关重要。** 签名一旦发出，超时或 `5xx` **不会**释放预算，因为该支付仍可能完成结算。只有授权已过期且确认未被花费后，预留才会被释放，这就是防止重复扣款的机制。

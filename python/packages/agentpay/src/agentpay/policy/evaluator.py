@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agentpay.policy.errors import PolicyErrorCode
-from agentpay.policy.models import PaymentRequest, PolicyConfig
+from agentpay.policy.models import PaymentRequest, PolicyConfig, _normalize_domain_host
 
 
 @dataclass(frozen=True)
@@ -29,9 +29,9 @@ class StaticEvaluationResult:
 
 
 def evaluate_static_rules(
-    config: PolicyConfig,
-    request: PaymentRequest,
-    lifetime_spent: int = 0,
+        config: PolicyConfig,
+        request: PaymentRequest,
+        lifetime_spent: int = 0,
 ) -> StaticEvaluationResult:
     """
     Evaluate deterministic static guardrails in strict short-circuit precedence order.
@@ -99,14 +99,73 @@ def evaluate_static_rules(
 
     # 5. Lifetime Budget Ceiling (if configured)
     if (
-        config.lifetime_budget_base_units is not None
-        and lifetime_spent + request.amount > config.lifetime_budget_base_units
+            config.lifetime_budget_base_units is not None
+            and lifetime_spent + request.amount > config.lifetime_budget_base_units
     ):
         return StaticEvaluationResult(
             passed=False,
             error_code=PolicyErrorCode.LIFETIME_BUDGET_EXCEEDED,
             reason=(
                 f"Lifetime spend ({lifetime_spent} + {request.amount}) "
+                f"exceeds limit of {config.lifetime_budget_base_units}"
+            ),
+        )
+
+    return StaticEvaluationResult(passed=True)
+
+
+def evaluate_metered_rules(
+        config: PolicyConfig,
+        amount: int,
+        domain: str | None,
+        lifetime_spent: int = 0,
+) -> StaticEvaluationResult:
+    """
+    Static guardrails for credential-mode (non-402) calls  [agentpay-metering-patch].
+
+    Network/asset/payee do not exist in this mode, so only domain, single-tx cap and
+    lifetime ceiling apply. The domain is REQUIRED (fail-closed): a missing or empty
+    domain is rejected, not skipped. ``is_frozen`` here reads the in-memory config; the
+    engine additionally checks the authoritative DB flag before calling this.
+    """
+    if config.is_frozen:
+        return StaticEvaluationResult(
+            passed=False,
+            error_code=PolicyErrorCode.POLICY_FROZEN,
+            reason=f"Policy {config.id} is administratively frozen",
+        )
+
+    if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
+        return StaticEvaluationResult(
+            passed=False,
+            error_code=PolicyErrorCode.INVALID_AMOUNT_FORMAT,
+            reason=f"Invalid estimated amount: {amount!r}",
+        )
+
+    host = _normalize_domain_host(domain) if isinstance(domain, str) else ""
+    if not host or host not in config.whitelist_domains:
+        return StaticEvaluationResult(
+            passed=False,
+            error_code=PolicyErrorCode.DOMAIN_NOT_WHITELISTED,
+            reason=f"Domain {domain!r} is not in whitelisted domains",
+        )
+
+    if amount > config.max_per_tx_base_units:
+        return StaticEvaluationResult(
+            passed=False,
+            error_code=PolicyErrorCode.SINGLE_TX_CAP_EXCEEDED,
+            reason=f"Amount {amount} exceeds single transaction cap of {config.max_per_tx_base_units}",
+        )
+
+    if (
+            config.lifetime_budget_base_units is not None
+            and lifetime_spent + amount > config.lifetime_budget_base_units
+    ):
+        return StaticEvaluationResult(
+            passed=False,
+            error_code=PolicyErrorCode.LIFETIME_BUDGET_EXCEEDED,
+            reason=(
+                f"Lifetime spend ({lifetime_spent} + {amount}) "
                 f"exceeds limit of {config.lifetime_budget_base_units}"
             ),
         )

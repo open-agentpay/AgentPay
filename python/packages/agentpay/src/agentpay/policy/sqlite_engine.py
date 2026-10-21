@@ -19,17 +19,18 @@ import time
 import uuid
 from collections.abc import Callable
 
+import logger
 from pydantic import ValidationError
 
 from agentpay.policy.errors import PolicyErrorCode, PolicyViolationError
-from agentpay.policy.evaluator import evaluate_static_rules
+from agentpay.policy.evaluator import evaluate_static_rules, evaluate_metered_rules
 from agentpay.policy.interfaces import IPolicyEngine
 from agentpay.policy.models import (
     BreakerState,
     PaymentRequest,
     PolicyConfig,
     PolicyDecision,
-    ReservationToken,
+    ReservationToken, SQLITE_MAX_INT,
 )
 
 
@@ -42,10 +43,10 @@ class SQLitePolicyEngine(IPolicyEngine):
     """
 
     def __init__(
-        self,
-        conn: sqlite3.Connection,
-        config: PolicyConfig,
-        clock: Callable[[], int] | None = None,
+            self,
+            conn: sqlite3.Connection,
+            config: PolicyConfig,
+            clock: Callable[[], int] | None = None,
     ) -> None:
         """
         Initialize the SQLite policy engine.
@@ -229,9 +230,9 @@ class SQLitePolicyEngine(IPolicyEngine):
         tripped_at = row[1]
 
         if (
-            current_state == BreakerState.OPEN
-            and tripped_at is not None
-            and now >= tripped_at + self._config.circuit_cooldown_seconds
+                current_state == BreakerState.OPEN
+                and tripped_at is not None
+                and now >= tripped_at + self._config.circuit_cooldown_seconds
         ):
             # Transition to HALF_OPEN
             with self._conn:
@@ -309,14 +310,14 @@ class SQLitePolicyEngine(IPolicyEngine):
             )
 
     def reserve(
-        self,
-        intent_id: str,
-        amount: int,
-        payee: str,
-        asset: str,
-        network: str,
-        domain: str | None = None,
-        ttl_seconds: int = 360,
+            self,
+            intent_id: str,
+            amount: int,
+            payee: str,
+            asset: str,
+            network: str,
+            domain: str | None = None,
+            ttl_seconds: int = 360,
     ) -> PolicyDecision:
         """
         Atomically evaluate all precedence rules and lock quota in ap_budget_ledger.
@@ -366,9 +367,9 @@ class SQLitePolicyEngine(IPolicyEngine):
             # Step 2: Circuit Breaker State & RPM Check
             # Check cooldown transition to HALF_OPEN
             if (
-                current_breaker == BreakerState.OPEN
-                and tripped_at is not None
-                and now >= tripped_at + self._config.circuit_cooldown_seconds
+                    current_breaker == BreakerState.OPEN
+                    and tripped_at is not None
+                    and now >= tripped_at + self._config.circuit_cooldown_seconds
             ):
                 current_breaker = BreakerState.HALF_OPEN
                 cursor.execute(
@@ -619,4 +620,193 @@ class SQLitePolicyEngine(IPolicyEngine):
                     cursor.execute("ROLLBACK;")
             except sqlite3.OperationalError:
                 pass
+            raise
+
+    # ------------------------------------------------------------------
+    # Credential-mode (non-402) metering  [agentpay-metering-patch]
+    # ------------------------------------------------------------------
+
+    def _rollback_quietly(self, cursor: sqlite3.Cursor) -> None:
+        try:
+            if self._conn.in_transaction:
+                cursor.execute("ROLLBACK;")
+        except sqlite3.OperationalError:
+            pass
+
+    def _gate(self, cursor: sqlite3.Cursor, now: int) -> PolicyErrorCode | None:
+        """frozen / circuit-breaker / RPM gate. Caller must already hold BEGIN IMMEDIATE."""
+        cursor.execute(
+            "SELECT is_frozen, breaker_state, tripped_at FROM ap_policy WHERE id = ?;",
+            (self._config.id,),
+        )
+        row = cursor.fetchone()
+        is_frozen = (row[0] == 1) if row else self._config.is_frozen
+        if is_frozen:
+            return PolicyErrorCode.POLICY_FROZEN
+
+        state = BreakerState(row[1]) if row and row[1] else BreakerState.CLOSED
+        tripped_at = row[2] if row else None
+        if (
+                state == BreakerState.OPEN
+                and tripped_at is not None
+                and now >= tripped_at + self._config.circuit_cooldown_seconds
+        ):
+            state = BreakerState.HALF_OPEN
+            cursor.execute(
+                "UPDATE ap_policy SET breaker_state = 'HALF_OPEN', updated_at = ? WHERE id = ?;",
+                (now, self._config.id),
+            )
+        if state == BreakerState.OPEN:
+            return PolicyErrorCode.CIRCUIT_BREAKER_OPEN
+        if state == BreakerState.HALF_OPEN and self._query_active_probe_count(cursor, now) >= 1:
+            return PolicyErrorCode.CIRCUIT_BREAKER_OPEN
+
+        if self._query_requests_in_last_60s(cursor, now) >= self._config.circuit_max_rpm:
+            cursor.execute(
+                "UPDATE ap_policy SET breaker_state = 'OPEN', tripped_at = ?, updated_at = ? WHERE id = ?;",
+                (now, now, self._config.id),
+            )
+            return PolicyErrorCode.CIRCUIT_BREAKER_OPEN
+        return None
+
+    def reserve_metered(
+            self,
+            intent_id: str,
+            estimated_amount: int,
+            domain: str | None,
+            ttl_seconds: int = 60,
+    ) -> PolicyDecision:
+        """
+        Reserve quota for a credential-mode (non-402) call BEFORE it is sent.
+
+        Applies frozen/breaker/RPM, domain whitelist, single-tx cap, lifetime and
+        24h rolling budget against ``estimated_amount``. Fails closed.
+        """
+        now = self._clock()
+        if (
+                not isinstance(intent_id, str)
+                or not intent_id
+                or isinstance(estimated_amount, bool)
+                or not isinstance(estimated_amount, int)
+                or not (0 < estimated_amount <= SQLITE_MAX_INT)
+                or isinstance(ttl_seconds, bool)
+                or not isinstance(ttl_seconds, int)
+                or not (0 < ttl_seconds <= 86400)
+        ):
+            return PolicyDecision(approved=False, error_code=PolicyErrorCode.INVALID_AMOUNT_FORMAT)
+
+        cursor = self._conn.cursor()
+        try:
+            cursor.execute("BEGIN IMMEDIATE;")
+
+            err = self._gate(cursor, now)
+            if err is None:
+                res = evaluate_metered_rules(
+                    self._config,
+                    estimated_amount,
+                    domain,
+                    self._query_lifetime_spent(cursor, now),
+                )
+                if not res.passed:
+                    err = res.error_code or PolicyErrorCode.POLICY_SYSTEM_ERROR
+
+            available = 0
+            if err is None:
+                available = self._config.rolling_budget_24h_base_units - self._query_rolling_usage(cursor, now)
+                if available < estimated_amount:
+                    err = PolicyErrorCode.DAILY_BUDGET_EXCEEDED
+
+            if err is not None:
+                self._conn.commit()  # persist breaker transitions written by _gate
+                return PolicyDecision(approved=False, error_code=err)
+
+            reservation_id = f"res_{uuid.uuid4().hex}"
+            expires_at = now + ttl_seconds
+            cursor.execute(
+                """
+                INSERT INTO ap_budget_ledger (
+                    id, policy_id, wallet_address, intent_id,
+                    amount_base_units, state, created_at, expires_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'RESERVED', ?, ?, ?);
+                """,
+                (
+                    reservation_id,
+                    self._config.id,
+                    self._config.wallet_address,
+                    intent_id,
+                    estimated_amount,
+                    now,
+                    expires_at,
+                    now,
+                ),
+            )
+            self._conn.commit()
+            return PolicyDecision(
+                approved=True,
+                reservation=ReservationToken(
+                    reservation_id=reservation_id,
+                    intent_id=intent_id,
+                    policy_id=self._config.id,
+                    amount=estimated_amount,
+                    expires_at=expires_at,
+                    created_at=now,
+                ),
+                available_after=available - estimated_amount,
+            )
+        except sqlite3.IntegrityError:
+            self._rollback_quietly(cursor)
+            return PolicyDecision(approved=False, error_code=PolicyErrorCode.DUPLICATE_INTENT)
+        except Exception:  # noqa: BLE001
+            logger.exception("policy reserve_metered failed; failing closed")
+            self._rollback_quietly(cursor)
+            return PolicyDecision(approved=False, error_code=PolicyErrorCode.POLICY_SYSTEM_ERROR)
+
+    def settle_metered(self, intent_id: str, actual_amount: int | None = None) -> None:
+        """
+        RESERVED -> COMMITTED for a credential-mode call.
+
+        ``actual_amount`` replaces the estimate when it is a valid positive int; anything else
+        (None, negative, bool, too large) keeps the reserved estimate so a faulty callback can
+        never reduce recorded spend. Never raises on expiry: the call already happened.
+        """
+        if actual_amount is not None and (
+                isinstance(actual_amount, bool)
+                or not isinstance(actual_amount, int)
+                or not (0 < actual_amount <= SQLITE_MAX_INT)
+        ):
+            logger.warning("invalid actual_amount %r for %s; keeping reserved estimate", actual_amount, intent_id)
+            actual_amount = None
+
+        now = self._clock()
+        cursor = self._conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE;")
+        try:
+            cursor.execute(
+                """
+                UPDATE ap_budget_ledger
+                SET state = 'COMMITTED',
+                    amount_base_units = COALESCE(?, amount_base_units),
+                    updated_at = ?
+                WHERE intent_id = ? AND state = 'RESERVED';
+                """,
+                (actual_amount, now, intent_id),
+            )
+            if cursor.rowcount:
+                self._consecutive_failures = 0
+                cursor.execute(
+                    """
+                    UPDATE ap_policy
+                    SET consecutive_failures = 0,
+                        breaker_state = CASE WHEN breaker_state = 'HALF_OPEN' THEN 'CLOSED' ELSE breaker_state END,
+                        tripped_at = CASE WHEN breaker_state = 'HALF_OPEN' THEN NULL ELSE tripped_at END,
+                        updated_at = ?
+                    WHERE id = ?;
+                    """,
+                    (now, self._config.id),
+                )
+            else:
+                logger.warning("settle_metered: no RESERVED row for intent %s", intent_id)
+            self._conn.commit()
+        except Exception:
+            self._rollback_quietly(cursor)
             raise

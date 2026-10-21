@@ -99,6 +99,20 @@
       "actionable": "Verify private key, CAIP-2 network domain separator, and signer address."
     },
     {
+      "code": "ERR_WALLET_AUTH_INVALID",
+      "status": 401,
+      "domain": "WALLET",
+      "message": "AgentPay wallet authorization is invalid, expired, mismatched, or already consumed.",
+      "actionable": "Obtain a fresh PAYMENT-REQUIRED challenge and retry with the matching wallet authorization."
+    },
+    {
+      "code": "ERR_WALLET_AUTH_REQUIRED",
+      "status": 401,
+      "domain": "WALLET",
+      "message": "This route requires an AgentPay virtual-wallet API key.",
+      "actionable": "Send an active AgentPay API key to receive the wallet price challenge."
+    },
+    {
       "code": "ERR_NONCE_REPLAY",
       "status": 409,
       "domain": "SETTLEMENT",

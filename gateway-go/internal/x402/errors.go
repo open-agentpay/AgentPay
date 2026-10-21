@@ -7,30 +7,31 @@ import (
 
 // Canonical Error Code Constants matching specs/conformance/protocol-errors.json (T1.3)
 const (
-	ErrCodePaymentRequired           = "ERR_PAYMENT_REQUIRED"
-	ErrCodeWalletInsufficientBalance = "ERR_WALLET_INSUFFICIENT_BALANCE"
-	ErrCodeWalletFrozen              = "ERR_WALLET_FROZEN"
-	ErrCodePaymentMethodNotAllowed   = "ERR_PAYMENT_METHOD_NOT_ALLOWED"
-	ErrCodePolicyBudgetExceeded      = "ERR_POLICY_BUDGET_EXCEEDED"
-	ErrCodePolicyMaxPerTx            = "ERR_POLICY_MAX_PER_TX"
-	ErrCodePolicyCircuitBroken       = "ERR_POLICY_CIRCUIT_BROKEN"
-	ErrCodeAPIKeyInvalid             = "ERR_API_KEY_INVALID"
-	ErrCodeAPIKeyScopeDenied         = "ERR_API_KEY_SCOPE_DENIED"
-	ErrCodeTenantSuspended           = "ERR_TENANT_SUSPENDED"
-	ErrCodeSignatureInvalid          = "ERR_SIGNATURE_INVALID"
-	ErrCodeSignatureExpired          = "ERR_SIGNATURE_EXPIRED"
-	ErrCodeNonceReplay               = "ERR_NONCE_REPLAY"
-	ErrCodeIdempotencyConflict       = "ERR_IDEMPOTENCY_CONFLICT"
-	ErrCodeHoldExpired               = "ERR_HOLD_EXPIRED"
-	ErrCodeUpstreamTimeout           = "ERR_UPSTREAM_TIMEOUT"
-	ErrCodeUpstreamFailed            = "ERR_UPSTREAM_FAILED"
-	ErrCodeConfigVersionExpired      = "ERR_CONFIG_VERSION_EXPIRED"
-	ErrCodeRouteNotFound             = "ERR_ROUTE_NOT_FOUND"
-	ErrCodeAgentSuspended            = "ERR_AGENT_SUSPENDED"
-	ErrCodeAgentRevoked              = "ERR_AGENT_REVOKED"
-	ErrCodeRouteNotAllowed           = "ERR_ROUTE_NOT_ALLOWED"
-	ErrCodeRateLimitExceeded         = "ERR_RATE_LIMIT_EXCEEDED"
-
+	ErrCodePaymentRequired            = "ERR_PAYMENT_REQUIRED"
+	ErrCodeWalletInsufficientBalance  = "ERR_WALLET_INSUFFICIENT_BALANCE"
+	ErrCodeWalletFrozen               = "ERR_WALLET_FROZEN"
+	ErrCodePaymentMethodNotAllowed    = "ERR_PAYMENT_METHOD_NOT_ALLOWED"
+	ErrCodePolicyBudgetExceeded       = "ERR_POLICY_BUDGET_EXCEEDED"
+	ErrCodePolicyMaxPerTx             = "ERR_POLICY_MAX_PER_TX"
+	ErrCodePolicyCircuitBroken        = "ERR_POLICY_CIRCUIT_BROKEN"
+	ErrCodeAPIKeyInvalid              = "ERR_API_KEY_INVALID"
+	ErrCodeAPIKeyScopeDenied          = "ERR_API_KEY_SCOPE_DENIED"
+	ErrCodeTenantSuspended            = "ERR_TENANT_SUSPENDED"
+	ErrCodeSignatureInvalid           = "ERR_SIGNATURE_INVALID"
+	ErrCodeWalletAuthorizationInvalid = "ERR_WALLET_AUTH_INVALID"
+	ErrCodeWalletAuthRequired         = "ERR_WALLET_AUTH_REQUIRED"
+	ErrCodeSignatureExpired           = "ERR_SIGNATURE_EXPIRED"
+	ErrCodeNonceReplay                = "ERR_NONCE_REPLAY"
+	ErrCodeIdempotencyConflict        = "ERR_IDEMPOTENCY_CONFLICT"
+	ErrCodeHoldExpired                = "ERR_HOLD_EXPIRED"
+	ErrCodeUpstreamTimeout            = "ERR_UPSTREAM_TIMEOUT"
+	ErrCodeUpstreamFailed             = "ERR_UPSTREAM_FAILED"
+	ErrCodeConfigVersionExpired       = "ERR_CONFIG_VERSION_EXPIRED"
+	ErrCodeRouteNotFound              = "ERR_ROUTE_NOT_FOUND"
+	ErrCodeAgentSuspended             = "ERR_AGENT_SUSPENDED"
+	ErrCodeAgentRevoked               = "ERR_AGENT_REVOKED"
+	ErrCodeRouteNotAllowed            = "ERR_ROUTE_NOT_ALLOWED"
+	ErrCodeRateLimitExceeded          = "ERR_RATE_LIMIT_EXCEEDED"
 
 	// Backward compatibility aliases
 	ErrCodeNonceAlreadyUsed   = ErrCodeNonceReplay
@@ -124,6 +125,20 @@ var CanonicalErrorRegistry = map[string]ErrorDescriptor{
 		Domain:     "CRYPTOGRAPHY",
 		Message:    "EIP-712 / EIP-3009 payment signature verification failed or payload tampered.",
 		Actionable: "Verify private key, CAIP-2 network domain separator, and signer address.",
+	},
+	ErrCodeWalletAuthorizationInvalid: {
+		Code:       ErrCodeWalletAuthorizationInvalid,
+		Status:     http.StatusUnauthorized,
+		Domain:     "WALLET",
+		Message:    "AgentPay wallet authorization is invalid, expired, mismatched, or already consumed.",
+		Actionable: "Obtain a fresh PAYMENT-REQUIRED challenge and retry with the matching wallet authorization.",
+	},
+	ErrCodeWalletAuthRequired: {
+		Code:       ErrCodeWalletAuthRequired,
+		Status:     http.StatusUnauthorized,
+		Domain:     "WALLET",
+		Message:    "This route requires an AgentPay virtual-wallet API key.",
+		Actionable: "Send an active AgentPay API key to receive the wallet price challenge.",
 	},
 	ErrCodeSignatureExpired: {
 		Code:       ErrCodeSignatureExpired,

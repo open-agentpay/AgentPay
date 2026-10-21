@@ -16,8 +16,8 @@ AgentPay is unaudited and intended for testnet and sandbox use only. Never put r
 | Capability | Description |
 | --- | --- |
 | **`AgentPayClient`** | A subclass of `httpx.Client`. Use it exactly like `httpx`: `get`, `post`, timeouts, headers. |
-| **Two payment modes** | *Wallet mode* (API key, tenant virtual wallet) and *on-chain mode* (local signer, x402 + EIP-3009). |
-| **Local financial firewall** | A policy engine (per-tx cap, rolling budget, whitelist, circuit breaker) that runs before anything is paid. |
+| **Two payment modes** | *Price-aware wallet mode* (API key, x402-style `agentpay-wallet` challenge, tenant virtual wallet) and *on-chain mode* (local signer, x402 + EIP-3009). |
+| **Local financial firewall** | A policy engine (per-tx cap, rolling budget, whitelist, circuit breaker). With wallet challenge mode enabled, it checks the quoted price before the gateway places a hold. |
 | **Audit metadata** | Optional headers that group an agent's calls into sessions and tasks in the console timeline. |
 | **Integrations** | `paid_tool` for LangChain / CrewAI, and a FastAPI seller middleware, `requires_payment`. |
 
@@ -47,6 +47,7 @@ client = AgentPayClient(
     signer=LocalSigner(...),          # signs on-chain authorizations
     policy=MemoryPolicyEngine(...),   # local financial firewall
     headers={...},                    # default headers, e.g. Authorization
+    wallet_challenge_mode=True,        # price-check API-key wallet calls before retry
 )
 ```
 
@@ -54,7 +55,8 @@ client = AgentPayClient(
 | --- | --- | --- |
 | `signer` | yes | Signs EIP-712 / EIP-3009 authorizations for the **on-chain path**. In wallet mode no signature is created, so it can be a placeholder. |
 | `policy` | yes | The local policy engine. Evaluated before any payment. See [Policy Configuration](/guide/policy). |
-| `headers` | no | Default request headers. `Authorization: Bearer <api_key>` selects **wallet mode**. |
+| `headers` | no | Default request headers. `Authorization: Bearer <api_key>` authenticates the wallet request. |
+| `wallet_challenge_mode` | no | Set `True` for AgentPay Gateway wallet calls. The SDK receives the 402 quote, evaluates local policy, then retries with `PAYMENT-SIGNATURE`. Defaults to `False`. |
 
 Because `AgentPayClient` extends `httpx.Client`, standard `httpx` options such as timeouts work as usual.
 
@@ -70,7 +72,7 @@ The mode is chosen by the credentials on the request. There is no automatic fall
 | --- | --- | --- |
 | **Credential** | API key in `Authorization` header | Local private key (`LocalSigner`) |
 | **Account needed** | Yes: tenant, project, agent, key from the [console](/guide/console) | No |
-| **How it pays** | Gateway debits the tenant wallet: Hold → upstream → Capture | Client signs an EIP-3009 authorization; Facilitator settles on-chain |
+| **How it pays** | Gateway returns an `agentpay-wallet` price challenge; SDK policy approves before wallet Hold → upstream → Capture | Client signs an EIP-3009 authorization; Facilitator settles on-chain |
 | **Latency / cost** | Internal ledger, no gas | Network confirmation, gas sponsored by the Facilitator |
 | **Best for** | Fleets of agents inside one organization | Cross-organization calls, no prior relationship |
 
@@ -78,7 +80,11 @@ The mode is chosen by the credentials on the request. There is no automatic fall
 If a wallet-mode request has insufficient balance, you get `402 ERR_WALLET_INSUFFICIENT_BALANCE`. The SDK does **not** retry on-chain. Switching modes is always an explicit decision in your code.
 :::
 
-### Wallet mode (API key)
+### Price-aware wallet mode (API key)
+
+Enable `wallet_challenge_mode=True` when using an AgentPay Gateway API key. The gateway's first response is a `402` with the exact route price; no wallet hold or upstream call happens yet. The SDK checks that quote against its local policy and reserves the local budget before retrying with a one-time `PAYMENT-SIGNATURE` wallet authorization. The gateway then consumes the challenge and performs the wallet Hold → upstream → Capture lifecycle.
+
+This is an AgentPay-specific x402 scheme (`agentpay-wallet`), not EIP-3009. It does not invoke the signer or a Facilitator. The client constructor currently still requires a signer, but it is not used on this path.
 
 ```python
 import os
@@ -87,8 +93,8 @@ from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import MemoryPolicyEngine
 
 policy = MemoryPolicyEngine(
-    max_per_tx=100_000,         # 0.10 USDC per request
-    daily_budget=5_000_000,     # 5.00 USDC per rolling 24h
+    max_per_tx=100_000,         # 0.10 USD per request (wallet minor units)
+    daily_budget=5_000_000,     # 5.00 USD per rolling 24h
 )
 
 # Wallet mode makes no on-chain signature, so the signer is a placeholder.
@@ -101,15 +107,16 @@ client = AgentPayClient(
     signer=signer,
     policy=policy,
     headers={"Authorization": f"Bearer {os.environ['AGENTPAY_API_KEY']}"},
+    wallet_challenge_mode=True,
 )
 
 resp = client.get("https://gateway.example.com/v1/market-data?ticker=NVDA")
 print(resp.status_code, resp.json())
 ```
 
-The gateway authenticates the key, resolves tenant, project and agent from it, applies gateway policy, holds the price in the tenant wallet, calls the upstream with credentials the **gateway** holds, and captures the charge on `2xx`. Your code never sees the upstream's secret.
+After local approval, the gateway authenticates the key, resolves tenant, project and agent from it, rechecks the server-side route price, consumes the challenge once, holds the price in the tenant wallet, calls the upstream with credentials the **gateway** holds, and captures the charge on `2xx`. Your code never sees the upstream's secret.
 
-An alternative to the `Authorization` header is `X-API-Key`.
+An alternative to the `Authorization` header is `X-API-Key`. Wallet challenge mode is opt-in; without it, credential calls follow the SDK's configured `unmetered_credential_policy` and do not get this price-aware challenge handling.
 
 ### On-chain mode (x402)
 
@@ -135,11 +142,11 @@ print(resp.json())
 When the server answers `402` with a `PAYMENT-REQUIRED` challenge, the client does this transparently:
 
 ```text
-1. Decode the challenge (price, payee, asset, network, expiry)
-2. Policy: evaluate → atomically RESERVE budget      (reject here = nothing is signed)
-3. Signer: create an EIP-712 / EIP-3009 authorization
-4. Replay the request with the PAYMENT-SIGNATURE header
-5. On success: COMMIT the reservation
+1. Decode the challenge (price, payee, asset, network, expiry, scheme)
+2. Policy: evaluate → atomically RESERVE budget (reject here = no authorization is sent)
+3. Select by scheme: sign EIP-3009, or create an `agentpay-wallet` authorization without calling the signer
+4. Replay the same request with the `PAYMENT-SIGNATURE` header
+5. On success: COMMIT the local reservation; retain it on ambiguous timeout / `5xx`
 ```
 
 **Failure handling matters.** After a signature has been sent, a timeout or `5xx` does **not** release your budget, because the payment may still settle. The reservation is released only once the authorization has expired and is confirmed unspent. This is what prevents double charging.

@@ -146,21 +146,22 @@ class PaymentChallenge(BaseModel):
     Corresponds to the PAYMENT-REQUIRED header.
     """
 
-    model_config = ConfigDict(frozen=True, populate_by_name=True)
+    model_config = ConfigDict(frozen=True, populate_by_name=True, extra="allow")
 
     version: str = Field(default="2.0", description="Protocol version, fixed to 2.0")
     challenge_id: str = Field(..., alias="challengeId", description="Globally unique challenge ID")
-    network: str = Field(..., description="CAIP-2 formatted network identifier")
-    asset: str = Field(..., description="Payment token contract address (EVM 0x format)")
+    scheme: str = Field(default="EIP-3009", description="Payment authorization scheme")
+    network: str | None = Field(default=None, description="CAIP-2 network or AgentPay internal ledger")
+    asset: str | None = Field(default=None, description="Payment asset identifier")
     asset_symbol: str | None = Field(default=None, alias="assetSymbol", description="Token symbol")
     decimals: int = Field(default=6, description="Token decimals")
     amount: str = Field(..., description="Payment amount in integer base units as string")
-    payee: str = Field(..., description="Recipient address on-chain (EVM 0x format)")
-    scheme: str = Field(default="EIP-3009", description="Payment authorization scheme")
+    payee: str | None = Field(default=None, description="Chain recipient or AgentPay route resource")
     valid_after: int = Field(..., alias="validAfter", description="Unix timestamp valid after (seconds)")
     valid_before: int = Field(..., alias="validBefore", description="Unix timestamp valid before (seconds)")
-    facilitator_url: str = Field(..., alias="facilitatorUrl", description="Facilitator clearing endpoint URL")
+    facilitator_url: str | None = Field(default=None, alias="facilitatorUrl", description="Facilitator clearing endpoint URL")
     resource_uri: str | None = Field(default=None, alias="resourceUri", description="Protected resource path")
+    extensions: dict[str, Any] | None = None
 
     def __init__(self, /, **data: Any) -> None:
         try:
@@ -217,17 +218,29 @@ class PaymentChallenge(BaseModel):
 
     @field_validator("network")
     @classmethod
-    def _validate_network(cls, v: str) -> str:
+    def _validate_network(cls, v: str | None, info: Any) -> str | None:
+        if info.data.get("scheme") == "agentpay-wallet" and v == "agentpay:internal-ledger":
+            return v
+        if v is None:
+            raise X402ValidationError("network is required", code=X402ErrorCode.MISSING_REQUIRED_FIELD)
         return _validate_caip2(v)
 
     @field_validator("asset")
     @classmethod
-    def _validate_asset(cls, v: str) -> str:
+    def _validate_asset(cls, v: str | None, info: Any) -> str | None:
+        if info.data.get("scheme") == "agentpay-wallet" and v == "USD":
+            return v
+        if v is None:
+            raise X402ValidationError("asset is required", code=X402ErrorCode.MISSING_REQUIRED_FIELD)
         return _validate_evm_address(v, "asset")
 
     @field_validator("payee")
     @classmethod
-    def _validate_payee(cls, v: str) -> str:
+    def _validate_payee(cls, v: str | None, info: Any) -> str | None:
+        if info.data.get("scheme") == "agentpay-wallet" and v and v.startswith("agentpay:route:"):
+            return v
+        if v is None:
+            raise X402ValidationError("payee is required", code=X402ErrorCode.MISSING_REQUIRED_FIELD)
         return _validate_evm_address(v, "payee")
 
     @field_validator("decimals")
@@ -315,6 +328,17 @@ class PaymentChallenge(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _validate_scheme_fields(self) -> PaymentChallenge:
+        if self.scheme == "agentpay-wallet":
+            if self.network != "agentpay:internal-ledger" or self.asset != "USD" or not self.resource_uri:
+                raise X402ValidationError("invalid agentpay-wallet challenge fields", code=X402ErrorCode.INVALID_SCHEME)
+            if self.facilitator_url:
+                raise X402ValidationError("agentpay-wallet challenge must not name an EIP-3009 facilitator", code=X402ErrorCode.INVALID_SCHEME)
+        elif not self.network or not self.asset or not self.payee or not self.facilitator_url:
+            raise X402ValidationError("EIP-3009 challenge requires network, asset, payee, and facilitatorUrl", code=X402ErrorCode.MISSING_REQUIRED_FIELD)
+        return self
+
     @property
     def amount_base_units(self) -> int:
         """Payment amount parsed into integer base units."""
@@ -341,9 +365,9 @@ class PaymentChallenge(BaseModel):
         return PaymentRequest(
             intent_id=intent_id or self.challenge_id,
             amount=self.amount_base_units,
-            payee=self.payee,
-            asset=self.asset,
-            network=self.network,
+            payee=self.payee or "agentpay:route:unknown",
+            asset=self.asset or "USD",
+            network=self.network or "agentpay:internal-ledger",
             domain=domain,
             ttl_seconds=ttl_seconds,
         )
@@ -459,4 +483,42 @@ class PaymentAuthorization(BaseModel):
                 f"greater than validAfter ({self.valid_after}).",
                 code=X402ErrorCode.INVALID_TIME_WINDOW,
             )
+        return self
+
+
+class WalletAuthorization(BaseModel):
+    """AgentPay's API-key-authenticated wallet approval payload (not a cryptographic signature)."""
+
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    version: str = "2.0"
+    challenge_id: str = Field(..., alias="challengeId")
+    scheme: str = "agentpay-wallet"
+    nonce: str
+    valid_after: int = Field(..., alias="validAfter")
+    valid_before: int = Field(..., alias="validBefore")
+    amount: str
+    resource_uri: str = Field(..., alias="resourceUri")
+    request_binding: str = Field(..., alias="requestBinding")
+
+    @field_validator("nonce")
+    @classmethod
+    def _validate_wallet_nonce(cls, value: str) -> str:
+        if not re.fullmatch(r"0x[0-9a-f]{64}", value):
+            raise X402ValidationError("wallet nonce must be 32 random bytes encoded as lowercase hex", code=X402ErrorCode.INVALID_NONCE)
+        return value
+
+    @field_validator("amount")
+    @classmethod
+    def _validate_wallet_amount(cls, value: str) -> str:
+        if not value.isdecimal() or int(value) <= 0 or int(value) > SQLITE_MAX_INT:
+            raise X402ValidationError("wallet amount must be a positive int64 decimal string", code=X402ErrorCode.INVALID_AMOUNT_FORMAT)
+        return value
+
+    @model_validator(mode="after")
+    def _validate_wallet_fields(self) -> WalletAuthorization:
+        if self.version != "2.0" or self.scheme != "agentpay-wallet" or self.valid_before <= self.valid_after:
+            raise X402ValidationError("invalid agentpay-wallet authorization fields", code=X402ErrorCode.INVALID_SCHEME)
+        if not self.challenge_id or not self.resource_uri or not re.fullmatch(r"sha256:[0-9a-f]{64}", self.request_binding):
+            raise X402ValidationError("wallet authorization is missing challenge binding fields", code=X402ErrorCode.MISSING_REQUIRED_FIELD)
         return self

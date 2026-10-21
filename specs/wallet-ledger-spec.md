@@ -24,7 +24,7 @@
 | **W2** | **计价单位与资产** | **整数最小单位 + 单一资产代码** | v1 仅支持一种核心计价资产（如 `USDC`，6 位小数整数，1 USDC = 1,000,000 base units）。**严禁使用 float**。 |
 | **W3** | **冻结超时 (Hold TTL)** | **`upstream_timeout + 60s`** | 默认 120 秒。必须覆盖上游 API 的最大超时时间加上网络安全抖动余量。 |
 | **W4** | **履约未知 (Unknown) 处理** | **保持冻结并转 `needs_review`** | 上游 5xx 或连接中断时，冻结保持锁定，**既不自动扣费也不自动释放**，防止恶意重试双花或白白损失服务。 |
-| **W5** | **支付方式选择与降级** | **凭证路由，严禁自动降级** | 客户端携带有效 API Key 且路由策略允许 wallet 时走钱包；携带 x402 签名载荷走链上。**钱包余额不足时直接返回 `402 Insufficient Funds`，严禁静默改走链上**。 |
+| **W5** | **支付方式选择与降级** | **Challenge 协商，严禁自动降级** | API Key 首次请求只取得 `agentpay-wallet` challenge；经客户端本地策略批准并以 `PAYMENT-SIGNATURE` 重试后才进入钱包 Hold。链上仍使用 EIP-3009。**钱包余额不足时直接返回 `402 Insufficient Funds`，严禁静默改走链上**。字段与持久化防重放约束见 [`agentpay-wallet-x402-extension.md`](./agentpay-wallet-x402-extension.md)。 |
 | **W6** | **欠费与负余额处置** | **欠费冻结（`frozen_arrears`）** | 发生法币拒付或冲正致使余额为负时，账户状态变更为 `frozen_arrears`，系统拒绝一切新 Hold 请求，直至充值补足。 |
 
 ---
@@ -126,11 +126,16 @@ sequenceDiagram
     participant WL as 钱包账本 (Wallet Ledger)
     participant UP as 上游业务服务 (LLM/API)
 
-    Client->>GW: HTTP Request (带 API Key)
-    GW->>WL: 申请冻结 (Hold: 金额, IntentID, TTL)
+    Client->>GW: 首次请求 (带 API Key)
+    GW->>GW: 读取路由价格并创建持久化 challenge
+    GW-->>Client: 402 PAYMENT-REQUIRED (agentpay-wallet)
+    Client->>Client: 本地策略评估并预留预算
+    Client->>GW: 重试 (API Key + PAYMENT-SIGNATURE wallet authorization)
+    GW->>GW: 验证绑定并原子消费 challenge / nonce
+    GW->>WL: 申请冻结 (Hold: 服务端路由金额, IntentID, TTL)
     alt 可用余额不足或账户冻结
         WL-->>GW: 冻结失败 (Insufficient Funds / Frozen)
-        GW-->>Client: 402 Insufficient Balance (不自动改走链上)
+        GW-->>Client: 402/403 错误 (不自动改走链上)
     else 冻结成功
         WL-->>GW: Hold 成功 (status=held)
         GW->>UP: 发送上游请求 (Dispatch)
@@ -138,7 +143,7 @@ sequenceDiagram
             UP-->>GW: 200 OK (Payload)
             GW->>WL: 确认扣款 (Capture: HoldID, 金额)
             WL->>WL: 写 capture 流水, 扣减 held, 最终确收
-            GW-->>Client: 200 OK + 业务响应
+            GW-->>Client: 2xx + 业务响应
         else 上游明确失败 (HTTP 4xx)
             UP-->>GW: 4xx Error
             GW->>WL: 释放冻结 (Release: HoldID)

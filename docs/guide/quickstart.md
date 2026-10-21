@@ -113,7 +113,7 @@ curl -si "http://127.0.0.1:8080/weather/current?city=SanFrancisco" \
   | python3 -c "import sys,base64,json; s=sys.stdin.read().strip(); s+='='*(-len(s)%4); print(json.dumps(json.loads(base64.urlsafe_b64decode(s)),indent=2))"
 ```
 
-You will see fields such as `network`, `asset`, `amount` (in the smallest unit — USDC has 6 decimals, so `100000` is 0.1 USDC), `payee`, `validBefore` and `scheme`. This is the **on-chain path**: a buyer would sign an EIP-3009 authorization for exactly this amount. In the next step you will use the **wallet path** instead, which needs no signing at all.
+You will see fields such as `network`, `asset`, `amount` (in the smallest unit — USDC has 6 decimals, so `100000` is 0.1 USDC), `payee`, `validBefore` and `scheme`. This unauthenticated request shows the **on-chain path**. The API-key wallet path also uses an x402-style `402` challenge: the gateway first quotes its price, the SDK checks it against local policy, then retries with a wallet authorization. It does not create an EIP-3009 signature or call a facilitator.
 
 ## 4. Install the Python SDK
 
@@ -138,10 +138,10 @@ from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import MemoryPolicyEngine
 
 # 1. Local financial firewall: protects you from an agent looping and burning budget.
-#    Amounts are integers in the smallest unit (USDC has 6 decimals).
+#    Amounts are integer minor units; the wallet challenge reports USD pricing.
 policy = MemoryPolicyEngine(
-    max_per_tx=1_000_000,       # at most 1 USDC per request
-    daily_budget=10_000_000,    # at most 10 USDC per 24 hours
+    max_per_tx=1_000_000,       # at most 1 USD per request
+    daily_budget=10_000_000,    # at most 10 USD per 24 hours
 )
 
 # 2. Signer. In wallet mode no on-chain signature is made, so this is only a placeholder.
@@ -153,28 +153,32 @@ signer = LocalSigner(
 # 3. API key issued for your agent (development key seeded with a test wallet balance).
 api_key = os.getenv("AGENTPAY_API_KEY", "apk_live_valid123")
 
-# 4. The client behaves like a standard httpx.Client. The Authorization header selects
-#    the wallet path: the gateway debits the tenant wallet and no signing is needed.
+# 4. Enable price-aware wallet mode. The SDK first receives a 402 quote, checks the
+#    exact price against local policy, then authorizes and retries the request.
 client = AgentPayClient(
     signer=signer,
     policy=policy,
     headers={"Authorization": f"Bearer {api_key}"},
+    wallet_challenge_mode=True,
 )
 
-# The gateway authenticates the key, checks policy, freezes the price in the tenant
-# wallet (Hold), calls the upstream, then confirms the charge (Capture).
+# The first request gets a price challenge. Only after local approval does the SDK
+# retry; the gateway then holds the tenant-wallet amount and calls the upstream.
 response = client.get("http://127.0.0.1:8080/weather/current?city=SanFrancisco")
 print("Response status:", response.status_code)
 print("Data:", response.json())
 ```
 
-`AgentPayClient` extends `httpx.Client`, so `get`, `post`, timeouts and the rest of the `httpx` API work as usual. It takes three arguments:
+`AgentPayClient` extends `httpx.Client`, so `get`, `post`, timeouts and the rest of the `httpx` API work as usual. The main AgentPay options are:
 
 | Argument | Role |
 | --- | --- |
-| `policy` | The **local** firewall (per-request cap, rolling budget, payee whitelist). Evaluated before anything is paid. |
-| `signer` | Signs EIP-712 / EIP-3009 authorizations for the **on-chain path**. Unused when you authenticate with an API key. |
-| `headers` | Default headers. `Authorization: Bearer <api_key>` selects the **wallet path**. |
+| `policy` | The **local** firewall (per-request cap, rolling budget, payee whitelist). In wallet challenge mode it evaluates the quoted price before the gateway places a hold. |
+| `signer` | Signs EIP-712 / EIP-3009 authorizations for the **on-chain path**. Wallet challenge mode does not invoke it, though the current client constructor still requires a signer. |
+| `headers` | Default headers. `Authorization: Bearer <api_key>` authenticates the wallet request. |
+| `wallet_challenge_mode` | Set to `True` for AgentPay Gateway API-key wallet calls. The SDK waits for the gateway's price challenge, evaluates local policy, then retries with `PAYMENT-SIGNATURE`. Defaults to `False`. |
+
+If you configure allow-lists, wallet challenges use asset `USD` and a payee such as `agentpay:route:<route-id>`; on-chain challenges continue to use token addresses.
 
 Prefer async? Use the async client from the same object:
 
@@ -204,10 +208,10 @@ Data: {...weather data...}
 
 That one call did a lot. In order, the gateway:
 
-1. **Authenticated** the API key and resolved the tenant, project and agent from it.
-2. **Evaluated policy** — per-request cap, rolling budget, rate limit, route allow-list.
-3. **Held** the route price in the tenant wallet (the funds are reserved, not yet spent).
-4. **Forwarded** the request to the upstream, injecting the upstream credentials itself.
+1. **Quoted** the route price in a `402` `agentpay-wallet` challenge without placing a hold.
+2. **Evaluated local policy** against the exact quoted amount and reserved the SDK budget.
+3. **Authorized** the original request with `PAYMENT-SIGNATURE`; the gateway validates and consumes the one-time challenge.
+4. **Held** the route price in the tenant wallet, then forwarded the request with upstream credentials injected by the gateway.
 5. **Captured** the held amount after the upstream returned `2xx`, appending an immutable ledger entry.
 
 If the upstream had returned a `4xx`, the hold would have been **released** and nothing charged. If it had returned a `5xx` or timed out, the hold would stay in place and the payment would be marked for review. It is never auto-charged and never auto-released.
@@ -279,8 +283,8 @@ docker compose down -v       # …or also delete the data for a fully clean slat
 
 ```text
                     ┌─ wallet path (steps 5–6) ─┐
-Agent ── API key ──▶│  Gateway: auth → policy → │──▶ Upstream API
-                    │  HOLD → forward → CAPTURE │
+Agent ── API key ──▶│  402 quote → SDK policy → │──▶ Upstream API
+                    │  authorize → HOLD → CAPTURE│
                     └────────────┬──────────────┘
                                  ▼
                        PostgreSQL ledger + audit trail
@@ -289,6 +293,7 @@ Agent ── no key ───▶ Gateway ──▶ 402 + PAYMENT-REQUIRED   (on-
 ```
 
 - Agents authenticate with a **revocable API key**. They never hold a private key on the wallet path.
+- In SDK wallet challenge mode, the quoted price is checked by the local policy before the gateway places a wallet hold. Enable it with `wallet_challenge_mode=True`.
 - Every charge goes through **Hold → (fulfil) → Capture or Release**, so you are only billed for successful deliveries.
 - Retries are made safe by **idempotency keys**.
 - Spending limits and the circuit breaker are enforced **outside the model**, so a prompt cannot talk its way past them.
