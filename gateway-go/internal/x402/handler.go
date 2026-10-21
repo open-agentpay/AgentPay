@@ -29,6 +29,7 @@ import (
 type WalletAccount struct {
 	WalletID         string
 	TenantID         string
+	APIKeyID         string
 	ProjectID        string
 	AgentID          string
 	Status           string // active, frozen, frozen_arrears, closed
@@ -558,7 +559,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 	if apiKey != "" {
 		allowed := route.AllowedPaymentMethods
 		if allowed == "onchain" {
-			recordReq(route.TenantID, "prj_default", apiKey, "", "", http.StatusMethodNotAllowed, ErrCodePaymentMethodNotAllowed, false)
+			recordReq(route.TenantID, "prj_default", "", "", "", http.StatusMethodNotAllowed, ErrCodePaymentMethodNotAllowed, false)
 			WriteProtocolError(w, ErrCodePaymentMethodNotAllowed, requestID, map[string]interface{}{
 				"route_id":                route.RouteID,
 				"allowed_payment_methods": allowed,
@@ -568,13 +569,13 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 		wallet, err := p.walletService.GetWalletByAPIKey(r.Context(), apiKey)
 		if err != nil {
-			recordReq(route.TenantID, "prj_default", apiKey, "", "", http.StatusUnauthorized, ErrCodeAPIKeyInvalid, false)
+			recordReq(route.TenantID, "prj_default", "", "", "", http.StatusUnauthorized, ErrCodeAPIKeyInvalid, false)
 			WriteProtocolError(w, ErrCodeAPIKeyInvalid, requestID, nil)
 			return
 		}
 
 		if wallet.Status == "frozen_arrears" || wallet.Status == "frozen" {
-			recordReq(wallet.TenantID, "prj_default", apiKey, "", "", http.StatusPaymentRequired, ErrCodeWalletFrozen, false)
+			recordReq(wallet.TenantID, "prj_default", wallet.APIKeyID, "", "", http.StatusPaymentRequired, ErrCodeWalletFrozen, false)
 			WriteProtocolError(w, ErrCodeWalletFrozen, requestID, map[string]interface{}{
 				"wallet_id": wallet.WalletID,
 				"status":    wallet.Status,
@@ -713,7 +714,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			rejectChallenge()
 			p.metrics.IncPaymentsFailed()
 			initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusRejected)
-			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusForbidden, decision.ReasonCode, false)
+			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, wallet.APIKeyID, resolvedAgent.AgentID, intentID, http.StatusForbidden, decision.ReasonCode, false)
 			WriteProtocolError(w, decision.ReasonCode, requestID, map[string]interface{}{
 				"agent_id":    resolvedAgent.AgentID,
 				"reason":      decision.Reason,
@@ -739,7 +740,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 					&declared,
 				))
 			}
-			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, statusCode, errCode, isReplay)
+			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, wallet.APIKeyID, resolvedAgent.AgentID, intentID, statusCode, errCode, isReplay)
 			if !isReplay && correlation.HoldID != "" {
 				settlementID := fmt.Sprintf("stl_%s", correlation.HoldID)
 				fulfillmentID := fmt.Sprintf("ful_%s", requestID)
@@ -828,7 +829,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 			rec, checkRes, err := p.idempotencyStore.CheckOrLock(r.Context(), tenantID, idemKey, requestHash, intentID, "wallet")
 			if err != nil {
-				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusBadGateway, ErrCodeUpstreamBadGateway, false)
+				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, wallet.APIKeyID, resolvedAgent.AgentID, intentID, http.StatusBadGateway, ErrCodeUpstreamBadGateway, false)
 				WriteProtocolError(w, ErrCodeUpstreamBadGateway, requestID, map[string]interface{}{"error": err.Error()})
 				return
 			}
@@ -836,7 +837,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			// Case A: Conflict (in-flight or payload mismatch)
 			if checkRes == idempotency.ResultConflict {
 				rejectChallenge()
-				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusConflict, ErrCodeIdempotencyConflict, false)
+				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, wallet.APIKeyID, resolvedAgent.AgentID, intentID, http.StatusConflict, ErrCodeIdempotencyConflict, false)
 				WriteProtocolError(w, ErrCodeIdempotencyConflict, requestID, map[string]interface{}{
 					"idempotency_key": idemKey,
 					"reason":          "Idempotency conflict: request in-progress or payload altered",
@@ -927,7 +928,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				p.metrics.IncPaymentsFailed()
 				initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusFailed)
 				initSettlement(fmt.Sprintf("stl_%s", requestID), intentID, "wallet", payment.SettlementStatusFailed, wallet.WalletID, route.PayeeAddress, "", "")
-				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
+				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, wallet.APIKeyID, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
 				WriteProtocolError(w, ErrCodeWalletInsufficientBalance, requestID, map[string]interface{}{
 					"wallet_id":         wallet.WalletID,
 					"required_amount":   route.PriceBaseUnits,
@@ -944,7 +945,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				p.metrics.IncPaymentsFailed()
 				initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusFailed)
 				initSettlement(fmt.Sprintf("stl_%s", requestID), intentID, "wallet", payment.SettlementStatusFailed, wallet.WalletID, route.PayeeAddress, "", "")
-				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
+				recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, wallet.APIKeyID, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
 				WriteProtocolError(w, ErrCodeWalletInsufficientBalance, requestID, nil)
 				return
 			}
@@ -1031,7 +1032,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			p.metrics.IncPaymentsFailed()
 			initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusFailed)
 			initSettlement(fmt.Sprintf("stl_%s", requestID), intentID, "wallet", payment.SettlementStatusFailed, wallet.WalletID, route.PayeeAddress, "", "")
-			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
+			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, wallet.APIKeyID, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
 			WriteProtocolError(w, ErrCodeWalletInsufficientBalance, requestID, map[string]interface{}{
 				"wallet_id":         wallet.WalletID,
 				"required_amount":   route.PriceBaseUnits,
@@ -1047,7 +1048,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			p.metrics.IncPaymentsFailed()
 			initIntent(resolvedAgent.TenantID, resolvedAgent.ProjectID, resolvedAgent.AgentID, intentID, idemKey, "wallet", payment.IntentStatusFailed)
 			initSettlement(fmt.Sprintf("stl_%s", requestID), intentID, "wallet", payment.SettlementStatusFailed, wallet.WalletID, route.PayeeAddress, "", "")
-			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, apiKey, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
+			recordReq(resolvedAgent.TenantID, resolvedAgent.ProjectID, wallet.APIKeyID, resolvedAgent.AgentID, intentID, http.StatusPaymentRequired, ErrCodeWalletInsufficientBalance, false)
 			WriteProtocolError(w, ErrCodeWalletInsufficientBalance, requestID, nil)
 			return
 		}

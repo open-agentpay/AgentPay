@@ -110,6 +110,7 @@ func (m *MemoryService) GetWalletByAPIKey(ctx context.Context, apiKey string) (*
 	return &x402.WalletAccount{
 		WalletID:         w.WalletID,
 		TenantID:         w.TenantID,
+		APIKeyID:         rec.KeyID,
 		ProjectID:        rec.ProjectID,
 		AgentID:          rec.AgentID,
 		Status:           string(w.Status),

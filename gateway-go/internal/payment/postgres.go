@@ -302,7 +302,7 @@ func (p *PostgresService) UpdateSettlementStatus(ctx context.Context, settlement
 		UPDATE ap_settlement_record
 		SET status = $1,
 		    tx_hash = CASE WHEN $2 <> '' THEN $2 ELSE tx_hash END,
-		    block_number = CASE WHEN $3 IS NOT NULL THEN $3 ELSE block_number END,
+		    block_number = CASE WHEN $3::BIGINT IS NOT NULL THEN $3::BIGINT ELSE block_number END,
 		    error_message = CASE WHEN $4 <> '' THEN $4 ELSE error_message END,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE settlement_id = $5

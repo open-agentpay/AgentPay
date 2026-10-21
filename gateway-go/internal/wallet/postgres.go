@@ -33,7 +33,7 @@ func (p *PostgresService) GetWalletByAPIKey(ctx context.Context, apiKey string) 
 	keyHash := HashAPIKey(apiKey)
 
 	query := `
-		SELECT ak.tenant_id, ak.status, ak.expires_at,
+		SELECT ak.key_id, ak.tenant_id, ak.status, ak.expires_at,
 		       w.wallet_id, w.status, w.available_cache, w.held_cache,
 		       ak.project_id, ak.agent_id
 		FROM ap_api_key ak
@@ -43,6 +43,7 @@ func (p *PostgresService) GetWalletByAPIKey(ctx context.Context, apiKey string) 
 	`
 
 	var (
+		apiKeyID         string
 		tenantID         string
 		keyStatus        string
 		keyExpiresAt     sql.NullTime
@@ -55,6 +56,7 @@ func (p *PostgresService) GetWalletByAPIKey(ctx context.Context, apiKey string) 
 	)
 
 	err := p.db.QueryRowContext(ctx, query, keyHash, apiKey).Scan(
+		&apiKeyID,
 		&tenantID,
 		&keyStatus,
 		&keyExpiresAt,
@@ -87,6 +89,7 @@ func (p *PostgresService) GetWalletByAPIKey(ctx context.Context, apiKey string) 
 	return &x402.WalletAccount{
 		WalletID:         walletID,
 		TenantID:         tenantID,
+		APIKeyID:         apiKeyID,
 		ProjectID:        pID,
 		AgentID:          aID,
 		Status:           walletStatus,
@@ -300,7 +303,7 @@ func (p *PostgresService) CaptureFunds(ctx context.Context, holdID string) error
 		INSERT INTO ap_ledger_entry (
 			entry_id, wallet_id, tenant_id, type, amount, idempotency_key, ref_type, ref_id, created_at
 		) VALUES (
-			$1, $2, $3, 'capture', -$4, $5, 'Hold', $6, CURRENT_TIMESTAMP
+			$1, $2, $3, 'capture', -CAST($4 AS BIGINT), $5, 'Hold', $6, CURRENT_TIMESTAMP
 		)
 		ON CONFLICT (wallet_id, idempotency_key) DO NOTHING;
 	`
