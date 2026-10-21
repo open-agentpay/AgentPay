@@ -81,7 +81,7 @@ Universal knowledge independent of AgentPay, explaining why agents require finan
 
 Why agents need to spend money, limitations of current payment methods, and what x402 and stablecoins solve.
 
-[Why Agents Need to Pay](./02-agent-payments/why-agents-pay.md) · [Payment Options Compared](./02-agent-payments/payment-options.md) · [HTTP 402 & x402](./02-agent-payments/http-402-and-x402.md) · [Stablecoins & USDC](./02-agent-payments/stablecoins-and-usdc.md) · [Gasless Auth (EIP-3009)](./02-agent-payments/gasless-eip-3009.md) · [Micropayment Economics](./02-agent-payments/micropayment-economics.md) · [Five Trust Problems](./02-agent-payments/trust-problems.md) · [Ecosystem Landscape](./02-agent-payments/ecosystem-landscape.md)
+[Chapter index](./02-agent-payments/index.md) · [Why Agents Need to Pay](./02-agent-payments/why-agents-pay.md) · [Payment Options Compared](./02-agent-payments/payment-options.md) · [HTTP 402 & x402](./02-agent-payments/http-402-and-x402.md) · [Stablecoins & USDC](./02-agent-payments/stablecoins-and-usdc.md) · [Gasless Auth (EIP-3009)](./02-agent-payments/gasless-eip-3009.md) · [Micropayment Economics](./02-agent-payments/micropayment-economics.md) · [Five Trust Problems](./02-agent-payments/trust-problems.md) · [Agent Payment Challenges](./02-agent-payments/agent-payment-challenges.md) · [Payment Flow](./02-agent-payments/agent-payment-flow.md) · [Payment State & Idempotency](./02-agent-payments/payment-state-and-idempotency.md) · [Spending Policy](./02-agent-payments/spending-policy.md) · [Ecosystem Landscape](./02-agent-payments/ecosystem-landscape.md)
 
 ### Chapter 3: Infrastructure Map
 

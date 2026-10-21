@@ -1,125 +1,125 @@
 ---
-title: Agent 技术栈分层
-description: 一个能自主花钱的 Agent 背后需要哪些层，每一层解决什么问题，AgentPay 处在哪一层
+title: Agent Infrastructure Layers
+description: The layers behind an agent that can spend autonomously, the problem each layer solves, and where AgentPay fits.
 ---
 
-# Agent 技术栈分层
+# Agent Infrastructure Layers
 
-::: warning 实验性项目
-AgentPay 尚未经过独立安全审计，请勿用于生产环境的真实资金。
+::: warning Experimental Project
+AgentPay has not undergone an independent security audit. Do not use it with real production funds.
 :::
 
-## 一句话结论
+## In a nutshell
 
-让 Agent 安全地花钱，靠的不是某一个组件，而是**几层各司其职的基础设施**。AgentPay 处在其中的"金融控制"这一层：它不替 Agent 思考，也不负责转账，而是在两者之间判断**该不该付**。
+Safe agent spending does not come from one component. It requires **infrastructure layers with distinct responsibilities**. AgentPay sits in the financial-control layer: it neither thinks on the agent's behalf nor transfers funds; it decides **whether payment should be allowed** between the two.
 
-## 一张图看全貌
+## The whole stack at a glance
 
-下面是一个教学用的简化分层，真实系统中的边界会更模糊，但它能帮你定位每个组件的位置。
+The diagram below is a simplified teaching model. Real systems may have less distinct boundaries, but this helps locate each component.
 
 ```text
 ┌────────────────────────────────────────────────┐
-│ 应用与任务      用户目标："帮我调研英伟达的 GPU"      │
+│ Application & task   User goal: "Research NVIDIA GPUs" │
 ├────────────────────────────────────────────────┤
-│ Agent           模型 + 编排框架（决定做什么）         │
+│ Agent               Model + orchestration (what to do) │
 ├────────────────────────────────────────────────┤
-│ 工具接口         工具调用 / MCP / HTTP API          │
+│ Tool interface      Tool calls / MCP / HTTP APIs      │
 ├────────────────────────────────────────────────┤
-│ 身份与授权       这个 Agent 是谁，被允许做什么        │
+│ Identity & auth     Who is this agent; what may it do? │
 ├────────────────────────────────────────────────┤
-│ ★ 金融控制       该不该付、最多付多少、失败了怎么办    │  ← AgentPay
+│ ★ Financial control Should it pay? How much? Recovery?│ ← AgentPay
 ├────────────────────────────────────────────────┤
-│ 支付协议         怎么向对方付款（HTTP 402 / x402）   │
+│ Payment protocol   How to pay (HTTP 402 / x402)       │
 ├────────────────────────────────────────────────┤
-│ 清算与结算       钱怎么真正到账（链上、平台钱包账本）   │
+│ Clearing & settle  How funds actually move            │
 └────────────────────────────────────────────────┘
-        审计与对账：贯穿所有层，事后能查清每一笔
+        Audit & reconciliation span the stack
 ```
 
-| 层 | 回答的问题 | 典型例子 |
+| Layer | Question answered | Typical examples |
 |---|---|---|
-| **应用与任务** | 要完成什么目标 | 调研报告、数据分析、自动化运营 |
-| **Agent** | 下一步做什么 | 大语言模型，以及 LangChain、CrewAI 等编排框架 |
-| **工具接口** | 如何调用外部能力 | 工具调用、MCP 服务、各类 HTTP API |
-| **身份与授权** | 谁在调用，有什么权限 | API Key、Agent 档案、角色权限 |
-| **金融控制** | 该不该付，付多少，出问题怎么办 | 预算、限额、白名单、熔断、恢复 |
-| **支付协议** | 怎么付 | HTTP 402 与 x402 |
-| **清算与结算** | 钱怎么到账 | 区块链上的稳定币转账、平台内部钱包与账本 |
-| **审计与对账** | 事后能否查清 | 不可变的审计事件、账本对账 |
+| **Application & task** | What goal should be completed? | Research reports, data analysis, operations automation |
+| **Agent** | What should happen next? | LLMs and orchestration frameworks such as LangChain and CrewAI |
+| **Tool interface** | How are external capabilities called? | Tool calls, MCP servers, HTTP APIs |
+| **Identity & authorization** | Who is calling, and what can they do? | API keys, agent profiles, role permissions |
+| **Financial control** | Should it pay, how much, and what if something goes wrong? | Budgets, limits, allowlists, circuit breakers, recovery |
+| **Payment protocol** | How is payment made? | HTTP 402 and x402 |
+| **Clearing & settlement** | How do funds arrive? | On-chain stablecoin transfers, platform wallets and ledgers |
+| **Audit & reconciliation** | Can events be reconstructed later? | Append-only audit events, ledger reconciliation |
 
-前三章主要讲上面的几层。本章讲的是它们如何拼在一起。
+The first three chapters cover the layers above. This chapter shows how they fit together.
 
-## 一次付费调用会穿过哪些层
+## Which layers does a paid call pass through?
 
-沿用调研 Agent 的例子，它需要一份付费的行情数据：
+Continuing the research-agent example, suppose it needs paid market data:
 
-1. **Agent** 判断需要行情数据，决定调用某个工具。
-2. **工具接口**把这个决定变成一次 HTTP 请求，发给卖方的 API。
-3. 卖方返回"需要付款"（HTTP 402），并附上价格、收款地址等要求。这是**支付协议**在说话。
-4. 请求到达**金融控制**层：单笔是否超限？预算是否足够？收款方是否在白名单里？最近调用是否过于频繁？
-    - 任何一条不满足 → 直接拒绝，**不会进入后面的步骤**；
-    - 全部满足 → 预留额度，放行。
-5. 放行后，才由签名器按**支付协议**的格式产生授权。
-6. **清算与结算**层完成实际划转，可以是链上转账，也可以是平台钱包的扣费。
-7. 数据返回给 Agent，同时**审计**记录下这次放行的原因。
+1. The **agent** decides it needs market data and selects a tool.
+2. The **tool interface** turns that decision into an HTTP request to the seller's API.
+3. The seller returns **HTTP 402 Payment Required**, with requirements such as price and recipient. This is the **payment protocol** communicating.
+4. The request reaches **financial control**: Is it within the per-transaction limit? Is enough budget available? Is the recipient allowlisted? Has the request rate become abnormal?
+   - If any check fails, reject the request; **it does not proceed to later steps**.
+   - If all checks pass, reserve budget and allow it to continue.
+5. Only after approval does the signer create an authorization in the format required by the **payment protocol**.
+6. **Clearing and settlement** perform the transfer, either on-chain or by debiting a platform wallet.
+7. The data is returned to the agent, while **audit** records why the request was allowed.
 
-关键的一点：**第 4 步发生在第 5 步之前。** 在任何签名产生之前，防线就已经起作用。
+The key point is that **step 4 happens before step 5**. The control is applied before any signature is created.
 
-## 为什么每一层不能互相替代
+## Why the layers cannot replace one another
 
-很多人的第一反应是"某一层多做一点就行了"。下面这些想法在实践中都会遇到问题：
+It may seem that one layer could simply do more. In practice, the following assumptions cause problems:
 
-**"让模型自己控制花销。"**
-模型是最容易出错的一层，会产生幻觉，也会被提示词注入影响。让它给自己设限，等于让被监管的对象来监管自己。
+**"Let the model control its own spending."**
+The model is one of the components most likely to err: it can hallucinate or be influenced by prompt injection. Asking it to limit itself is asking the subject of control to supervise itself.
 
-**"支付协议已经有验证，应该够了。"**
-协议验证的是"这份签名是不是有效的"，不是"这笔钱该不该花"。一个被诱导去付 20 USDC 的 Agent，签出来的授权在协议层面完全合法。
+**"The payment protocol verifies things, so that should be enough."**
+A protocol checks whether a signature is valid, not whether the payment should be made. An agent manipulated into paying 20 USDC can still create an authorization that is perfectly valid at the protocol level.
 
-**"身份层已经知道是哪个 Agent，限制一下权限就行。"**
-身份和权限回答"你是谁、能不能调用这个接口"，但"这个月还能花多少钱""刚才一分钟调了几次"需要有状态的预算和计数，这是金融控制层的工作。
+**"The identity layer knows which agent this is; restricting permissions is enough."**
+Identity and authorization answer "who are you, and may you call this interface?" Questions such as "how much can you still spend this month?" or "how many times did you call in the last minute?" require stateful budgets and counters. That is the financial-control layer's job.
 
-**"清算层只管转账，业务规则交给业务方。"**
-清算层通常看不到业务上下文，它只知道"有一份授权，要不要上链"。结算可能成功、失败、结果未知，处理这些情况需要上层的状态管理（详见 [超时不等于失败](../04-agentpay-concepts/timeout-is-not-failure.md)）。
+**"The clearing layer only transfers funds; business rules belong elsewhere."**
+The clearing layer usually cannot see business context. It only knows that an authorization exists and may need to be submitted on-chain. Settlement can succeed, fail, or remain unknown. Handling these outcomes requires state management above it; see [Timeout Is Not Failure](../04-agentpay-concepts/timeout-is-not-failure.md).
 
-每一层只解决自己那一层的问题，**缺哪一层，对应的风险就没人兜底**。
+Each layer solves its own class of problems. **If a layer is missing, its corresponding risks have no owner.**
 
-## 缺少金融控制层会怎样
+## What happens without financial control?
 
-| 失控场景 | 没有金融控制层 | 有金融控制层 |
+| Failure scenario | Without financial control | With financial control |
 |---|---|---|
-| 工具重试陷入死循环 | 每次重试都付款，直到余额耗尽 | 频率熔断，后续付款被阻断 |
-| 提示词注入诱导向陌生地址付款 | 协议层面合法，照付 | 收款地址不在白名单，拒绝 |
-| 卖方报出远高于预期的价格 | 按要求签名 | 超过单笔上限，拒绝 |
-| 并发请求同时消耗同一份预算 | 各自检查，合计超支 | 原子预留，只有一个能通过 |
-| 付款后响应超时 | 重试导致重复扣款 | 结果未知时只查询，不重付 |
+| Tool retries enter an infinite loop | Each retry pays until the balance is exhausted | A rate circuit breaker blocks later payments |
+| Prompt injection directs payment to an unknown address | Protocol-valid payment proceeds | Recipient is not allowlisted; reject |
+| Seller quotes a much higher price than expected | Sign the requested authorization | Exceeds per-transaction cap; reject |
+| Concurrent requests consume the same budget | Each checks independently; combined spend exceeds limit | Atomic reservation lets only eligible requests proceed |
+| Response times out after payment | Retrying may charge twice | Query the unknown result; do not pay again blindly |
 
-这五行对应本章后面的几篇概念页。
+These five cases correspond to concept articles later in this learning section.
 
-## 与 MCP 和 x402 的关系
+## Relationship to MCP and x402
 
-三者经常被一起提到，但分工不同：
+The three are often mentioned together, but have different responsibilities:
 
-| | 解决的问题 | 一句话 |
+| | Problem addressed | In a nutshell |
 |---|---|---|
-| **MCP** | Agent 如何发现和调用工具 | 工具层的标准接口 |
-| **x402** | 如何用 HTTP 完成付款 | 支付层的协议 |
-| **AgentPay** | 这笔款该不该付，失败了怎么办 | 金融控制层 |
+| **MCP** | How an agent discovers and calls tools | A standard interface at the tool layer |
+| **x402** | How payment is made over HTTP | A protocol at the payment layer |
+| **AgentPay** | Whether this payment should be made and what to do if it fails | Financial control layer |
 
-当一个 MCP 工具是付费的，三者会串联起来：工具被调用 → 返回 402 → AgentPay 判断放行 → 按 x402 完成付款。它们是配合关系，而不是竞争关系。
+When an MCP tool is paid, the three can work in sequence: call the tool → receive 402 → AgentPay evaluates and allows the request → complete payment using x402. They complement one another rather than compete.
 
-## 常见问题
+## FAQ
 
-**Q：我需要把所有层都部署一遍吗？**
-不需要。最小的用法是在 Agent 的 Python 代码里使用 SDK，让本地防火墙和签名器接管付款，这时金融控制和支付协议都在本地完成。当你需要集中管理多个 Agent、给 API 提供方做收费网关，或者要使用平台钱包和审计时间线，再引入网关与控制台。
+**Q: Do I need to deploy every layer?**
+No. The smallest setup uses the SDK in the agent's Python code, with a local firewall and signer handling payment; both financial control and the payment protocol run locally. Add the gateway and console when you need centralized management for multiple agents, a paid API gateway for providers, or platform wallets and audit timelines.
 
-**Q：AgentPay 会替我保管私钥或资金吗？**
-链上支付路径中，私钥留在买方本地，网关和清算服务不接触私钥。平台虚拟钱包则是平台内部的记账账户，由账本记录余额变动，当前版本不提供提现。
+**Q: Does AgentPay custody my private key or funds?**
+For on-chain payments, the private key stays on the buyer's side; the gateway and clearing service do not handle it. A platform virtual wallet is an internal ledger account whose balance changes are recorded in the ledger. The current version does not support withdrawals.
 
-**Q：这个分层是行业标准吗？**
-不是。它是为了帮助理解而做的简化。不同的项目对"层"的划分和命名会不同，重要的是理解**每一类问题需要有人负责**。
+**Q: Is this layering an industry standard?**
+No. It is a simplification for learning. Projects may divide and name the layers differently; what matters is understanding that **each class of problem needs an owner**.
 
-## 下一步
+## Next steps
 
-- 想知道 AgentPay 具体做什么、不做什么：[AgentPay 的位置](./where-agentpay-fits.md)
-- 想理解它与 x402 的区别：[AgentPay 与 x402](./agentpay-vs-x402.md)
-- 想从具体故事入手：[为什么需要金融防火墙](../04-agentpay-concepts/financial-firewall.md)
+- To learn what AgentPay does and does not do: [Where AgentPay Fits](./where-agentpay-fits.md)
+- To understand how it differs from x402: [AgentPay vs. x402](./agentpay-vs-x402.md)
+- To start with a concrete scenario: [Why We Need a Financial Firewall](../04-agentpay-concepts/financial-firewall.md)

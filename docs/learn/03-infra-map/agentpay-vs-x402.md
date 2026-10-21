@@ -1,136 +1,137 @@
 ---
-title: AgentPay 与 x402
-description: x402 回答"怎么付"，AgentPay 回答"该不该付"：两者的分工、配合方式，以及为什么用了 x402 仍然需要金融控制
+title: AgentPay vs. x402
+description: x402 answers how to pay; AgentPay answers whether payment should be allowed. Learn how they divide responsibilities and work together.
 ---
 
-# AgentPay 与 x402
+# AgentPay vs. x402
 
-::: warning 实验性项目
-AgentPay 尚未经过独立安全审计，请勿用于生产环境的真实资金。
+::: warning Experimental Project
+AgentPay has not undergone an independent security audit. Do not use it with real production funds.
 :::
 
-## 一句话结论
+## In a nutshell
 
-> **x402 回答"怎么付"，AgentPay 回答"该不该付"。**
+> **x402 answers “How do I pay?” AgentPay answers “Should I pay?”**
 
-x402 是一个让 HTTP 请求能够携带付款的开放协议。AgentPay 是放在 Agent 与这个协议之间的控制层：协议负责把款付出去，控制层负责决定要不要让它付出去。两者是配合关系，而不是替代关系。
+x402 is an open protocol that lets HTTP requests carry payment information. AgentPay is a control layer between an agent and that protocol: the protocol carries out the payment exchange; the control layer decides whether to allow it. They complement one another rather than replace one another.
 
-## 先简单了解 x402
+## A brief introduction to x402
 
-HTTP 协议里有一个很早就预留、却很少被使用的状态码：**402 Payment Required**。x402 把它真正用了起来，流程大致如下：
-
-```text
-1. 买方请求一个资源
-2. 卖方返回 402，并在响应头里说明：价格、收款地址、币种、网络、有效期
-3. 买方按要求签署一份付款授权，放进请求头，重新发起请求
-4. 卖方（或其清算服务）验证授权，返回资源
-5. 授权随后被提交结算
-```
-
-这个设计的好处是：付款直接发生在 HTTP 请求里，不需要账号、订阅或预充值，非常适合 Agent 这种"临时需要、按次付费、没有人在旁边"的场景。
-
-AgentPay 使用的是 **x402 V2**，对应的两个关键请求头是 `PAYMENT-REQUIRED`（卖方发出的付款要求）和 `PAYMENT-SIGNATURE`（买方回传的签名授权）。
-
-## 一个重要的事实：协议本身不判断该不该付
-
-协议要解决的是**互操作**：让不同的买方和卖方用同一种格式交换"要多少钱"和"这是授权"。它假设客户端自己知道什么时候该付。
-
-于是一个直接用协议的客户端，行为通常是：
+HTTP has a status code reserved long ago but rarely used: **402 Payment Required**. x402 puts it to work in a flow that broadly looks like this:
 
 ```text
-收到 402 → 解析要求 → 签名 → 重试
+1. Buyer requests a resource.
+2. Seller returns 402 with requirements such as price, recipient, asset, network, and expiry.
+3. Buyer signs a payment authorization, includes it in the request, and retries.
+4. Seller (or its facilitator) verifies the authorization and returns the resource.
+5. The authorization is submitted for settlement, immediately or asynchronously.
 ```
 
-这条流程里没有"等一下，这笔钱该不该花"这一步。换句话说：
+Payment happens as part of an HTTP request, without requiring an account, subscription, or prepaid balance. This can suit an agent that needs a service temporarily and pays per request without a person present.
 
-- 卖方说要 20 USDC，客户端照签；
-- 卖方的地址换成了陌生地址，客户端照签；
-- 循环里每一次重试都收到 402，客户端每次都签。
+AgentPay uses **x402 V2**. Two important headers are `PAYMENT-REQUIRED` (the seller's payment requirement) and `PAYMENT-SIGNATURE` (the buyer's signed authorization).
 
-协议本身没有错，它只是不负责这件事。**这是分工，而不是缺陷**，但对于一个会自主行动、可能出错的 Agent 来说，这一步必须有人负责。
+## An important fact: the protocol does not decide whether to pay
 
-## 它们各管什么
+x402 addresses **interoperability**: buyers and sellers can exchange payment requirements and authorizations in a common format. It assumes the client knows when a payment is appropriate.
+
+A basic protocol client may behave like this:
+
+```text
+Receive 402 → parse requirements → sign → retry
+```
+
+There is no step asking, “Wait, should I spend this money?” For example:
+
+- The seller asks for 20 USDC, and the client signs.
+- The seller changes to an unfamiliar recipient, and the client signs.
+- A retry loop receives 402 repeatedly, and the client signs each time.
+
+There is nothing wrong with the protocol; this responsibility is simply outside its scope. **That is division of responsibilities, not a protocol defect.** But an autonomous agent that can make mistakes needs a component to perform this check.
+
+## What each one does
 
 | | x402 | AgentPay |
 |---|---|---|
-| **回答的问题** | 怎么付 | 该不该付，失败了怎么办 |
-| **所处的层** | 支付协议 | 金融控制（以及围绕它的网关、账本和审计） |
-| **典型职责** | 付款要求的格式、授权签名的格式、验证与结算流程 | 单笔上限、滚动预算、白名单、熔断、原子预留、状态恢复、审计 |
-| **关注的对象** | 一次付款交换 | 一个 Agent 在一段时间内的全部支出行为 |
-| **是否有状态** | 以单次交换为主 | 有，需要记住预算、频率和每笔付款的进展 |
-| **谁制定** | 开放协议社区 | AgentPay 项目 |
+| **Question answered** | How to pay | Whether to pay and what to do if it fails |
+| **Layer** | Payment protocol | Financial control, with gateway, ledger, and audit capabilities around it |
+| **Typical responsibilities** | Payment requirement format, authorization format, verification and settlement flow | Per-transaction caps, rolling budgets, allowlists, circuit breakers, atomic reservations, state recovery, audit |
+| **Scope** | One payment exchange | An agent's spending behavior over time |
+| **Stateful?** | Primarily a single exchange | Yes; tracks budgets, rates, and each payment's progress |
+| **Defined by** | The open protocol community | The AgentPay project |
 
-## 它们怎么配合
+## How they work together
 
-下面是买方通过 x402 链上支付时，两者在同一条请求里的位置：
+Here is where the two fit in one buyer-side x402 on-chain payment:
 
 ```text
-Agent 请求资源
+Agent requests a resource
       │
       ▼
-卖方返回 402 + 付款要求                     ← x402：付款要求的格式
+Seller returns 402 + payment requirements       ← x402: requirement format
       │
       ▼
-┌─────────────────────────────┐
-│ AgentPay 金融防火墙           │            ← AgentPay：该不该付？
-│ 单笔上限 · 预算 · 白名单 · 熔断 │
-└──────┬──────────────┬───────┘
-     放行            拒绝
-       │              │
-       ▼              └─▶ 不签名，原因反馈给 Agent
-预留额度 → 签名授权                          ← x402：授权的格式
-       │
-       ▼
-带着 PAYMENT-SIGNATURE 重试                  ← x402
-       │
-       ▼
-卖方验证 → 返回资源 → 异步结算
-       │
-       ▼
-AgentPay：提交或释放预留，记录审计            ← AgentPay：收尾与追溯
+┌─────────────────────────────────────┐
+│ AgentPay financial firewall          │       ← AgentPay: should it pay?
+│ Per-call cap · budget · allowlist     │
+│ circuit breaker                      │
+└────────────┬────────────────┬───────┘
+          Allow              Reject
+            │                  │
+            ▼                  └─▶ Do not sign; explain reason to agent
+Reserve budget → sign authorization             ← x402: authorization format
+            │
+            ▼
+Retry with PAYMENT-SIGNATURE                    ← x402
+            │
+            ▼
+Seller verifies → returns resource → async settlement
+            │
+            ▼
+AgentPay commits/releases reservation and audits ← AgentPay: recovery and trace
 ```
 
-可以看到，AgentPay 在 x402 流程的**前后各插入了一段**：签名之前判断，结算之后收尾。x402 的格式和流程本身没有被改变，所以对卖方来说，它看到的仍然是一份标准的付款授权。
+AgentPay inserts a check **before and after** the x402 exchange: policy is evaluated before signing, and the reservation and audit are finalized after settlement progresses. The x402 format and flow remain unchanged, so the seller still sees a standard payment authorization.
 
-## AgentPay 比 x402 多出来的部分
+## What AgentPay adds around x402
 
-**1. 付款之前的规则判断。** 这是最核心的一点，见 [为什么需要金融防火墙](../04-agentpay-concepts/financial-firewall.md)。
+**1. Policy checks before payment.** This is the core distinction; see [Why We Need a Financial Firewall](../04-agentpay-concepts/financial-firewall.md).
 
-**2. 并发下的预算保护。** 协议不记录你花了多少，更不会在并发请求之间协调预算，见 [预算预留](../04-agentpay-concepts/budget-reservation.md)。
+**2. Budget protection under concurrency.** The protocol does not record how much you have spent or coordinate a budget across concurrent requests; see [Budget Reservation](../04-agentpay-concepts/budget-reservation.md).
 
-**3. 出问题之后的处理。** 付款成功但响应超时怎么办？结算结果未知怎么办？这些超出了协议的范围，见 [超时不等于失败](../04-agentpay-concepts/timeout-is-not-failure.md)。
+**3. Handling failures afterward.** What if payment succeeded but the response timed out? What if settlement is unknown? These cases are beyond the protocol's scope; see [Timeout Is Not Failure](../04-agentpay-concepts/timeout-is-not-failure.md).
 
-**4. 第二条支付路径。** x402 面向链上支付。AgentPay 还提供平台虚拟钱包：携带 API Key 的请求直接从租户钱包扣费，不需要每笔都上链，延迟更低。两条路径由凭证决定走哪一条，**余额不足时不会静默切换到链上**，避免产生非预期的链上支出。
+**4. A second payment rail.** x402 is for on-chain payments. AgentPay also offers a platform virtual wallet: a request carrying an API key is charged to the tenant wallet without putting each payment on-chain, reducing latency. The credential determines which rail is used. **Insufficient balance does not silently switch to an on-chain payment**, avoiding unexpected spending.
 
-**5. 卖方的收费网关与管理能力。** 把已有 API 变成收费接口、配置价格与策略、发布与回滚、查看消费与审计，这些是围绕协议的上层产品能力。
+**5. A paid API gateway and management.** Turning an existing API into a paid endpoint, configuring prices and policies, publishing and rolling back changes, and reviewing usage and audit events are product capabilities around the protocol.
 
-## 用 AgentPay 会不会"被绑定"？
+## Does AgentPay lock you in?
 
-AgentPay 在链上路径上遵循 x402 V2 的格式，并且在项目内部以测试向量验证编码与签名的一致性。同时，AgentPay 的核心库没有强依赖第三方的 x402 软件包，而是按规范自行实现编解码；如果你同时使用官方库，可以通过可选的互通工具在两边的对象之间转换。
+For the on-chain path, AgentPay follows x402 V2 formats and uses project test vectors to check encoding and signature consistency. Its core library does not depend strongly on a third-party x402 package; it implements the encoding and decoding according to the specification. If you also use an official library, optional interoperability utilities can convert between the two libraries' objects.
 
-需要说明的是，平台虚拟钱包这条路径不使用 x402 的付款头，而是使用 API Key。因此"AgentPay"并不等同于"x402 的某个实现"，x402 只是它支持的支付方式之一。
+The platform virtual-wallet path does not use x402 payment headers; it uses an API key. Therefore, “AgentPay” is not synonymous with “an x402 implementation.” x402 is one of the payment methods it supports.
 
-## 常见问题
+## FAQ
 
-**Q：我已经在用 x402 了，为什么还要 AgentPay？**
-如果你的 Agent 只在受控环境里、预算很小、你自己盯着，x402 可能就够了。当 Agent 自主运行、有多个并发、花的是真钱，或者有多个 Agent 共用预算，就需要在协议之上加一层控制。
+**Q: I already use x402. Why would I need AgentPay?**
+If your agent runs in a controlled environment, has a small budget, and you monitor it, x402 may be enough. When an agent runs autonomously, handles concurrent requests, spends real money, or shares a budget with other agents, a control layer above the protocol becomes useful.
 
-**Q：我可以自己在 x402 客户端外面写一层检查吗？**
-可以，简单的单笔上限很容易写。但要做对并发预算、签名后超时的处理、熔断和审计，需要处理的细节很多，这些正是 AgentPay 想一次做好的部分。
+**Q: Can I write my own checks around an x402 client?**
+Yes. A simple per-call cap is straightforward. Correct concurrent budget accounting, timeout handling after signing, circuit breaking, and audit involve many details; AgentPay aims to provide these together.
 
-**Q：AgentPay 会替代 x402 吗？**
-不会。链上支付路径依赖 x402，AgentPay 的价值在协议之上，而不是替代协议。
+**Q: Does AgentPay replace x402?**
+No. The on-chain payment path relies on x402. AgentPay adds value above the protocol rather than replacing it.
 
-**Q：AgentPay 能和任意 x402 卖方互通吗？**
-AgentPay 按 x402 V2 规范实现，并有协议测试向量验证。与第三方实现的互通性仍需要以实际测试为准，项目目前处于实验阶段。
+**Q: Does AgentPay interoperate with every x402 seller?**
+AgentPay implements x402 V2 and validates it with protocol test vectors. Interoperability with third-party implementations still needs to be confirmed through practical testing. The project is experimental.
 
-## 下一步
+## Next steps
 
-- 想知道 AgentPay 在整个体系中的完整位置：[AgentPay 的位置](./where-agentpay-fits.md)
-- 想理解 402 与 x402 的原理：[HTTP 402 与 x402](../02-agent-payments/http-402-and-x402.md)
-- 想看到两者配合的效果：[10 分钟 Demo](../05-hands-on/ten-minute-demo.md)
+- To see AgentPay's full place in the system: [Where AgentPay Fits](./where-agentpay-fits.md)
+- To understand HTTP 402 and x402: [HTTP 402 and x402](../02-agent-payments/http-402-and-x402.md)
+- To see both work together: [10-Minute Demo](../05-hands-on/ten-minute-demo.md)
 
-## 深入阅读
+## Further reading
 
-- [协议一致性契约](/specs/protocol-consistency)：付款头、双轨支付裁定与错误码
-- [ADR-001：x402 的复用与自研决策](/specs/adr-001)：为什么核心库自行实现协议编解码
+- [Protocol Consistency Contract](/specs/protocol-consistency): payment headers, dual-rail decisions, and error codes.
+- [ADR-001: Reusing x402 vs. Implementing It In-House](/specs/adr-001): why the core library implements protocol encoding and decoding itself.

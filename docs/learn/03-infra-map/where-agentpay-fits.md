@@ -1,118 +1,118 @@
 ---
-title: AgentPay 的位置
-description: AgentPay 在 Agent 基础设施中具体负责什么、不负责什么，以及买方、卖方、管理员三类角色分别会用到哪些组件
+title: Where AgentPay Fits
+description: What AgentPay does and does not do in agent infrastructure, and which components buyers, sellers, and administrators use.
 ---
 
-# AgentPay 的位置
+# Where AgentPay Fits
 
-::: warning 实验性项目
-AgentPay 尚未经过独立安全审计，请勿用于生产环境的真实资金。
+::: warning Experimental Project
+AgentPay has not undergone an independent security audit. Do not use it with real production funds.
 :::
 
-## 一句话结论
+## In a nutshell
 
-AgentPay 是 Agent 与资金之间的**金融控制层**：在付款发生之前判断该不该付，在付款发生之后保证失败可恢复、过程可追溯。它不是 Agent 框架，不是支付协议，也不是区块链。
+AgentPay is the **financial-control layer** between an agent and funds: it decides whether to allow payment before it happens and makes failures recoverable and activity traceable afterward. It is not an agent framework, a payment protocol, or a blockchain.
 
-## 它负责什么
+## What it does
 
-回到 [Agent 技术栈分层](./agent-stack.md) 里的那张图，AgentPay 覆盖的是"金融控制"，并向上下各延伸一点：
+Returning to the diagram in [Agent Infrastructure Layers](./agent-stack.md), AgentPay covers financial control and extends slightly into the adjacent layers:
 
-| 能力 | 说明 |
+| Capability | Description |
 |---|---|
-| **付款前的规则判断** | 单笔上限、滚动预算、收款方与网络白名单、频率熔断与循环检测 |
-| **预算的原子预留** | 并发请求下不会超支（见 [预算预留](../04-agentpay-concepts/budget-reservation.md)） |
-| **失败与未知结果的处理** | 付款、结算、交付分开记录，结果未知时不盲目重试（见 [超时不等于失败](../04-agentpay-concepts/timeout-is-not-failure.md)） |
-| **双轨支付** | 链上支付（x402）与平台虚拟钱包两种方式，余额不足时不会静默切换到另一条路径 |
-| **卖方收费网关** | 把已有 API 变成按次收费的接口，无需改动业务代码 |
-| **多租户与 Agent 管理** | 租户、项目、成员权限，Agent 与 API Key 的生命周期，一键停用 |
-| **审计与对账** | 请求、支付、结算、交付、策略决策都有记录，可按 Agent 与会话回溯 |
+| **Pre-payment policy evaluation** | Per-transaction caps, rolling budgets, recipient and network allowlists, rate circuit breakers, and loop detection |
+| **Atomic budget reservation** | Prevents concurrent requests from exceeding the budget (see [Budget Reservation](../04-agentpay-concepts/budget-reservation.md)) |
+| **Failure and unknown-result handling** | Tracks payment, settlement, and fulfillment separately; avoids blind retries when the outcome is unknown (see [Timeout Is Not Failure](../04-agentpay-concepts/timeout-is-not-failure.md)) |
+| **Two payment rails** | On-chain payments (x402) and a platform virtual wallet; insufficient balance does not silently switch to the other rail |
+| **Seller payment gateway** | Turns an existing API into a pay-per-request endpoint without changing its business code |
+| **Tenant and agent management** | Tenant, project, and member permissions; agent and API key lifecycles; one-click disablement |
+| **Audit and reconciliation** | Records requests, payments, settlement, fulfillment, and policy decisions for review by agent and session |
 
-## 它不负责什么
+## What it does not do
 
-清楚边界和清楚能力同样重要：
+Clear boundaries are as important as clear capabilities:
 
-| 不负责 | 原因与建议 |
+| Not responsible for | Reason and guidance |
 |---|---|
-| **Agent 的推理和编排** | 这是模型和 LangChain、CrewAI 等框架的事。AgentPay 以工具包装器的形式接入它们。 |
-| **定义支付协议** | 链上支付遵循 x402 V2，AgentPay 是它的使用者，不是制定者（见 [AgentPay 与 x402](./agentpay-vs-x402.md)）。 |
-| **判断服务值不值** | 在预算内向白名单接口付了钱，却拿到无用的回答，防火墙无法识别。 |
-| **替你托管私钥** | 链上路径中，私钥留在买方本地，网关与清算服务不接触私钥。 |
-| **提现与转账** | 当前版本的平台虚拟钱包是闭环消费，不支持提现，也不支持用户间转账。 |
-| **运营公共清算网络** | 项目提供清算服务的参考实现，但不运营面向公众的清算服务。 |
-| **抵御宿主机沦陷** | 如果运行环境被完全攻陷，本地私钥可能被读取。更强的隔离属于后续规划。 |
+| **Agent reasoning and orchestration** | These belong to models and frameworks such as LangChain or CrewAI. AgentPay integrates as a tool wrapper. |
+| **Defining the payment protocol** | The on-chain path follows x402 V2. AgentPay uses the protocol; it does not define it (see [AgentPay vs. x402](./agentpay-vs-x402.md)). |
+| **Judging whether a service is valuable** | A firewall cannot tell that an allowlisted service returned a useless answer after being paid within budget. |
+| **Custody of your private key** | On the on-chain path, the key stays with the buyer; the gateway and clearing service do not handle it. |
+| **Withdrawals and transfers** | The current platform virtual wallet is for closed-loop spending; it does not support withdrawals or transfers between users. |
+| **Operating a public clearing network** | The project provides a reference implementation, not a public clearing service. |
+| **Surviving a compromised host** | If the execution environment is fully compromised, a local private key may be exposed. Stronger isolation is planned for the future. |
 
-## 三类角色，三种用法
+## Three roles, three ways to use it
 
-### 买方：让 Agent 安全地调用付费服务
+### Buyer: safely call paid services from an agent
 
-你写 Agent，希望它能调用收费 API，但不想给它无限的花钱权限。
+You build an agent that needs paid APIs but should not have unlimited spending authority.
 
-- 使用 **Python SDK**，在客户端里配置策略；
-- 对 Agent 来说是一次普通的 HTTP 调用，遇到付款要求时由防火墙判断和签名；
-- 可以包装成 LangChain 等框架的付费工具。
+- Use the **Python SDK** and configure policy on the client.
+- To the agent, this is an ordinary HTTP call; when a payment requirement appears, the firewall evaluates it and the signer handles authorization.
+- Wrap the client as a paid tool for frameworks such as LangChain.
 
-最小的用法**不需要部署任何服务**，SDK 和本地防火墙就足够。
+The smallest setup **does not require deploying a service**; the SDK and local firewall are enough.
 
-### 卖方：把 API 变成收费接口
+### Seller: turn an API into a paid endpoint
 
-你提供 API，希望按次收费，又不想改动现有代码。
+You provide an API and want to charge per request without changing its existing code.
 
-- 部署 **AgentPay 网关**，在它前面代理你的上游服务；
-- 在网关里配置路由、价格、支付方式和收款地址；
-- 网关负责发出付款要求、验证付款、转发请求，并在上游出问题时保证不重复收款。
+- Deploy the **AgentPay Gateway** as a proxy in front of the upstream service.
+- Configure routes, prices, payment methods, and recipient addresses in the gateway.
+- The gateway issues payment requirements, verifies payment, forwards requests, and avoids duplicate charges when the upstream service fails.
 
-上游服务的真实密钥由网关保管，不会暴露给调用方。
+The gateway keeps the upstream service's real credentials; they are not exposed to callers.
 
-### 管理员：管理多个 Agent 和资金
+### Administrator: manage multiple agents and their funds
 
-你在一个团队或企业里，需要管很多 Agent 和一笔共用的预算。
+Your team or enterprise needs to manage many agents and a shared budget.
 
-- 使用 **Web 控制台**配置路由与策略，先编辑草稿，校验通过后再发布，出问题可以回滚；
-- 管理租户、项目、成员和 API Key，为 Agent 配置独立的预算和限额；
-- 在审计时间线里查看每个 Agent 做了什么、花了多少钱、为什么被放行或拒绝；
-- Agent 行为异常时，一键停用。
+- Use the **Web Console** to configure routes and policies, edit drafts, validate and publish them, and roll back if needed.
+- Manage tenants, projects, members, and API keys; assign each agent its own budget and limits.
+- Use audit timelines to inspect what each agent did, how much it spent, and why a request was allowed or rejected.
+- Disable an agent with one action if its behavior becomes abnormal.
 
-## 组件一览
+## Components
 
-| 组件 | 做什么 | 谁会用到 |
+| Component | Purpose | Users |
 |---|---|---|
-| **Python SDK** | 客户端拦截器、本地策略引擎、签名器 | 买方 |
-| **Go 网关** | 反向代理、付款要求与验证、钱包扣费、幂等与恢复 | 卖方、管理员 |
-| **Web 控制台** | 路由与策略配置、发布与回滚、钱包、Agent 与审计 | 管理员 |
-| **清算服务（参考实现）** | 校验签名并提交链上结算，以及本地模拟版本 | 开发与演示 |
-| **规范与测试向量** | 协议、状态机、错误码、审计事件的权威定义 | 集成与二次开发者 |
+| **Python SDK** | Client interceptor, local policy engine, signer | Buyers |
+| **Go Gateway** | Reverse proxy, payment requirements and verification, wallet debits, idempotency and recovery | Sellers and administrators |
+| **Web Console** | Route and policy configuration, publish and rollback, wallets, agents, and audit | Administrators |
+| **Clearing service (reference implementation)** | Validates signatures and submits on-chain settlement; includes a local simulation | Development and demos |
+| **Specifications and test vectors** | Authoritative definitions for protocol, state machine, error codes, and audit events | Integrators and developers building extensions |
 
-AgentPay 可以以两种形态运行：
+AgentPay can run in two forms:
 
-- **本地嵌入模式**：全部组件在一个进程里，不联网，适合开发、测试和 Demo（`make demo` 就是这种形态）；
-- **分布式模式**：买方在自己的环境里，网关和清算服务部署在云端，通过 HTTPS 通信，对应真实使用场景。
+- **Embedded local mode:** all components run in one process without networking, suitable for development, testing, and demos (`make demo` uses this form).
+- **Distributed mode:** the buyer runs in its own environment while the gateway and clearing service run in the cloud and communicate over HTTPS, matching a typical deployment.
 
-## 当前状态
+## Current status
 
-| 方面 | 状态 |
+| Area | Status |
 |---|---|
-| Python SDK、本地策略引擎 | 已完成 |
-| Go 网关、钱包支付路径 | 已完成 |
-| Web 控制台（路由与策略、发布回滚、钱包、Agent 与审计） | 已完成 |
-| TypeScript SDK | 暂缓，规划中 |
-| 独立安全审计 | 未进行 |
-| 生产环境真实资金 | 不建议 |
+| Python SDK and local policy engine | Complete |
+| Go Gateway and wallet payment path | Complete |
+| Web Console (routes, policies, publish/rollback, wallets, agents, audit) | Complete |
+| TypeScript SDK | Paused; planned |
+| Independent security audit | Not performed |
+| Real funds in production | Not recommended |
 
-项目整体处于实验阶段，请先在测试网和测试代币上评估。
+The project is experimental. Evaluate it on testnets with test tokens first.
 
-## 常见问题
+## FAQ
 
-**Q：我只是想让自己的 Agent 别乱花钱，必须部署网关吗？**
-不必须。本地 SDK 的防火墙已经能限制单笔、预算、频率和白名单。网关与控制台是在你需要集中管理、对外收费或使用平台钱包时才需要。
+**Q: I only want to stop my agent from overspending. Do I need to deploy the gateway?**
+No. The local SDK firewall can already enforce per-transaction limits, budgets, request rates, and allowlists. Use the gateway and console when you need centralized management, paid API access, or platform wallets.
 
-**Q：AgentPay 是一个钱包产品吗？**
-不是。链上路径使用买方自己的钱包与私钥。平台虚拟钱包是网关里的内部记账账户，用于低成本、低延迟的小额扣费，不是一个对外的钱包应用。
+**Q: Is AgentPay a wallet product?**
+No. The on-chain path uses the buyer's own wallet and private key. The platform virtual wallet is an internal gateway ledger account for low-cost, low-latency small charges; it is not a public wallet application.
 
-**Q：它能和我现在用的 Agent 框架一起用吗？**
-可以。AgentPay 通过 HTTP 客户端拦截器和工具包装器接入，不要求你更换框架。
+**Q: Can it work with my existing agent framework?**
+Yes. AgentPay integrates through HTTP client interceptors and tool wrappers; you do not need to change frameworks.
 
-## 下一步
+## Next steps
 
-- 想理解它与 x402 的关系：[AgentPay 与 x402](./agentpay-vs-x402.md)
-- 想先看效果：[10 分钟 Demo](../05-hands-on/ten-minute-demo.md)
-- 想了解设计背后的故事：[为什么需要金融防火墙](../04-agentpay-concepts/financial-firewall.md)
+- To understand how it relates to x402: [AgentPay vs. x402](./agentpay-vs-x402.md)
+- To see it in action: [10-Minute Demo](../05-hands-on/ten-minute-demo.md)
+- To learn the design rationale: [Why We Need a Financial Firewall](../04-agentpay-concepts/financial-firewall.md)
