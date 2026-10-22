@@ -17,7 +17,7 @@ import pytest
 
 
 class TestPolicyErrorCodes:
-    """Verify all 12 standardised error codes from policy-engine-spec §2."""
+    """Verify all standardised error codes from policy-engine-spec §2."""
 
     def test_all_error_codes_defined(self) -> None:
         from agentpay.policy.errors import PolicyErrorCode
@@ -35,6 +35,9 @@ class TestPolicyErrorCodes:
             "DAILY_BUDGET_EXCEEDED",
             "RESERVATION_EXPIRED",
             "RESERVATION_ALREADY_FINALIZED",
+            "UNMETERED_CREDENTIAL",
+            "DUPLICATE_INTENT",
+            "POLICY_SYSTEM_ERROR",
         }
         actual = {e.value for e in PolicyErrorCode}
         assert actual == expected

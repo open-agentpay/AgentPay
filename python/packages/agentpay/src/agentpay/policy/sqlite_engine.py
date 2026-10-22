@@ -14,12 +14,12 @@ References:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 import uuid
 from collections.abc import Callable
 
-import logger
 from pydantic import ValidationError
 
 from agentpay.policy.errors import PolicyErrorCode, PolicyViolationError
@@ -758,7 +758,7 @@ class SQLitePolicyEngine(IPolicyEngine):
             self._rollback_quietly(cursor)
             return PolicyDecision(approved=False, error_code=PolicyErrorCode.DUPLICATE_INTENT)
         except Exception:  # noqa: BLE001
-            logger.exception("policy reserve_metered failed; failing closed")
+            logging.exception("policy reserve_metered failed; failing closed")
             self._rollback_quietly(cursor)
             return PolicyDecision(approved=False, error_code=PolicyErrorCode.POLICY_SYSTEM_ERROR)
 
@@ -775,7 +775,7 @@ class SQLitePolicyEngine(IPolicyEngine):
                 or not isinstance(actual_amount, int)
                 or not (0 < actual_amount <= SQLITE_MAX_INT)
         ):
-            logger.warning("invalid actual_amount %r for %s; keeping reserved estimate", actual_amount, intent_id)
+            logging.warning("invalid actual_amount %r for %s; keeping reserved estimate", actual_amount, intent_id)
             actual_amount = None
 
         now = self._clock()
@@ -806,7 +806,7 @@ class SQLitePolicyEngine(IPolicyEngine):
                     (now, self._config.id),
                 )
             else:
-                logger.warning("settle_metered: no RESERVED row for intent %s", intent_id)
+                logging.warning("settle_metered: no RESERVED row for intent %s", intent_id)
             self._conn.commit()
         except Exception:
             self._rollback_quietly(cursor)
