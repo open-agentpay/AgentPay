@@ -130,7 +130,7 @@ func TestWalletPaymentPathSuccessCapture(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer apk_live_rich_key")
 	w := httptest.NewRecorder()
 
-	handler.ServeHTTP(w, req)
+	serveWalletRequest(t, handler, w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK, got: %d, body: %s", w.Code, w.Body.String())
@@ -180,7 +180,7 @@ func TestWalletPaymentPathUpstream4xxRelease(t *testing.T) {
 	req.Header.Set("X-API-Key", "apk_live_rich_key")
 	w := httptest.NewRecorder()
 
-	handler.ServeHTTP(w, req)
+	serveWalletRequest(t, handler, w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request, got: %d, body: %s", w.Code, w.Body.String())
@@ -222,7 +222,7 @@ func TestWalletPaymentPathUpstream5xxHoldsFunds(t *testing.T) {
 	req.Header.Set("Idempotency-Key", "idem_5xx_hold_test")
 	w := httptest.NewRecorder()
 
-	handler.ServeHTTP(w, req)
+	serveWalletRequest(t, handler, w, req)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 Internal Server Error, got: %d", w.Code)
@@ -269,7 +269,7 @@ func TestWalletPaymentPathIdempotencyAndFreeReplay(t *testing.T) {
 	req1.Header.Set("Authorization", "Bearer apk_live_rich_key")
 	req1.Header.Set("Idempotency-Key", idemKey)
 	w1 := httptest.NewRecorder()
-	handler.ServeHTTP(w1, req1)
+	serveWalletRequest(t, handler, w1, req1)
 
 	if w1.Code != http.StatusServiceUnavailable {
 		t.Fatalf("attempt 1 expected 503, got: %d", w1.Code)
@@ -285,7 +285,7 @@ func TestWalletPaymentPathIdempotencyAndFreeReplay(t *testing.T) {
 	req2.Header.Set("Authorization", "Bearer apk_live_rich_key")
 	req2.Header.Set("Idempotency-Key", idemKey)
 	w2 := httptest.NewRecorder()
-	handler.ServeHTTP(w2, req2)
+	serveWalletRequest(t, handler, w2, req2)
 
 	if w2.Code != http.StatusOK {
 		t.Fatalf("attempt 2 expected 200 OK Free Replay, got: %d", w2.Code)
@@ -301,7 +301,7 @@ func TestWalletPaymentPathIdempotencyAndFreeReplay(t *testing.T) {
 	req3.Header.Set("Authorization", "Bearer apk_live_rich_key")
 	req3.Header.Set("Idempotency-Key", idemKey)
 	w3 := httptest.NewRecorder()
-	handler.ServeHTTP(w3, req3)
+	serveWalletRequest(t, handler, w3, req3)
 
 	if w3.Code != http.StatusOK {
 		t.Fatalf("attempt 3 expected 200 OK, got: %d", w3.Code)
@@ -334,7 +334,7 @@ func TestWalletPaymentPathInsufficientBalanceNoDowngrade(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer apk_live_poor_key")
 	w := httptest.NewRecorder()
 
-	handler.ServeHTTP(w, req)
+	serveWalletRequest(t, handler, w, req)
 
 	// W5: Must return 402 Insufficient Balance
 	if w.Code != http.StatusPaymentRequired {
@@ -370,7 +370,7 @@ func TestWalletPaymentPathFrozenWalletRejected(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer apk_live_frozen_key")
 	w := httptest.NewRecorder()
 
-	handler.ServeHTTP(w, req)
+	serveWalletRequest(t, handler, w, req)
 
 	// W6: Must return 403 Forbidden
 	if w.Code != http.StatusForbidden {
@@ -401,7 +401,7 @@ func TestWalletPaymentPathOnchainOnlyRouteRejected(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer apk_live_rich_key")
 	w := httptest.NewRecorder()
 
-	handler.ServeHTTP(w, req)
+	serveWalletRequest(t, handler, w, req)
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden, got: %d", w.Code)

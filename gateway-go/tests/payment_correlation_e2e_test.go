@@ -120,7 +120,7 @@ func TestPaymentCorrelationAndThreeLifecyclesE2E(t *testing.T) {
 		req.Header.Set("X-Request-ID", "req_success_001")
 
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+		serveWalletRequest(t, handler, rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
@@ -162,7 +162,7 @@ func TestPaymentCorrelationAndThreeLifecyclesE2E(t *testing.T) {
 		req.Header.Set("X-Request-ID", "req_4xx_002")
 
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+		serveWalletRequest(t, handler, rec, req)
 
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("expected 404 Not Found, got %d", rec.Code)
@@ -204,7 +204,7 @@ func TestPaymentCorrelationAndThreeLifecyclesE2E(t *testing.T) {
 		req.Header.Set("X-Request-ID", "req_5xx_003")
 
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+		serveWalletRequest(t, handler, rec, req)
 
 		if rec.Code != http.StatusBadGateway {
 			t.Fatalf("expected 502 Bad Gateway, got %d", rec.Code)
@@ -245,7 +245,7 @@ func TestPaymentCorrelationAndThreeLifecyclesE2E(t *testing.T) {
 		req.Header.Set("X-Request-ID", "req_poor_004")
 
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+		serveWalletRequest(t, handler, rec, req)
 
 		if rec.Code != http.StatusPaymentRequired {
 			t.Fatalf("expected 402 Payment Required, got %d", rec.Code)

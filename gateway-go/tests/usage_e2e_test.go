@@ -110,7 +110,7 @@ func TestRequestAndUsageEventRecording(t *testing.T) {
 	req1.Header.Set("X-Task-ID", "task_001")
 	rec1 := httptest.NewRecorder()
 
-	gwServer.Handler().ServeHTTP(rec1, req1)
+	serveWalletRequest(t, gwServer.Handler(), rec1, req1)
 	if rec1.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK, got %d, body: %s", rec1.Code, rec1.Body.String())
 	}
@@ -153,7 +153,7 @@ func TestRequestAndUsageEventRecording(t *testing.T) {
 	req2.Header.Set("Idempotency-Key", "idem_record_test_001")
 	rec2 := httptest.NewRecorder()
 
-	gwServer.Handler().ServeHTTP(rec2, req2)
+	serveWalletRequest(t, gwServer.Handler(), rec2, req2)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK on replay, got %d", rec2.Code)
 	}
@@ -187,7 +187,7 @@ func TestRequestAndUsageEventRecording(t *testing.T) {
 	req3.Header.Set("Authorization", "Bearer apk_live_poor_key")
 	rec3 := httptest.NewRecorder()
 
-	gwServer.Handler().ServeHTTP(rec3, req3)
+	serveWalletRequest(t, gwServer.Handler(), rec3, req3)
 	if rec3.Code != http.StatusPaymentRequired {
 		t.Fatalf("expected 402 Payment Required, got %d", rec3.Code)
 	}

@@ -23,14 +23,15 @@ import logger
 from pydantic import ValidationError
 
 from agentpay.policy.errors import PolicyErrorCode, PolicyViolationError
-from agentpay.policy.evaluator import evaluate_static_rules, evaluate_metered_rules
+from agentpay.policy.evaluator import evaluate_metered_rules, evaluate_static_rules
 from agentpay.policy.interfaces import IPolicyEngine
 from agentpay.policy.models import (
+    SQLITE_MAX_INT,
     BreakerState,
     PaymentRequest,
     PolicyConfig,
     PolicyDecision,
-    ReservationToken, SQLITE_MAX_INT,
+    ReservationToken,
 )
 
 

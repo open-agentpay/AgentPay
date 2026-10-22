@@ -4,6 +4,7 @@ Payment Verification Engine and Facilitator Coordination for AgentPay Gateway.
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -221,15 +222,20 @@ class PaymentVerifier:
         # 3. Call Facilitator
         try:
             if hasattr(self._facilitator, "verify"):
-                # Adapt between FacilitatorClient(challenge, authorization) and MockFacilitatorService(request)
+                # Select the adapter from the callable signature before invoking it. Catching
+                # TypeError around the call itself can retry after an implementation has
+                # already performed side effects and then raised TypeError internally.
+                verify_method = self._facilitator.verify
                 try:
+                    inspect.signature(verify_method).bind(challenge=challenge, authorization=auth)
+                except TypeError:
+                    verify_req = VerifyRequest(challenge=challenge, authorization=auth)
+                    verify_resp: VerifyResponse = verify_method(verify_req)
+                else:
                     verify_resp: VerifyResponse = self._facilitator.verify(
                         challenge=challenge,
                         authorization=auth,
                     )
-                except TypeError:
-                    verify_req = VerifyRequest(challenge=challenge, authorization=auth)
-                    verify_resp = self._facilitator.verify(verify_req)
             elif callable(self._facilitator):
                 # Custom callable handler
                 verify_resp = self._facilitator(challenge, auth)

@@ -127,7 +127,7 @@ func TestAgentDemoAuditAndTimelineE2E(t *testing.T) {
 	req.Header.Set("X-Session-ID", "sess_demo_alpha")
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	serveWalletRequest(t, handler, rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from gateway, got %d: %s", rec.Code, rec.Body.String())

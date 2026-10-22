@@ -217,7 +217,7 @@ func TestDualPathProtocolTestVectors(t *testing.T) {
 				}
 				rec := httptest.NewRecorder()
 
-				processor.HandleRequest(rec, req, route, "req_proto_02")
+				serveAuthorizedWalletRequest(t, processor, rec, req, route, "req_proto_02")
 
 				if rec.Code != http.StatusOK {
 					t.Fatalf("expected 200 OK, got %d, body: %s", rec.Code, rec.Body.String())
@@ -266,7 +266,7 @@ func TestDualPathProtocolTestVectors(t *testing.T) {
 				}
 				rec := httptest.NewRecorder()
 
-				processor.HandleRequest(rec, req, route, "req_proto_03")
+				serveAuthorizedWalletRequest(t, processor, rec, req, route, "req_proto_03")
 
 				if rec.Code != http.StatusPaymentRequired {
 					t.Errorf("expected 402 on insufficient balance, got %d", rec.Code)

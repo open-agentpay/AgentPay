@@ -45,6 +45,27 @@ type WalletService interface {
 	ReleaseFunds(ctx context.Context, holdID string) error
 }
 
+// markWalletFundsRecovery keeps a payment operation recoverable when the ledger
+// capture or release fails. The outcome can be ambiguous, so callers must not
+// emit a terminal capture/release event or success metric.
+func (p *PaymentProcessor) markWalletFundsRecovery(
+	ctx context.Context,
+	tenantID, idempotencyKey string,
+	statusCode int,
+	reason string,
+) {
+	if idempotencyKey == "" {
+		return
+	}
+	if err := p.idempotencyStore.MarkRecoveryRequired(ctx, tenantID, idempotencyKey, statusCode, reason); err != nil {
+		slog.Error("failed to mark wallet funds recovery required",
+			slog.String("tenant_id", tenantID),
+			slog.String("idempotency_key", idempotencyKey),
+			slog.Any("error", err),
+		)
+	}
+}
+
 // MemoryWalletService is an in-memory implementation for standalone/testing operation.
 type MemoryWalletService struct {
 	mu       sync.Mutex
@@ -895,6 +916,10 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 					if err := p.walletService.CaptureFunds(r.Context(), rec.HoldID); err != nil {
 						slog.Error("failed to capture wallet funds", slog.String("hold_id", rec.HoldID), slog.Any("error", err))
+						// Preserve the existing hold and leave the idempotency record
+						// recoverable; do not emit a capture event or success metric.
+						p.markWalletFundsRecovery(r.Context(), tenantID, idemKey, resp.StatusCode, "wallet capture failed")
+						return
 					}
 					p.agentEnforcer.RecordSpend(resolvedAgent.AgentID, route.PriceBaseUnits)
 					emitSpendAudit(rec.HoldID, "capture")
@@ -906,6 +931,8 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 					if err := p.walletService.ReleaseFunds(r.Context(), rec.HoldID); err != nil {
 						slog.Error("failed to release wallet funds", slog.String("hold_id", rec.HoldID), slog.Any("error", err))
+						p.markWalletFundsRecovery(r.Context(), tenantID, idemKey, resp.StatusCode, "wallet release failed")
+						return
 					}
 					emitSpendAudit(rec.HoldID, "release")
 					p.metrics.IncHoldsReleased()
@@ -998,8 +1025,14 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			emitRequestAudit(resp.StatusCode, false, "")
 
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				// Capture only after a successful upstream response. A capture failure must
+				// remain visible to recovery; logging alone does not reconcile this hold.
 				if err := p.walletService.CaptureFunds(r.Context(), holdID); err != nil {
 					slog.Error("failed to capture wallet funds", slog.String("hold_id", holdID), slog.Any("error", err))
+					// The service response is already sent, but payment completion is
+					// uncertain. Keep the hold and make the idempotency record recoverable.
+					p.markWalletFundsRecovery(r.Context(), tenantID, idemKey, resp.StatusCode, "wallet capture failed")
+					return
 				}
 				p.agentEnforcer.RecordSpend(resolvedAgent.AgentID, route.PriceBaseUnits)
 				emitSpendAudit(holdID, "capture")
@@ -1011,6 +1044,8 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 				if err := p.walletService.ReleaseFunds(r.Context(), holdID); err != nil {
 					slog.Error("failed to release wallet funds", slog.String("hold_id", holdID), slog.Any("error", err))
+					p.markWalletFundsRecovery(r.Context(), tenantID, idemKey, resp.StatusCode, "wallet release failed")
+					return
 				}
 				emitSpendAudit(holdID, "release")
 				p.metrics.IncHoldsReleased()
@@ -1018,7 +1053,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 					slog.Error("failed to mark idempotency completed", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
 				}
 			} else {
-				// 5xx / Timeout: KEEP HELD, Mark Recovery Required
+				// A 5xx or transport failure leaves the upstream outcome ambiguous. Keep
+				// the hold and idempotency record recoverable; releasing here could grant
+				// the service while also refunding the buyer.
 				if err := p.idempotencyStore.MarkRecoveryRequired(r.Context(), tenantID, idemKey, resp.StatusCode, "upstream failure"); err != nil {
 					slog.Error("failed to mark recovery required", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
 				}
@@ -1063,6 +1100,8 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		}
 		p.metrics.IncHoldsCreated()
 		emitSpendAudit(holdID, "hold")
+		settlementID := fmt.Sprintf("stl_%s", requestID)
+		initSettlement(settlementID, intentID, "wallet", payment.SettlementStatusHeld, wallet.WalletID, route.PayeeAddress, holdID, holdID)
 
 		pCtx := &proxy.PaymentContext{
 			PayerAddress:        wallet.WalletID,
@@ -1099,21 +1138,48 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		emitRequestAudit(resp.StatusCode, false, "")
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			// This path has no idempotency record to drive automated recovery, so a
+			// capture error needs a durable settlement/reconciliation signal.
 			if err := p.walletService.CaptureFunds(r.Context(), holdID); err != nil {
 				slog.Error("failed to capture wallet funds", slog.String("hold_id", holdID), slog.Any("error", err))
+				// There is no idempotency record on this path, so persist the
+				// settlement as unknown for the existing payment reconciliation view.
+				if p.paymentService != nil {
+					if statusErr := p.paymentService.UpdateSettlementStatus(r.Context(), settlementID, payment.SettlementStatusUnknown, "", nil, "wallet capture failed"); statusErr != nil {
+						slog.Error("failed to mark wallet settlement unknown", slog.String("settlement_id", settlementID), slog.Any("error", statusErr))
+					}
+				}
+				return
 			}
 			p.agentEnforcer.RecordSpend(resolvedAgent.AgentID, route.PriceBaseUnits)
 			emitSpendAudit(holdID, "capture")
 			p.metrics.IncHoldsCaptured()
 			p.metrics.IncPaymentsVerified()
+			if p.paymentService != nil {
+				if statusErr := p.paymentService.UpdateSettlementStatus(r.Context(), settlementID, payment.SettlementStatusConfirmed, "", nil, ""); statusErr != nil {
+					slog.Error("failed to mark wallet settlement confirmed", slog.String("settlement_id", settlementID), slog.Any("error", statusErr))
+				}
+			}
 		} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			if err := p.walletService.ReleaseFunds(r.Context(), holdID); err != nil {
 				slog.Error("failed to release wallet funds", slog.String("hold_id", holdID), slog.Any("error", err))
+				if p.paymentService != nil {
+					if statusErr := p.paymentService.UpdateSettlementStatus(r.Context(), settlementID, payment.SettlementStatusUnknown, "", nil, "wallet release failed"); statusErr != nil {
+						slog.Error("failed to mark wallet settlement unknown", slog.String("settlement_id", settlementID), slog.Any("error", statusErr))
+					}
+				}
+				return
 			}
 			emitSpendAudit(holdID, "release")
 			p.metrics.IncHoldsReleased()
+			if p.paymentService != nil {
+				if statusErr := p.paymentService.UpdateSettlementStatus(r.Context(), settlementID, payment.SettlementStatusReleased, "", nil, ""); statusErr != nil {
+					slog.Error("failed to mark wallet settlement released", slog.String("settlement_id", settlementID), slog.Any("error", statusErr))
+				}
+			}
 		}
-		// In non-idempotent 5xx, hold remains preserved for manual reconciliation/review
+		// In non-idempotent 5xx, hold remains preserved for manual reconciliation/review.
+		// Keep this conservative rule aligned with the idempotent recovery path above.
 		return
 	}
 

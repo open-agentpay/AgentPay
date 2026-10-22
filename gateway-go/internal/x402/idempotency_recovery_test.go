@@ -58,7 +58,7 @@ func TestWalletIdempotencyCacheHit(t *testing.T) {
 	req1.Header.Set(HeaderIdempotencyKey, idemKey)
 	w1 := httptest.NewRecorder()
 
-	processor.HandleRequest(w1, req1, route, "req_001")
+	serveAuthorizedWalletRequest(t, processor, w1, req1, route, "req_001")
 	resp1 := w1.Result()
 
 	if resp1.StatusCode != 200 {
@@ -80,7 +80,7 @@ func TestWalletIdempotencyCacheHit(t *testing.T) {
 	req2.Header.Set(HeaderIdempotencyKey, idemKey)
 	w2 := httptest.NewRecorder()
 
-	processor.HandleRequest(w2, req2, route, "req_002")
+	serveAuthorizedWalletRequest(t, processor, w2, req2, route, "req_002")
 	resp2 := w2.Result()
 
 	if resp2.StatusCode != 200 {
@@ -135,7 +135,7 @@ func TestWalletIdempotencyConflictOnPayloadTamper(t *testing.T) {
 	req1.Header.Set("Authorization", "Bearer apk_live_tamper")
 	req1.Header.Set(HeaderIdempotencyKey, idemKey)
 	w1 := httptest.NewRecorder()
-	processor.HandleRequest(w1, req1, route, "req_1")
+	serveAuthorizedWalletRequest(t, processor, w1, req1, route, "req_1")
 
 	if w1.Result().StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", w1.Result().StatusCode)
@@ -146,7 +146,7 @@ func TestWalletIdempotencyConflictOnPayloadTamper(t *testing.T) {
 	req2.Header.Set("Authorization", "Bearer apk_live_tamper")
 	req2.Header.Set(HeaderIdempotencyKey, idemKey)
 	w2 := httptest.NewRecorder()
-	processor.HandleRequest(w2, req2, route, "req_2")
+	serveAuthorizedWalletRequest(t, processor, w2, req2, route, "req_2")
 
 	resp2 := w2.Result()
 	if resp2.StatusCode != 409 {
@@ -213,7 +213,7 @@ func TestFaultInjectionUpstream500AndFreeReplayRecovery(t *testing.T) {
 	req1.Header.Set(HeaderIdempotencyKey, idemKey)
 	w1 := httptest.NewRecorder()
 
-	processor.HandleRequest(w1, req1, route, "req_fault_1")
+	serveAuthorizedWalletRequest(t, processor, w1, req1, route, "req_fault_1")
 	if w1.Result().StatusCode != 503 {
 		t.Fatalf("expected 503 from upstream, got %d", w1.Result().StatusCode)
 	}
@@ -233,7 +233,7 @@ func TestFaultInjectionUpstream500AndFreeReplayRecovery(t *testing.T) {
 	req2.Header.Set(HeaderIdempotencyKey, idemKey)
 	w2 := httptest.NewRecorder()
 
-	processor.HandleRequest(w2, req2, route, "req_fault_2")
+	serveAuthorizedWalletRequest(t, processor, w2, req2, route, "req_fault_2")
 	resp2 := w2.Result()
 
 	if resp2.StatusCode != 200 {
@@ -258,7 +258,7 @@ func TestFaultInjectionUpstream500AndFreeReplayRecovery(t *testing.T) {
 	req3.Header.Set(HeaderIdempotencyKey, idemKey)
 	w3 := httptest.NewRecorder()
 
-	processor.HandleRequest(w3, req3, route, "req_fault_3")
+	serveAuthorizedWalletRequest(t, processor, w3, req3, route, "req_fault_3")
 	if w3.Result().StatusCode != 200 || w3.Result().Header.Get("X-Cache") != "HIT" {
 		t.Fatalf("expected 200 cache hit, got %d", w3.Result().StatusCode)
 	}
@@ -304,7 +304,7 @@ func TestFaultInjectionUpstream4xxReleasesHold(t *testing.T) {
 	req.Header.Set(HeaderIdempotencyKey, "key_4xx_release")
 	w := httptest.NewRecorder()
 
-	processor.HandleRequest(w, req, route, "req_4xx_1")
+	serveAuthorizedWalletRequest(t, processor, w, req, route, "req_4xx_1")
 	if w.Result().StatusCode != 400 {
 		t.Fatalf("expected 400 from upstream, got %d", w.Result().StatusCode)
 	}

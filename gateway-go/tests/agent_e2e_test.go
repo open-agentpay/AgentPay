@@ -63,7 +63,6 @@ func TestAgentE2ESpoofedHeaderStrippingAndIdentityResolution(t *testing.T) {
 		AllowedPaymentMethods: "wallet",
 	}
 
-
 	// 1. Client attempts to spoof X-Agent-ID and inject malicious characters into session_id
 	req := httptest.NewRequest("POST", "/api/v1/market", strings.NewReader(`{"action":"buy"}`))
 	req.Header.Set("Authorization", "Bearer apk_live_agent_key_001")
@@ -71,7 +70,9 @@ func TestAgentE2ESpoofedHeaderStrippingAndIdentityResolution(t *testing.T) {
 	req.Header.Set("X-Session-ID", "sess_valid_part\r\nInjectedHeader: evil<script>")
 
 	rec := httptest.NewRecorder()
-	processor.HandleRequestWithSnapshot(rec, req, route, nil, nil, "req_e2e_01")
+	serveWalletRequestWith(t, rec, req, func(w http.ResponseWriter, r *http.Request) {
+		processor.HandleRequestWithSnapshot(w, r, route, nil, nil, "req_e2e_01")
+	})
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
@@ -133,7 +134,9 @@ func TestAgentE2EKillSwitchFastPath(t *testing.T) {
 	req1 := httptest.NewRequest("POST", "/api/v1/order", strings.NewReader(`{}`))
 	req1.Header.Set("Authorization", "Bearer apk_live_kill_test")
 	rec1 := httptest.NewRecorder()
-	processor.HandleRequestWithSnapshot(rec1, req1, route, nil, nil, "req_1")
+	serveWalletRequestWith(t, rec1, req1, func(w http.ResponseWriter, r *http.Request) {
+		processor.HandleRequestWithSnapshot(w, r, route, nil, nil, "req_1")
+	})
 	if rec1.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK before suspension, got %d", rec1.Code)
 	}
@@ -145,7 +148,9 @@ func TestAgentE2EKillSwitchFastPath(t *testing.T) {
 	req2 := httptest.NewRequest("POST", "/api/v1/order", strings.NewReader(`{}`))
 	req2.Header.Set("Authorization", "Bearer apk_live_kill_test")
 	rec2 := httptest.NewRecorder()
-	processor.HandleRequestWithSnapshot(rec2, req2, route, nil, nil, "req_2")
+	serveWalletRequestWith(t, rec2, req2, func(w http.ResponseWriter, r *http.Request) {
+		processor.HandleRequestWithSnapshot(w, r, route, nil, nil, "req_2")
+	})
 
 	if rec2.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden after suspension, got %d", rec2.Code)
@@ -200,7 +205,7 @@ func TestAgentE2EPolicyEnforcementAndAuditStream(t *testing.T) {
 	agentID := "agt_policy_enforced"
 	policy := &agent.AgentPolicyConfig{
 		AgentID:             agentID,
-		MaxAmountPerRequest: 200,                  // Single tx max = 200
+		MaxAmountPerRequest: 200,                         // Single tx max = 200
 		RouteAllowlist:      []string{"rou_whitelisted"}, // Only rou_whitelisted is permitted
 	}
 
@@ -242,12 +247,13 @@ func TestAgentE2EPolicyEnforcementAndAuditStream(t *testing.T) {
 		AllowedPaymentMethods: "wallet",
 	}
 
-
 	// Test 1: Route Allowlist Rejection
 	req1 := httptest.NewRequest("POST", "/api/v1/private", strings.NewReader(`{}`))
 	req1.Header.Set("Authorization", "Bearer apk_live_policy_agent")
 	rec1 := httptest.NewRecorder()
-	processor.HandleRequestWithSnapshot(rec1, req1, routeUnauthorized, nil, nil, "req_unauth")
+	serveWalletRequestWith(t, rec1, req1, func(w http.ResponseWriter, r *http.Request) {
+		processor.HandleRequestWithSnapshot(w, r, routeUnauthorized, nil, nil, "req_unauth")
+	})
 
 	if rec1.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for unauthorized route, got %d", rec1.Code)
@@ -260,7 +266,9 @@ func TestAgentE2EPolicyEnforcementAndAuditStream(t *testing.T) {
 	req2 := httptest.NewRequest("POST", "/api/v1/compute/heavy", strings.NewReader(`{}`))
 	req2.Header.Set("Authorization", "Bearer apk_live_policy_agent")
 	rec2 := httptest.NewRecorder()
-	processor.HandleRequestWithSnapshot(rec2, req2, routeOverpriced, nil, nil, "req_overpriced")
+	serveWalletRequestWith(t, rec2, req2, func(w http.ResponseWriter, r *http.Request) {
+		processor.HandleRequestWithSnapshot(w, r, routeOverpriced, nil, nil, "req_overpriced")
+	})
 
 	if rec2.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for overpriced route, got %d", rec2.Code)
@@ -274,7 +282,9 @@ func TestAgentE2EPolicyEnforcementAndAuditStream(t *testing.T) {
 	req3.Header.Set("Authorization", "Bearer apk_live_policy_agent")
 	req3.Header.Set("X-Task-ID", "task_inference_42")
 	rec3 := httptest.NewRecorder()
-	processor.HandleRequestWithSnapshot(rec3, req3, routeCompliant, nil, nil, "req_compliant")
+	serveWalletRequestWith(t, rec3, req3, func(w http.ResponseWriter, r *http.Request) {
+		processor.HandleRequestWithSnapshot(w, r, routeCompliant, nil, nil, "req_compliant")
+	})
 
 	if rec3.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK for compliant call, got %d: %s", rec3.Code, rec3.Body.String())

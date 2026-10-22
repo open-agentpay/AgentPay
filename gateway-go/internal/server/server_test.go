@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -187,18 +188,51 @@ func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 	wWeatherUnauth := httptest.NewRecorder()
 	handler.ServeHTTP(wWeatherUnauth, reqWeatherUnauth)
 
-	if wWeatherUnauth.Code != http.StatusPaymentRequired {
-		t.Errorf("expected 402 for /api/v1/simple-weather unauth, got %d (body: %s)", wWeatherUnauth.Code, wWeatherUnauth.Body.String())
+	if wWeatherUnauth.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for /api/v1/simple-weather without wallet API key, got %d (body: %s)", wWeatherUnauth.Code, wWeatherUnauth.Body.String())
 	}
-	if wWeatherUnauth.Header().Get("PAYMENT-REQUIRED") == "" {
-		t.Errorf("expected PAYMENT-REQUIRED header")
+	if wWeatherUnauth.Header().Get("PAYMENT-REQUIRED") != "" {
+		t.Errorf("did not expect PAYMENT-REQUIRED header without wallet API key")
 	}
 
 	// Test 7b: Calling with Virtual Wallet API key succeeds and proxies
 	reqWeatherAuth := httptest.NewRequest("GET", "/api/v1/simple-weather?city=Shanghai", nil)
 	reqWeatherAuth.Header.Set("Authorization", "Bearer apk_live_valid123")
 	wWeatherAuth := httptest.NewRecorder()
-	handler.ServeHTTP(wWeatherAuth, reqWeatherAuth)
+	// The wallet API follows the public challenge then PAYMENT-SIGNATURE flow.
+	challengeRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(challengeRecorder, reqWeatherAuth)
+	if challengeRecorder.Code == http.StatusPaymentRequired {
+		var challengeResponse struct {
+			Error struct {
+				Details struct {
+					Challenge struct {
+						ChallengeID string                 `json:"challengeId"`
+						Version     string                 `json:"version"`
+						Scheme      string                 `json:"scheme"`
+						Amount      string                 `json:"amount"`
+						ValidAfter  int64                  `json:"validAfter"`
+						ValidBefore int64                  `json:"validBefore"`
+						ResourceURI string                 `json:"resourceUri"`
+						Extensions  map[string]interface{} `json:"extensions"`
+					} `json:"challenge"`
+				} `json:"details"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(challengeRecorder.Body.Bytes(), &challengeResponse); err != nil {
+			t.Fatalf("failed to decode wallet challenge: %v", err)
+		}
+		challenge := challengeResponse.Error.Details.Challenge
+		reqWeatherAuth.Header.Set("PAYMENT-SIGNATURE", fmt.Sprintf(`{"version":%q,"challengeId":%q,"scheme":%q,"nonce":"0x%064x","validAfter":%d,"validBefore":%d,"amount":%q,"resourceUri":%q,"requestBinding":%q}`,
+			challenge.Version, challenge.ChallengeID, challenge.Scheme, 1, challenge.ValidAfter, challenge.ValidBefore, challenge.Amount, challenge.ResourceURI, challenge.Extensions["requestBinding"]))
+		reqWeatherAuth = httptest.NewRequest("GET", "/api/v1/simple-weather?city=Shanghai", nil)
+		reqWeatherAuth.Header.Set("Authorization", "Bearer apk_live_valid123")
+		reqWeatherAuth.Header.Set("PAYMENT-SIGNATURE", fmt.Sprintf(`{"version":%q,"challengeId":%q,"scheme":%q,"nonce":"0x%064x","validAfter":%d,"validBefore":%d,"amount":%q,"resourceUri":%q,"requestBinding":%q}`,
+			challenge.Version, challenge.ChallengeID, challenge.Scheme, 1, challenge.ValidAfter, challenge.ValidBefore, challenge.Amount, challenge.ResourceURI, challenge.Extensions["requestBinding"]))
+		handler.ServeHTTP(wWeatherAuth, reqWeatherAuth)
+	} else {
+		*wWeatherAuth = *challengeRecorder
+	}
 
 	if wWeatherAuth.Code != http.StatusOK {
 		t.Errorf("expected 200 for paid /api/v1/simple-weather with wallet, got %d (body: %s)", wWeatherAuth.Code, wWeatherAuth.Body.String())

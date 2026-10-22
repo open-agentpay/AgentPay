@@ -111,7 +111,7 @@ func TestWalletPaymentSuccessAndAccounting(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer apk_live_valid123")
 	w := httptest.NewRecorder()
 
-	processor.HandleRequest(w, req, route, "req_002")
+	serveAuthorizedWalletRequest(t, processor, w, req, route, "req_002")
 
 	// Must succeed and proxy through
 	if w.Code != http.StatusOK {
@@ -156,7 +156,7 @@ func TestWalletInsufficientBalanceStrictNoDowngrade(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer apk_live_poor")
 	w := httptest.NewRecorder()
 
-	processor.HandleRequest(w, req, route, "req_003")
+	serveAuthorizedWalletRequest(t, processor, w, req, route, "req_003")
 
 	// STRICT W5 RULE: Must return 402 with ERR_WALLET_INSUFFICIENT_BALANCE
 	if w.Code != http.StatusPaymentRequired {
@@ -200,7 +200,7 @@ func TestWalletFrozenArrearsRejectedWith403(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer apk_live_frozen")
 	w := httptest.NewRecorder()
 
-	processor.HandleRequest(w, req, route, "req_004")
+	serveAuthorizedWalletRequest(t, processor, w, req, route, "req_004")
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden, got %d", w.Code)
@@ -273,7 +273,7 @@ func TestOnChainPaymentSignatureAndNonceReplayGuard(t *testing.T) {
 	req1.Header.Set(HeaderPaymentSignature, authHeader)
 	w1 := httptest.NewRecorder()
 
-	processor.HandleRequest(w1, req1, route, "req_006")
+	serveAuthorizedWalletRequest(t, processor, w1, req1, route, "req_006")
 	if w1.Code != http.StatusOK {
 		t.Fatalf("first submission expected 200 OK, got %d, body: %s", w1.Code, w1.Body.String())
 	}
@@ -286,7 +286,7 @@ func TestOnChainPaymentSignatureAndNonceReplayGuard(t *testing.T) {
 	req2.Header.Set(HeaderPaymentSignature, authHeader)
 	w2 := httptest.NewRecorder()
 
-	processor.HandleRequest(w2, req2, route, "req_007")
+	serveAuthorizedWalletRequest(t, processor, w2, req2, route, "req_007")
 	if w2.Code != http.StatusConflict {
 		t.Fatalf("replayed nonce expected 409 Conflict, got %d", w2.Code)
 	}
@@ -308,7 +308,7 @@ func TestFreeRouteBypassesPayment(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/free", nil)
 	w := httptest.NewRecorder()
 
-	processor.HandleRequest(w, req, route, "req_free")
+	serveAuthorizedWalletRequest(t, processor, w, req, route, "req_free")
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 for free route, got %d", w.Code)
