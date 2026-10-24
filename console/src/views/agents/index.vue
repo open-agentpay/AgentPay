@@ -653,10 +653,10 @@ async function handleRevokeKey(key: AgentAPIKey) {
           </template>
         </el-table-column>
 
-        <el-table-column :label="$t('累计花费 (USDC)')" width="140" align="right">
+        <el-table-column :label="`${$t('累计花费')} (${tenantStore.currentCurrency})`" width="140" align="right">
           <template #default="{ row }">
             <span style="font-weight: 600; color: #303133">
-              {{ formatUSDC(row.total_spend_base_units) }} USDC
+              {{ formatUSDC(row.total_spend_base_units) }} {{ tenantStore.currentCurrency }}
             </span>
           </template>
         </el-table-column>
@@ -810,7 +810,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('单笔最大限额')" :span="2">
-            {{ formatUSDC(activeKyaAgent.kya_profile?.max_single_spend) }} USDC
+            {{ formatUSDC(activeKyaAgent.kya_profile?.max_single_spend) }} {{ tenantStore.currentCurrency }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('授权工具与能力')" :span="2">
             <div class="tool-tags">
@@ -930,7 +930,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
                     {{ $t('[观测] 耗时') }} {{ e.observed.latency_ms }}ms
                   </el-tag>
                   <el-tag size="small" type="success" effect="plain" v-if="e.observed.cost_base_units">
-                    {{ $t('[观测] 花费') }} {{ formatUSDC(e.observed.cost_base_units) }} USDC
+                    {{ $t('[观测] 花费') }} {{ formatUSDC(e.observed.cost_base_units) }} {{ tenantStore.currentCurrency }}
                   </el-tag>
                   <el-tag
                     size="small"
@@ -1003,7 +1003,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
             {{ activeAuditEvent.observed.latency_ms ? `${activeAuditEvent.observed.latency_ms} ms` : '-' }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('计费扣除金额')">
-            {{ formatUSDC(activeAuditEvent.observed.cost_base_units) }} USDC
+            {{ formatUSDC(activeAuditEvent.observed.cost_base_units) }} {{ tenantStore.currentCurrency }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('关联支付意图 (PaymentIntent)')">
             <code>{{ activeAuditEvent.observed.payment_intent_id || '-' }}</code>
@@ -1111,7 +1111,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
 
             <el-form-item :label="$t('独立预算上限')">
               <el-input-number v-model="agentForm.budget_cap_usdc" :min="1" :max="50000" :step="10" />
-              <span style="margin-left: 10px">USDC</span>
+              <span style="margin-left: 10px">{{ tenantStore.currentCurrency }}</span>
             </el-form-item>
 
             <el-form-item :label="$t('速率限制 (RPM)')">
@@ -1190,7 +1190,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
 
             <el-form-item :label="$t('单笔限额上限')">
               <el-input-number v-model="agentForm.kya.max_single_spend_usdc" :min="0.1" :max="1000" :step="1" />
-              <span style="margin-left: 10px">USDC</span>
+              <span style="margin-left: 10px">{{ tenantStore.currentCurrency }}</span>
             </el-form-item>
 
             <el-form-item :label="$t('授权工具列表')">

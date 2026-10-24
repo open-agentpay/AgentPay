@@ -83,8 +83,8 @@ const rolePermissionsList = computed(() => {
       <el-col :span="6">
         <el-card shadow="hover" class="metric-card">
           <div class="metric-title">{{ t('dashboard.projectBudgetCap') }}</div>
-          <div class="metric-val">5,000 <span class="metric-unit">USDC</span></div>
-          <div class="metric-sub">{{ t('dashboard.budgetUsed') }} 320.50 USDC (6.4%)</div>
+          <div class="metric-val">{{ tenantStore.currencySymbol }}5,000 <span class="metric-unit">{{ tenantStore.currentCurrency }}</span></div>
+          <div class="metric-sub">{{ t('dashboard.budgetUsed') }} {{ tenantStore.currencySymbol }}320.50 {{ tenantStore.currentCurrency }} (6.4%)</div>
         </el-card>
       </el-col>
       <el-col :span="6">

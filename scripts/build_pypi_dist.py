@@ -34,7 +34,7 @@ def get_version() -> str:
     for line in init_py.read_text(encoding="utf-8").splitlines():
         if line.startswith("__version__"):
             return line.split("=")[1].strip().strip('"').strip("'")
-    return "0.2.2"
+    return "0.2.4"
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> None:

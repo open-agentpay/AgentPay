@@ -183,3 +183,71 @@ func TestRouteCRUDAndRBAC(t *testing.T) {
 		t.Fatalf("expected 200 OK for owner deleting route, got %d", w.Code)
 	}
 }
+
+func TestTenantCurrencyAndDualPricing(t *testing.T) {
+	svc, handler, _, tenantID, projectID, ownerToken, _ := setupRouteTest(t)
+	ctx := context.Background()
+
+	// 1. Switch currency to CNY before any routes or ledger entries exist -> 200 OK
+	currBody, _ := json.Marshal(map[string]string{"currency": "CNY"})
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tenants/"+tenantID+"/currency", bytes.NewReader(currBody))
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for switching tenant currency to CNY, got %d: %s", w.Code, w.Body.String())
+	}
+
+	tenant, err := svc.GetTenant(ctx, tenantID)
+	if err != nil || tenant.Currency != "CNY" {
+		t.Fatalf("expected tenant currency CNY, got %v (err=%v)", tenant, err)
+	}
+
+	// 2. Create dual-channel route with CNY wallet price (350,000 = ¥0.35) and USDC onchain price (50,000 = 0.05 USDC)
+	onchainPrice := int64(50000)
+	createPayload := map[string]interface{}{
+		"project_id":               projectID,
+		"path_pattern":             "/api/v1/cny-dual",
+		"upstream_url":             "https://api.example.com/v1/cny-dual",
+		"price_base_units":         350000,
+		"onchain_price_base_units": onchainPrice,
+		"payee_address":            "0x1234567890123456789012345678901234567890",
+		"allowed_payment_methods":  "both",
+	}
+	body, _ := json.Marshal(createPayload)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenantID+"/routes", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for dual-pricing route, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var routeResp struct {
+		Route *Route `json:"route"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &routeResp)
+	if routeResp.Route == nil || routeResp.Route.Asset != "CNY" {
+		t.Fatalf("expected route asset CNY, got %+v", routeResp.Route)
+	}
+	if routeResp.Route.OnchainPriceBaseUnits == nil || *routeResp.Route.OnchainPriceBaseUnits != 50000 {
+		t.Fatalf("expected onchain_price_base_units 50000, got %+v", routeResp.Route.OnchainPriceBaseUnits)
+	}
+
+	// 3. Attempting to switch currency after a route exists -> 409 Conflict (ERR_CURRENCY_LOCKED)
+	eurBody, _ := json.Marshal(map[string]string{"currency": "EUR"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/tenants/"+tenantID+"/currency", bytes.NewReader(eurBody))
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when currency is locked by existing routes, got %d: %s", w.Code, w.Body.String())
+	}
+}
+

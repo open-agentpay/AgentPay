@@ -46,6 +46,9 @@ _BYTES32_HEX_RE = re.compile(r"^(0x)?[0-9a-fA-F]{64}$")
 # Maximum signed 64-bit integer for base units
 SQLITE_MAX_INT = 9_223_372_036_854_775_807
 
+# Supported fiat base currencies for AgentPay internal virtual wallet
+WALLET_FIAT_CURRENCIES = frozenset({"CNY", "USD", "EUR"})
+
 
 def _validate_evm_address(value: str, field_name: str) -> str:
     """Validate EVM address format and normalise to lowercase."""
@@ -228,7 +231,7 @@ class PaymentChallenge(BaseModel):
     @field_validator("asset")
     @classmethod
     def _validate_asset(cls, v: str | None, info: Any) -> str | None:
-        if info.data.get("scheme") == "agentpay-wallet" and v == "USD":
+        if info.data.get("scheme") == "agentpay-wallet" and v in WALLET_FIAT_CURRENCIES:
             return v
         if v is None:
             raise X402ValidationError("asset is required", code=X402ErrorCode.MISSING_REQUIRED_FIELD)
@@ -331,7 +334,7 @@ class PaymentChallenge(BaseModel):
     @model_validator(mode="after")
     def _validate_scheme_fields(self) -> PaymentChallenge:
         if self.scheme == "agentpay-wallet":
-            if self.network != "agentpay:internal-ledger" or self.asset != "USD" or not self.resource_uri:
+            if self.network != "agentpay:internal-ledger" or self.asset not in WALLET_FIAT_CURRENCIES or not self.resource_uri:
                 raise X402ValidationError("invalid agentpay-wallet challenge fields", code=X402ErrorCode.INVALID_SCHEME)
             if self.facilitator_url:
                 raise X402ValidationError("agentpay-wallet challenge must not name an EIP-3009 facilitator", code=X402ErrorCode.INVALID_SCHEME)

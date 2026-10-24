@@ -50,6 +50,8 @@ var (
 	ErrConfigValidationFailed = errors.New("cannot publish configuration: static validation matrix failed")
 	ErrConfigVersionNotFound  = errors.New("configuration version not found")
 	ErrCannotRollbackToActive = errors.New("cannot rollback to currently active version")
+	ErrCurrencyLocked         = errors.New("tenant currency is locked after routes or ledger entries exist")
+	ErrInvalidCurrency        = errors.New("unsupported currency: must be CNY, USD, EUR, or USDC")
 )
 
 // Lifecycle statuses.
@@ -111,9 +113,31 @@ const (
 type Tenant struct {
 	TenantID  string       `json:"tenant_id"`
 	Name      string       `json:"name"`
+	Currency  string       `json:"currency"`
 	Status    TenantStatus `json:"status"`
 	CreatedAt int64        `json:"created_at"`
 	UpdatedAt int64        `json:"updated_at"`
+}
+
+// NormalizeCurrency validates and normalizes a tenant currency code.
+func NormalizeCurrency(c string) (string, error) {
+	if c == "" {
+		return "USD", nil
+	}
+	switch c {
+	case "CNY", "USD", "EUR", "USDC":
+		return c, nil
+	case "cny":
+		return "CNY", nil
+	case "usd":
+		return "USD", nil
+	case "eur":
+		return "EUR", nil
+	case "usdc":
+		return "USDC", nil
+	default:
+		return "", ErrInvalidCurrency
+	}
 }
 
 type Project struct {
@@ -179,6 +203,8 @@ type Route struct {
 	UpstreamURL           string              `json:"upstream_url"`
 	PriceBaseUnits        int64               `json:"price_base_units"`
 	Asset                 string              `json:"asset"`
+	OnchainPriceBaseUnits *int64              `json:"onchain_price_base_units,omitempty"`
+	OnchainAsset          string              `json:"onchain_asset,omitempty"`
 	PayeeAddress          string              `json:"payee_address"`
 	AllowedPaymentMethods string              `json:"allowed_payment_methods"`
 	RateLimitRPM          int                 `json:"rate_limit_rpm"`
@@ -197,6 +223,8 @@ type UpdateRouteInput struct {
 	UpstreamURL           *string             `json:"upstream_url,omitempty"`
 	PriceBaseUnits        *int64              `json:"price_base_units,omitempty"`
 	Asset                 *string             `json:"asset,omitempty"`
+	OnchainPriceBaseUnits *int64              `json:"onchain_price_base_units,omitempty"`
+	OnchainAsset          *string             `json:"onchain_asset,omitempty"`
 	PayeeAddress          *string             `json:"payee_address,omitempty"`
 	AllowedPaymentMethods *string             `json:"allowed_payment_methods,omitempty"`
 	RateLimitRPM          *int                `json:"rate_limit_rpm,omitempty"`

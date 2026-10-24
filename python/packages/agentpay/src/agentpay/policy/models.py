@@ -32,6 +32,7 @@ _CAIP2_RE = re.compile(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$")
 _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _AGENTPAY_ROUTE_RE = re.compile(r"^agentpay:route:[A-Za-z0-9_-]+$")
 _AGENTPAY_INTERNAL_NETWORK = "agentpay:internal-ledger"
+_WALLET_FIAT_CURRENCIES = frozenset({"CNY", "USD", "EUR"})
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +222,7 @@ class PolicyConfig(BaseModel):
                 raise TypeError(f"whitelist_assets elements must be strings, got {type(addr).__name__}")
         normalized: list[str] = []
         for addr in v:
-            normalized.append("USD" if addr == "USD" else _validate_evm_address(addr, "whitelist_assets"))
+            normalized.append(addr if addr in _WALLET_FIAT_CURRENCIES else _validate_evm_address(addr, "whitelist_assets"))
         return frozenset(normalized)
 
     @field_validator("whitelist_networks", mode="before")
@@ -287,7 +288,7 @@ class PaymentRequest(BaseModel):
     @field_validator("asset")
     @classmethod
     def _normalise_asset(cls, v: str) -> str:
-        if v == "USD":
+        if v in _WALLET_FIAT_CURRENCIES:
             return v
         return _validate_evm_address(v, "asset")
 
@@ -302,11 +303,11 @@ class PaymentRequest(BaseModel):
     def _validate_payment_identifiers(self) -> PaymentRequest:
         wallet_fields = (
             self.network == _AGENTPAY_INTERNAL_NETWORK,
-            self.asset == "USD",
+            self.asset in _WALLET_FIAT_CURRENCIES,
             bool(_AGENTPAY_ROUTE_RE.fullmatch(self.payee)),
         )
         if any(wallet_fields) and not all(wallet_fields):
-            raise ValueError("AgentPay wallet requests require internal-ledger, USD, and an agentpay:route payee")
+            raise ValueError("AgentPay wallet requests require internal-ledger, a supported fiat currency (CNY/USD/EUR), and an agentpay:route payee")
         return self
 
     @property

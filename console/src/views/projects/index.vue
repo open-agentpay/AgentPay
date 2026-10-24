@@ -237,7 +237,7 @@ function handleSetCurrentProject(projectId: string) {
         <el-table-column :label="$t('预算上限')" width="160">
           <template #default="{ row }">
             <span class="budget-text">
-              {{ ((row.budget_cap_base_units || 0) / 1000000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }} USDC
+              {{ tenantStore.currencySymbol }}{{ ((row.budget_cap_base_units || 0) / 1000000).toLocaleString('en-US', { minimumFractionDigits: 2 }) }} {{ tenantStore.currentCurrency }}
             </span>
           </template>
         </el-table-column>
@@ -323,7 +323,7 @@ function handleSetCurrentProject(projectId: string) {
             :precision="2"
             style="width: 220px"
           />
-          <span style="margin-left: 8px; font-weight: 500">USDC</span>
+          <span style="margin-left: 8px; font-weight: 500">{{ tenantStore.currentCurrency }}</span>
           <div class="form-hint">{{ $t('项目在结算周期内允许消费的最大预算上限') }}</div>
         </el-form-item>
       </el-form>
@@ -364,7 +364,7 @@ function handleSetCurrentProject(projectId: string) {
             :precision="2"
             style="width: 220px"
           />
-          <span style="margin-left: 8px; font-weight: 500">USDC</span>
+          <span style="margin-left: 8px; font-weight: 500">{{ tenantStore.currentCurrency }}</span>
         </el-form-item>
 
         <el-form-item :label="$t('项目状态')">

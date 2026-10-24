@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { useAuthStore } from '@/stores/auth';
 import type { UserRole } from '@/types/auth';
+import type { CurrencyCode } from '@/types/tenant';
 import { useI18n, type LocaleKey } from '@/i18n';
 
 const router = useRouter();
@@ -42,6 +43,7 @@ const registerFormRef = ref<FormInstance>();
 const registerForm = reactive({
   tenant_name: 'DeepSeek Autonomous Labs',
   email: 'founder@deepseek.com',
+  currency: (locale.value === 'zh-cn' ? 'CNY' : 'USD') as CurrencyCode,
   password: 'SecurePassword123!',
   confirm_password: 'SecurePassword123!'
 });
@@ -54,6 +56,9 @@ const registerRules: FormRules = {
   email: [
     { required: true, message: t('请输入管理员邮箱'), trigger: 'blur' },
     { type: 'email', message: t('请输入有效的邮箱地址'), trigger: 'blur' }
+  ],
+  currency: [
+    { required: true, message: t('请选择租户结算本位币'), trigger: 'change' }
   ],
   password: [
     { required: true, message: t('请设置初始访问密码'), trigger: 'blur' },
@@ -107,9 +112,10 @@ async function handleRegisterSubmit() {
       const res = await authStore.register({
         tenant_name: registerForm.tenant_name,
         email: registerForm.email,
-        password: registerForm.password
+        password: registerForm.password,
+        currency: registerForm.currency
       });
-      ElMessage.success(`${t('开户成功！已为您初始化租户')}「${res.tenant.name}」`);
+      ElMessage.success(`${t('开户成功！已为您初始化租户')}「${res.tenant.name}」(${res.tenant.currency || registerForm.currency})`);
       router.push('/dashboard');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('开户失败，请重试');
@@ -250,6 +256,18 @@ async function handleQuickRoleLogin(role: UserRole) {
                 prefix-icon="OfficeBuilding"
                 size="large"
               />
+            </el-form-item>
+
+            <el-form-item :label="$t('结算本位法币 (Base Currency)')" prop="currency">
+              <el-select
+                v-model="registerForm.currency"
+                size="large"
+                style="width: 100%"
+              >
+                <el-option label="CNY - 人民币 (¥)" value="CNY" />
+                <el-option label="USD - 美元 ($)" value="USD" />
+                <el-option label="EUR - 欧元 (€)" value="EUR" />
+              </el-select>
             </el-form-item>
 
             <el-form-item :label="$t('管理员邮箱 (Owner Email)')" prop="email">

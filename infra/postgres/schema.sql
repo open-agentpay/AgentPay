@@ -22,6 +22,7 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE IF NOT EXISTS ap_tenant (
     tenant_id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(128) NOT NULL,
+    currency VARCHAR(16) NOT NULL DEFAULT 'USD' CHECK (currency IN ('CNY', 'USD', 'EUR', 'USDC')),
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'terminated')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -112,7 +113,9 @@ CREATE TABLE IF NOT EXISTS ap_route (
     path_pattern VARCHAR(256) NOT NULL,
     upstream_url VARCHAR(512) NOT NULL,
     price_base_units BIGINT NOT NULL CHECK (price_base_units >= 0),
-    asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
+    asset VARCHAR(16) NOT NULL DEFAULT 'USD',
+    onchain_price_base_units BIGINT NULL CHECK (onchain_price_base_units >= 0),
+    onchain_asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
     payee_address VARCHAR(128) NOT NULL,
     allowed_payment_methods VARCHAR(32) NOT NULL DEFAULT 'both' CHECK (allowed_payment_methods IN ('wallet', 'onchain', 'both')),
     timeout_ms INT NOT NULL DEFAULT 30000,
@@ -188,7 +191,7 @@ CREATE INDEX IF NOT EXISTS idx_config_active ON ap_config_version(tenant_id, is_
 CREATE TABLE IF NOT EXISTS ap_wallet (
     wallet_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL UNIQUE REFERENCES ap_tenant(tenant_id) ON DELETE RESTRICT,
-    asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
+    asset VARCHAR(16) NOT NULL DEFAULT 'USD' CHECK (asset IN ('CNY', 'USD', 'EUR', 'USDC')),
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'frozen', 'frozen_arrears', 'closed')),
     version BIGINT NOT NULL DEFAULT 1,
     available_cache BIGINT NOT NULL DEFAULT 0 CHECK (available_cache >= 0 OR status = 'frozen_arrears'),
@@ -236,7 +239,9 @@ CREATE TABLE IF NOT EXISTS ap_topup_order (
     tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE RESTRICT,
     channel VARCHAR(32) NOT NULL CHECK (channel IN ('admin_grant', 'onchain_deposit', 'fiat')),
     amount BIGINT NOT NULL CHECK (amount > 0),
-    asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
+    asset VARCHAR(16) NOT NULL DEFAULT 'USD',
+    payment_currency VARCHAR(16) NULL,
+    payment_minor_amount BIGINT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'pending', 'confirmed', 'failed', 'expired', 'reversed')),
     external_ref VARCHAR(128) NULL,
     operator_id VARCHAR(64) NULL,

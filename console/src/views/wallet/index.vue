@@ -105,7 +105,7 @@ const adjustRules: FormRules = {
     {
       validator: (_rule, value, callback) => {
         if (adjustForm.value.amountUsdc >= 1000 && (!value || !value.trim())) {
-          callback(new Error(t('调账金额 >= 1,000 USDC 时，必须填写独立审批人进行双人双控复核')));
+          callback(new Error(`${t('调账金额 >= 1,000')} ${currencyUnit.value} ${t('时，必须填写独立审批人进行双人双控复核')}`));
         } else {
           callback();
         }
@@ -131,7 +131,41 @@ const freezeRules: FormRules = {
   ]
 };
 
-// Helpers for currency formatting (USDC 6 decimals integer base units)
+// Dynamic tenant / wallet base currency (6 decimals integer base units)
+const currencyUnit = computed(() => {
+  const wAsset = wallet.value?.asset;
+  if (wAsset && wAsset !== 'USDC') return wAsset;
+  return tenantStore.currentCurrency || wAsset || 'USD';
+});
+
+const currencySymbol = computed(() => {
+  switch (currencyUnit.value) {
+    case 'CNY':
+      return '¥';
+    case 'EUR':
+      return '€';
+    default:
+      return '$';
+  }
+});
+
+const canChangeCurrency = computed(() => {
+  return ledgerEntries.value.length === 0;
+});
+
+async function handleCurrencyChange(newCurr: 'CNY' | 'USD' | 'EUR') {
+  try {
+    await tenantStore.updateTenantCurrency(newCurr);
+    if (wallet.value) {
+      wallet.value.asset = newCurr;
+    }
+    ElMessage.success(`${t('已将租户与虚拟钱包本位币切换为')} ${newCurr}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : t('本位币切换失败');
+    ElMessage.error(msg);
+  }
+}
+
 function formatUSDC(baseUnits: number | undefined): string {
   if (baseUnits === undefined || isNaN(baseUnits)) return '0.0000';
   const val = baseUnits / 1000000;
@@ -270,7 +304,7 @@ async function handleGrantSubmit() {
         reason: grantForm.value.reason,
         idempotency_key: grantForm.value.idempotency_key
       });
-      ElMessage.success(`${t('成功向租户发放')} ${grantForm.value.amountUsdc} USDC ${t('额度')}`);
+      ElMessage.success(`${t('成功向租户发放')} ${grantForm.value.amountUsdc} ${currencyUnit.value} ${t('额度')}`);
       grantDialogVisible.value = false;
       await loadWalletData();
     } catch (err: unknown) {
@@ -307,7 +341,7 @@ async function handleAdjustSubmit() {
 
     try {
       await ElMessageBox.confirm(
-        `${t('确定要为钱包')} ${wallet.value?.wallet_id} ${t('执行')} ${adjustForm.value.direction === 'increase' ? t('增加') : t('扣减')} ${adjustForm.value.amountUsdc} USDC ${t('的手工调账吗？此操作将记录永久审计流水。')}`,
+        `${t('确定要为钱包')} ${wallet.value?.wallet_id} ${t('执行')} ${adjustForm.value.direction === 'increase' ? t('增加') : t('扣减')} ${adjustForm.value.amountUsdc} ${currencyUnit.value} ${t('的手工调账吗？此操作将记录永久审计流水。')}`,
         t('高风险调账操作确认'),
         {
           confirmButtonText: t('确认执行'),
@@ -400,7 +434,7 @@ async function handleReconcile() {
     if (rep.is_balanced) {
       ElMessage.success(t('账本双向平账核验通过：流水总和与可用+冻结缓存完全一致！'));
     } else {
-      ElMessage.error(`${t('检出账本差异 (Discrepancy)')}: ${formatUSDC(rep.discrepancy)} USDC`);
+      ElMessage.error(`${t('检出账本差异 (Discrepancy)')}: ${formatUSDC(rep.discrepancy)} ${currencyUnit.value}`);
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : t('对账检查失败');
@@ -533,7 +567,7 @@ function getTopupStatusType(status: TopUpStatus) {
       >
         <template #default>
           <p class="alert-desc">
-            {{ $t('当前可用余额已出现透支负值') }} (<strong>{{ formatUSDC(wallet.available_cache) }} USDC</strong>)，{{ $t('系统已按') }} 
+            {{ $t('当前可用余额已出现透支负值') }} (<strong>{{ currencySymbol }}{{ formatUSDC(wallet.available_cache) }} {{ currencyUnit }}</strong>)，{{ $t('系统已按') }} 
             <strong>{{ $t('W6 架构策略') }}</strong> {{ $t('自动执行欠费熔断保护。所有新支付冻结 (Hold) 请求均已被拦截。') }}<br />
             <strong>{{ $t('安全合规防线') }}</strong>{{ $t('：在通过充值或平账将负余额彻底补足至 &ge; 0 前，') }}<strong>{{ $t('严禁人工解冻账户') }}</strong>。
           </p>
@@ -556,7 +590,7 @@ function getTopupStatusType(status: TopUpStatus) {
       </el-alert>
     </div>
 
-    <!-- Balance & Status KPI Cards (USDC 6 Decimals Standard) -->
+    <!-- Balance & Status KPI Cards (6 Decimals Micro-Fiat Standard) -->
     <el-row :gutter="16" class="kpi-row">
       <el-col :xs="24" :sm="12" :md="6">
         <el-card shadow="never" class="kpi-card">
@@ -570,8 +604,8 @@ function getTopupStatusType(status: TopUpStatus) {
             class="kpi-val"
             :class="{ 'text-danger': (wallet?.available_cache || 0) < 0, 'text-success': (wallet?.available_cache || 0) > 0 }"
           >
-            {{ formatUSDC(wallet?.available_cache) }}
-            <span class="unit">USDC</span>
+            {{ currencySymbol }}{{ formatUSDC(wallet?.available_cache) }}
+            <span class="unit">{{ currencyUnit }}</span>
           </div>
           <div class="kpi-sub">
             {{ $t('基础最小单位:') }} <code>{{ formatBaseUnits(wallet?.available_cache) }}</code>
@@ -588,8 +622,8 @@ function getTopupStatusType(status: TopUpStatus) {
             </el-tooltip>
           </div>
           <div class="kpi-val text-warning">
-            {{ formatUSDC(wallet?.held_cache) }}
-            <span class="unit">USDC</span>
+            {{ currencySymbol }}{{ formatUSDC(wallet?.held_cache) }}
+            <span class="unit">{{ currencyUnit }}</span>
           </div>
           <div class="kpi-sub">
             {{ $t('锁定中单位:') }} <code>{{ formatBaseUnits(wallet?.held_cache) }}</code>
@@ -606,11 +640,26 @@ function getTopupStatusType(status: TopUpStatus) {
             </el-tooltip>
           </div>
           <div class="kpi-val">
-            {{ formatUSDC((wallet?.available_cache || 0) + (wallet?.held_cache || 0)) }}
-            <span class="unit">USDC</span>
+            {{ currencySymbol }}{{ formatUSDC((wallet?.available_cache || 0) + (wallet?.held_cache || 0)) }}
+            <span class="unit">{{ currencyUnit }}</span>
           </div>
-          <div class="kpi-sub">
-            {{ $t('资产代码:') }} <strong>{{ wallet?.asset || 'USDC' }}</strong> (单币种 6 位小数)
+          <div class="kpi-sub" style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+            <span>{{ $t('本位币:') }} <strong>{{ currencyUnit }}</strong> (6位精度)</span>
+            <PermissionGate :roles="['owner', 'admin']">
+              <el-dropdown v-if="canChangeCurrency" trigger="click" @command="handleCurrencyChange">
+                <el-button size="small" type="primary" link>
+                  {{ $t('切换币种') }}
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="CNY" :disabled="currencyUnit === 'CNY'">CNY - 人民币 (¥)</el-dropdown-item>
+                    <el-dropdown-item command="USD" :disabled="currencyUnit === 'USD'">USD - 美元 ($)</el-dropdown-item>
+                    <el-dropdown-item command="EUR" :disabled="currencyUnit === 'EUR'">EUR - 欧元 (€)</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-tag v-else size="small" type="info" effect="plain">{{ $t('已锁定') }}</el-tag>
+            </PermissionGate>
           </div>
         </el-card>
       </el-col>
@@ -676,17 +725,17 @@ function getTopupStatusType(status: TopUpStatus) {
         </template>
         <el-descriptions :column="4" border size="small">
           <el-descriptions-item :label="$t('钱包可用缓存')">
-            {{ formatUSDC(reconciliationReport.available_cache) }} USDC
+            {{ currencySymbol }}{{ formatUSDC(reconciliationReport.available_cache) }} {{ currencyUnit }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('钱包冻结缓存')">
-            {{ formatUSDC(reconciliationReport.held_cache) }} USDC
+            {{ currencySymbol }}{{ formatUSDC(reconciliationReport.held_cache) }} {{ currencyUnit }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('不可变流水总和')">
-            {{ formatUSDC(reconciliationReport.sum_ledger_entries) }} USDC
+            {{ currencySymbol }}{{ formatUSDC(reconciliationReport.sum_ledger_entries) }} {{ currencyUnit }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('对账差额 (Discrepancy)')">
             <strong :style="{ color: reconciliationReport.discrepancy === 0 ? '#67c23a' : '#f56c6c' }">
-              {{ formatUSDC(reconciliationReport.discrepancy) }} USDC
+              {{ currencySymbol }}{{ formatUSDC(reconciliationReport.discrepancy) }} {{ currencyUnit }}
             </strong>
           </el-descriptions-item>
         </el-descriptions>
@@ -746,7 +795,7 @@ function getTopupStatusType(status: TopUpStatus) {
                     fontSize: '14px'
                   }"
                 >
-                  {{ row.amount >= 0 ? '+' : '' }}{{ formatUSDC(row.amount) }} USDC
+                  {{ row.amount >= 0 ? '+' : '' }}{{ formatUSDC(row.amount) }} {{ currencyUnit }}
                 </span>
               </template>
             </el-table-column>
@@ -754,7 +803,7 @@ function getTopupStatusType(status: TopUpStatus) {
             <el-table-column :label="$t('变动后结余')" width="140">
               <template #default="{ row }">
                 <span v-if="row.balance_after !== undefined">
-                  {{ formatUSDC(row.balance_after) }} USDC
+                  {{ formatUSDC(row.balance_after) }} {{ currencyUnit }}
                 </span>
                 <span v-else class="text-muted">-</span>
               </template>
@@ -844,7 +893,7 @@ function getTopupStatusType(status: TopUpStatus) {
             <el-table-column :label="$t('充值金额')" width="150">
               <template #default="{ row }">
                 <strong style="color: #67c23a; font-size: 14px">
-                  +{{ formatUSDC(row.amount) }} {{ row.asset || 'USDC' }}
+                  +{{ formatUSDC(row.amount) }} {{ (row.asset && row.asset !== 'USDC') ? row.asset : currencyUnit }}
                 </strong>
               </template>
             </el-table-column>
@@ -948,7 +997,7 @@ function getTopupStatusType(status: TopUpStatus) {
             :precision="2"
             style="width: 200px"
           />
-          <span style="margin-left: 10px; font-weight: 500">USDC</span>
+          <span style="margin-left: 10px; font-weight: 500">{{ currencyUnit }}</span>
           <div class="form-tip">
             换算为{{ $t('基础最小单位:') }} <code>{{ formatBaseUnits(Math.round(grantForm.amountUsdc * 1000000)) }}</code>
           </div>
@@ -987,14 +1036,14 @@ function getTopupStatusType(status: TopUpStatus) {
       <el-form ref="adjustFormRef" :model="adjustForm" :rules="adjustRules" label-width="110px">
         <el-alert
           v-if="adjustForm.amountUsdc >= 1000"
-          :title="$t('⚠️ 大额调账警示 (>= 1,000 USDC)')"
+          :title="`${$t('⚠️ 大额调账警示')} (>= 1,000 ${currencyUnit})`"
           type="error"
           show-icon
           :closable="false"
           style="margin-bottom: 16px"
         >
           <template #default>
-            {{ $t('根据内部安全风控策略，调账金额达到或超过 1,000 USDC 时，必须填写独立复核审批人 (approved_by) 执行双人双控复核！') }}
+            {{ $t('根据内部安全风控策略，调账金额达到或超过 1,000') }} {{ currencyUnit }} {{ $t('时，必须填写独立复核审批人 (approved_by) 执行双人双控复核！') }}
           </template>
         </el-alert>
 
@@ -1014,7 +1063,7 @@ function getTopupStatusType(status: TopUpStatus) {
             :precision="2"
             style="width: 200px"
           />
-          <span style="margin-left: 10px; font-weight: 500">USDC</span>
+          <span style="margin-left: 10px; font-weight: 500">{{ currencyUnit }}</span>
         </el-form-item>
 
         <el-form-item :label="$t('调账原因')" prop="reason">
@@ -1073,7 +1122,7 @@ function getTopupStatusType(status: TopUpStatus) {
             style="margin-bottom: 16px"
           >
             <template #default>
-              {{ $t('当前钱包可用余额为负值') }} ({{ formatUSDC(wallet?.available_cache) }} USDC)，{{ $t('严禁执行解冻操作。请先充值平账！') }}
+              {{ $t('当前钱包可用余额为负值') }} ({{ formatUSDC(wallet?.available_cache) }} {{ currencyUnit }})，{{ $t('严禁执行解冻操作。请先充值平账！') }}
             </template>
           </el-alert>
           <el-alert

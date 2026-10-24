@@ -21,7 +21,7 @@
 | 决策编号 | 核心事项 | 确定方案 | 决策依据与安全考量 |
 |---|---|---|---|
 | **W1** | **钱包归属层级** | **租户级（Tenant-level）** | 每个租户拥有且仅拥有一个主钱包账户。子项目（Project）不设独立子钱包，而是通过 T3.4 的租户项目限额与预算策略控制子项目额度，避免资金碎片化。 |
-| **W2** | **计价单位与资产** | **整数最小单位 + 单一资产代码** | v1 仅支持一种核心计价资产（如 `USDC`，6 位小数整数，1 USDC = 1,000,000 base units）。**严禁使用 float**。 |
+| **W2** | **计价本位币与精度** | **租户单一本位币 + 6 位微单位整数** | 租户在注册/创建时选定单一本位法币（`CNY`、`USD` 或 `EUR`），初始化同币种主钱包且产生流水后永久锁定（详见 [`currency-and-multichain-spec.md`](./currency-and-multichain-spec.md)）。内部账本统一固定 6 位小数精度（`1 CNY/USD/EUR = 1,000,000 base units`），**严禁使用 float**。 |
 | **W3** | **冻结超时 (Hold TTL)** | **`upstream_timeout + 60s`** | 默认 120 秒。必须覆盖上游 API 的最大超时时间加上网络安全抖动余量。 |
 | **W4** | **履约未知 (Unknown) 处理** | **保持冻结并转 `needs_review`** | 上游 5xx 或连接中断时，冻结保持锁定，**既不自动扣费也不自动释放**，防止恶意重试双花或白白损失服务。 |
 | **W5** | **支付方式选择与降级** | **Challenge 协商，严禁自动降级** | API Key 首次请求只取得 `agentpay-wallet` challenge；经客户端本地策略批准并以 `PAYMENT-SIGNATURE` 重试后才进入钱包 Hold。链上仍使用 EIP-3009。**钱包余额不足时直接返回 `402 Insufficient Funds`，严禁静默改走链上**。字段与持久化防重放约束见 [`agentpay-wallet-x402-extension.md`](./agentpay-wallet-x402-extension.md)。 |
@@ -38,7 +38,7 @@
 |---|---|---|---|
 | `wallet_id` | `VARCHAR(64)` | PK | 钱包唯一标识（`wal_...`） |
 | `tenant_id` | `VARCHAR(64)` | UNIQUE, NOT NULL | 归属租户 ID |
-| `asset` | `VARCHAR(16)` | NOT NULL | 资产代码（v1 固定为 `USDC`） |
+| `asset` | `VARCHAR(16)` | NOT NULL | 租户选定的本位币代码（`CNY`、`USD`、`EUR`，兼容旧版 `USDC`） |
 | `status` | `VARCHAR(32)` | NOT NULL | `active`（正常）、`frozen`（管理员冻结）、`frozen_arrears`（欠费冻结）、`closed`（注销） |
 | `version` | `BIGINT` | NOT NULL | 乐观锁版本号（并发控制） |
 | `available_cache` | `BIGINT` | NOT NULL | 可用余额缓存（以流水重新计算为准） |
@@ -77,7 +77,7 @@
 | `created_at` | `TIMESTAMPTZ` | NOT NULL | 创建时间（带时区时间戳） |
 
 ### 3.4 统一充值单 (`TopUpOrder`)
-三类充值渠道共用的充值凭证。
+三类充值渠道共用的充值凭证。外部法币充值（`fiat`）入账时，按 $\text{amount} = \text{payment\_minor\_amount} \times 10^{6 - \text{iso\_decimals}}$ 转换为钱包 6 位微单位整数。
 
 | 字段 | 类型 | 约束 | 说明 |
 |---|---|---|---|
@@ -85,8 +85,10 @@
 | `wallet_id` | `VARCHAR(64)` | FK, NOT NULL | 充值目标钱包 |
 | `tenant_id` | `VARCHAR(64)` | NOT NULL | 租户 ID |
 | `channel` | `VARCHAR(32)` | NOT NULL | `admin_grant`（管理员发放）、`onchain_deposit`（链上充值）、`fiat`（法币充值） |
-| `amount` | `BIGINT` | NOT NULL | 充值金额最小单位正整数 |
-| `asset` | `VARCHAR(16)` | NOT NULL | 充值币种（`USDC`） |
+| `amount` | `BIGINT` | NOT NULL | 入账钱包金额（6 位微单位正整数） |
+| `asset` | `VARCHAR(16)` | NOT NULL | 入账本位币种（`CNY`、`USD`、`EUR`，与 `Wallet.asset` 一致） |
+| `payment_currency` | `VARCHAR(16)` | NULL | 外部渠道实际支付币种（如微信 `'CNY'`、Stripe `'USD'` 或链上 `'USDC'`） |
+| `payment_minor_amount` | `BIGINT` | NULL | 外部支付渠道原始最小单位金额（如人民币“分”或美元“Cent”） |
 | `status` | `VARCHAR(32)` | NOT NULL | `created`、`pending`、`confirmed`、`failed`、`expired`、`reversed` |
 | `external_ref` | `VARCHAR(128)`| NULL | 链上 tx_hash 或第三方网关交易流水号 |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL | 下单时间（带时区时间戳） |

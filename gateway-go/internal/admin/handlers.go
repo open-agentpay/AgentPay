@@ -52,12 +52,13 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			TenantName string `json:"tenant_name"`
 			Email      string `json:"email"`
 			Password   string `json:"password"`
+			Currency   string `json:"currency"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			h.writeError(w, http.StatusBadRequest, "ERR_INVALID_JSON", "invalid request body")
 			return
 		}
-		tenant, member, err := h.svc.Register(r.Context(), body.TenantName, body.Email, body.Password)
+		tenant, member, err := h.svc.Register(r.Context(), body.TenantName, body.Email, body.Password, body.Currency)
 		if err != nil {
 			h.handleError(w, err)
 			return
@@ -377,12 +378,13 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Name       string `json:"name"`
 				TenantID   string `json:"tenant_id"`
 				OwnerEmail string `json:"owner_email"`
+				Currency   string `json:"currency"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				h.writeError(w, http.StatusBadRequest, "ERR_INVALID_PARAM", "malformed JSON body")
 				return
 			}
-			t, owner, err := h.svc.CreateTenant(r.Context(), body.Name, body.TenantID, body.OwnerEmail)
+			t, owner, err := h.svc.CreateTenant(r.Context(), body.Name, body.TenantID, body.OwnerEmail, body.Currency)
 			if err != nil {
 				h.handleError(w, err)
 				return
@@ -422,17 +424,43 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			case http.MethodPatch:
 				var body struct {
-					Name string `json:"name"`
+					Name     string `json:"name"`
+					Currency string `json:"currency"`
 				}
 				_ = json.NewDecoder(r.Body).Decode(&body)
-				t, err := h.svc.UpdateTenant(r.Context(), tenantID, body.Name, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
+				var t *Tenant
+				var err error
+				if body.Currency != "" {
+					t, err = h.svc.UpdateTenantCurrency(r.Context(), tenantID, body.Currency, actorMemberID)
+					if err != nil {
+						h.handleError(w, err)
+						return
+					}
+				}
+				if body.Name != "" || body.Currency == "" {
+					t, err = h.svc.UpdateTenant(r.Context(), tenantID, body.Name, actorMemberID)
+					if err != nil {
+						h.handleError(w, err)
+						return
+					}
 				}
 				h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenant": t})
 				return
 			}
+		}
+
+		if len(parts) == 2 && parts[1] == "currency" && (method == http.MethodPatch || method == http.MethodPost) {
+			var body struct {
+				Currency string `json:"currency"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			t, err := h.svc.UpdateTenantCurrency(r.Context(), tenantID, body.Currency, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenant": t})
+			return
 		}
 
 		if len(parts) == 2 && parts[1] == "status" && method == http.MethodPost {
@@ -1244,6 +1272,10 @@ func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusNotFound, "ERR_CONFIG_VERSION_NOT_FOUND", err.Error())
 	case errors.Is(err, ErrCannotRollbackToActive):
 		h.writeError(w, http.StatusBadRequest, "ERR_CANNOT_ROLLBACK_TO_ACTIVE", err.Error())
+	case errors.Is(err, ErrCurrencyLocked):
+		h.writeError(w, http.StatusConflict, "ERR_CURRENCY_LOCKED", err.Error())
+	case errors.Is(err, ErrInvalidCurrency):
+		h.writeError(w, http.StatusBadRequest, "ERR_INVALID_CURRENCY", err.Error())
 	case errors.Is(err, wallet.ErrInsufficientBalance):
 		h.writeError(w, http.StatusPaymentRequired, "ERR_INSUFFICIENT_FUNDS", err.Error())
 	default:

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { Tenant, Project } from '@/types/tenant';
+import { SUPPORTED_CURRENCIES, type Tenant, type Project, type CurrencyCode } from '@/types/tenant';
 import { tenantApi, projectApi, type CreateProjectPayload, type UpdateProjectPayload } from '@/api/client';
 import { MOCK_TENANTS, MOCK_PROJECTS } from '@/api/mockData';
 
@@ -30,6 +30,35 @@ export const useTenantStore = defineStore('tenant', () => {
   const currentProject = computed(() => {
     return projects.value.find((p) => p.project_id === currentProjectId.value) || null;
   });
+
+  const currentCurrency = computed<CurrencyCode>(() => {
+    const c = currentTenant.value?.currency;
+    if (c && c in SUPPORTED_CURRENCIES) {
+      return c;
+    }
+    return 'USD';
+  });
+
+  const currencySymbol = computed<string>(() => {
+    return SUPPORTED_CURRENCIES[currentCurrency.value]?.symbol || '$';
+  });
+
+  function formatAmount(baseUnits: number | undefined, minDecimals = 4): string {
+    if (baseUnits === undefined || isNaN(baseUnits)) return '0.0000';
+    const val = baseUnits / 1000000;
+    return val.toLocaleString('en-US', {
+      minimumFractionDigits: minDecimals,
+      maximumFractionDigits: 6
+    });
+  }
+
+  function formatCurrency(baseUnits: number | undefined, showSymbol = false): string {
+    const numStr = formatAmount(baseUnits, 4);
+    if (showSymbol) {
+      return `${currencySymbol.value}${numStr} ${currentCurrency.value}`;
+    }
+    return `${numStr} ${currentCurrency.value}`;
+  }
 
   async function loadTenants() {
     try {
@@ -82,6 +111,22 @@ export const useTenantStore = defineStore('tenant', () => {
     await loadProjects();
   }
 
+  function upsertTenant(tenant: Tenant) {
+    const idx = tenants.value.findIndex((t) => t.tenant_id === tenant.tenant_id);
+    if (idx !== -1) {
+      tenants.value[idx] = { ...tenants.value[idx], ...tenant };
+    } else {
+      tenants.value.unshift(tenant);
+    }
+  }
+
+  async function updateTenantCurrency(currency: CurrencyCode): Promise<Tenant> {
+    if (!currentTenantId.value) throw new Error('未选择当前租户');
+    const updated = await tenantApi.updateTenantCurrency(currentTenantId.value, currency);
+    upsertTenant(updated);
+    return updated;
+  }
+
   function switchProject(projectId: string) {
     currentProjectId.value = projectId;
     localStorage.setItem('agentpay_project_id', projectId);
@@ -126,10 +171,16 @@ export const useTenantStore = defineStore('tenant', () => {
     currentProjectId,
     currentTenant,
     currentProject,
+    currentCurrency,
+    currencySymbol,
     availableProjects,
+    formatAmount,
+    formatCurrency,
     loadTenants,
     loadProjects,
     switchTenant,
+    upsertTenant,
+    updateTenantCurrency,
     switchProject,
     createProject,
     updateProject,

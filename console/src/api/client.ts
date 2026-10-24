@@ -244,6 +244,29 @@ export const tenantApi = {
     }
   },
 
+  async updateTenantCurrency(
+    tenantId: string,
+    currency: import('@/types/tenant').CurrencyCode
+  ): Promise<import('@/types/tenant').Tenant> {
+    try {
+      const response = await apiClient.patch<{ tenant: import('@/types/tenant').Tenant }>(
+        `/tenants/${tenantId}/currency`,
+        { currency }
+      );
+      return response.data.tenant;
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.data?.error) {
+        throw new Error(err.response.data.error.message || '更新租户本位币失败');
+      }
+      const mock = MOCK_TENANTS.find((t) => t.tenant_id === tenantId);
+      if (mock) {
+        mock.currency = currency;
+        return { ...mock };
+      }
+      throw err;
+    }
+  },
+
   async getProjects(tenantId?: string): Promise<import('@/types/tenant').Project[]> {
     if (!tenantId) return [];
     try {

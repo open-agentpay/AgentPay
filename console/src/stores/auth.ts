@@ -32,9 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
 
       // Inform tenantStore
       const tenantStore = useTenantStore();
-      if (!tenantStore.tenants.some((t) => t.tenant_id === tenant.tenant_id)) {
-        tenantStore.tenants.unshift(tenant);
-      }
+      tenantStore.upsertTenant(tenant);
       tenantStore.currentTenantId = tenant.tenant_id;
     } else if (user.tenant_id) {
       localStorage.setItem('agentpay_tenant_id', user.tenant_id);

@@ -11,7 +11,7 @@ export default withMermaid(
     cleanUrls: true,
     lastUpdated: true,
     ignoreDeadLinks: true,
-    sitemap: { hostname: 'https://open-agentpay.github.io/AgentPay' },
+    sitemap: { hostname: 'https://openagentpay.dev' },
     head: [
       ['meta', { name: 'theme-color', content: '#f97316' }],
       ['link', { rel: 'icon', type: 'image/png', href: `${base}favicon.png` }],

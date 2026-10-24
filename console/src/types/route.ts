@@ -11,6 +11,8 @@ export interface Route {
   upstream_url: string;
   price_base_units: number;
   asset: string;
+  onchain_price_base_units?: number;
+  onchain_asset?: string;
   payee_address: string;
   allowed_payment_methods: PaymentMethod;
   rate_limit_rpm: number;
@@ -27,6 +29,8 @@ export interface CreateRoutePayload {
   upstream_url: string;
   price_base_units: number;
   asset?: string;
+  onchain_price_base_units?: number;
+  onchain_asset?: string;
   payee_address: string;
   allowed_payment_methods: PaymentMethod;
   rate_limit_rpm?: number;
@@ -41,6 +45,8 @@ export interface UpdateRoutePayload {
   upstream_url?: string;
   price_base_units?: number;
   asset?: string;
+  onchain_price_base_units?: number;
+  onchain_asset?: string;
   payee_address?: string;
   allowed_payment_methods?: PaymentMethod;
   rate_limit_rpm?: number;

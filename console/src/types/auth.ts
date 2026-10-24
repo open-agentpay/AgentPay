@@ -1,4 +1,4 @@
-import type { Tenant } from './tenant';
+import type { Tenant, CurrencyCode } from './tenant';
 
 export type UserRole = 'owner' | 'admin' | 'operator' | 'viewer';
 
@@ -37,6 +37,7 @@ export interface RegisterRequest {
   tenant_name: string;
   email: string;
   password: string;
+  currency?: CurrencyCode;
 }
 
 export interface RegisterResponse {

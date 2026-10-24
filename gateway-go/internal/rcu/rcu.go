@@ -41,6 +41,10 @@ type RouteConfig struct {
 	PriceBaseUnits        int64             `json:"priceBaseUnits"`
 	PriceBaseUnitsSnake   int64             `json:"price_base_units,omitempty"`
 	Asset                 string            `json:"asset"`
+	OnchainPriceBaseUnits *int64            `json:"onchainPriceBaseUnits,omitempty"`
+	OnchainPriceSnake     *int64            `json:"onchain_price_base_units,omitempty"`
+	OnchainAsset          string            `json:"onchainAsset,omitempty"`
+	OnchainAssetSnake     string            `json:"onchain_asset,omitempty"`
 	Network               string            `json:"network,omitempty"`
 	PayeeAddress          string            `json:"payeeAddress"`
 	PayeeAddressSnake     string            `json:"payee_address,omitempty"`
@@ -80,6 +84,12 @@ func (r *RouteConfig) Normalize() {
 	}
 	if r.PriceBaseUnits == 0 && r.PriceBaseUnitsSnake != 0 {
 		r.PriceBaseUnits = r.PriceBaseUnitsSnake
+	}
+	if r.OnchainPriceBaseUnits == nil && r.OnchainPriceSnake != nil {
+		r.OnchainPriceBaseUnits = r.OnchainPriceSnake
+	}
+	if r.OnchainAsset == "" && r.OnchainAssetSnake != "" {
+		r.OnchainAsset = r.OnchainAssetSnake
 	}
 	if r.PayeeAddress == "" && r.PayeeAddressSnake != "" {
 		r.PayeeAddress = r.PayeeAddressSnake

@@ -575,3 +575,29 @@ class TestPublicAPI:
         assert LedgerEntryState is not None
         assert IPolicyEngine is not None
         assert load_policy_config is not None
+
+    @pytest.mark.parametrize("currency", ["CNY", "USD", "EUR"])
+    def test_policy_config_and_payment_request_accept_fiat_currencies(self, currency: str) -> None:
+        from agentpay.policy import PaymentRequest, PolicyConfig
+
+        cfg = PolicyConfig(
+            id="pol_01",
+            name="Default Policy",
+            wallet_address="0x1111111111111111111111111111111111111111",
+            max_per_tx_base_units=1_000_000,
+            rolling_budget_24h_base_units=10_000_000,
+            lifetime_budget_base_units=50_000_000,
+            whitelist_assets=[currency, "0x036CbD53842c5426634e7929541eC2318f3dCF7e"],
+        )
+        assert currency in cfg.whitelist_assets
+
+        req = PaymentRequest(
+            intent_id="0x" + "11" * 32,
+            amount=350_000,
+            payee="agentpay:route:rt_demo",
+            asset=currency,
+            network="agentpay:internal-ledger",
+        )
+        assert req.asset == currency
+        assert req.is_agentpay_wallet is True
+

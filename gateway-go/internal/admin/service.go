@@ -27,16 +27,17 @@ const LargeAdjustmentThreshold int64 = 100_000_000 // 100 USDC
 // Service defines the Control Plane management operations.
 type Service interface {
 	// Auth
-	Register(ctx context.Context, tenantName, email, password string) (*Tenant, *Member, error)
+	Register(ctx context.Context, tenantName, email, password string, currency ...string) (*Tenant, *Member, error)
 	Login(ctx context.Context, email, password string) (*Member, *Tenant, error)
 	GetMemberByEmail(ctx context.Context, email string) (*Member, *Tenant, error)
 	SetMemberPassword(ctx context.Context, tenantID, memberID, password string) error
 
 	// Tenant
-	CreateTenant(ctx context.Context, name string, tenantID string, ownerEmail string) (*Tenant, *Member, error)
+	CreateTenant(ctx context.Context, name string, tenantID string, ownerEmail string, currency ...string) (*Tenant, *Member, error)
 	GetTenant(ctx context.Context, tenantID string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]*Tenant, error)
 	UpdateTenant(ctx context.Context, tenantID string, name string, actorMemberID string) (*Tenant, error)
+	UpdateTenantCurrency(ctx context.Context, tenantID string, currency string, actorMemberID string) (*Tenant, error)
 	UpdateTenantStatus(ctx context.Context, tenantID string, status TenantStatus, actorMemberID string) (*Tenant, error)
 
 	// Project
@@ -209,7 +210,7 @@ func (s *MemoryService) recordAudit(tenantID, operatorID, action, targetType, ta
 // Auth
 // ----------------------------------------------------------------------------
 
-func (s *MemoryService) Register(ctx context.Context, tenantName, email, password string) (*Tenant, *Member, error) {
+func (s *MemoryService) Register(ctx context.Context, tenantName, email, password string, currency ...string) (*Tenant, *Member, error) {
 	cleanName := strings.TrimSpace(tenantName)
 	cleanEmail := strings.TrimSpace(email)
 	if cleanName == "" {
@@ -220,6 +221,15 @@ func (s *MemoryService) Register(ctx context.Context, tenantName, email, passwor
 	}
 	if len(password) < 8 {
 		return nil, nil, ErrPasswordTooShort
+	}
+
+	rawCurr := ""
+	if len(currency) > 0 {
+		rawCurr = strings.TrimSpace(currency[0])
+	}
+	curr, err := NormalizeCurrency(rawCurr)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	hash, err := auth.HashPassword(password)
@@ -246,6 +256,7 @@ func (s *MemoryService) Register(ctx context.Context, tenantName, email, passwor
 	t := &Tenant{
 		TenantID:  tid,
 		Name:      cleanName,
+		Currency:  curr,
 		Status:    TenantStatusActive,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -264,14 +275,14 @@ func (s *MemoryService) Register(ctx context.Context, tenantName, email, passwor
 	}
 	s.members[ownerMember.MemberID] = ownerMember
 
-	// Initialize master wallet
+	// Initialize master wallet with tenant's selected base currency
 	if s.walletSvc != nil {
 		memWlt, ok := s.walletSvc.(*wallet.MemoryService)
 		if ok {
 			memWlt.RegisterWallet(&wallet.Wallet{
 				WalletID:       fmt.Sprintf("wlt_%s", tid),
 				TenantID:       tid,
-				Asset:          "USDC",
+				Asset:          curr,
 				Status:         wallet.StatusActive,
 				Version:        1,
 				AvailableCache: 0,
@@ -288,14 +299,14 @@ func (s *MemoryService) Register(ctx context.Context, tenantName, email, passwor
 		ProjectID:          defaultPrjID,
 		TenantID:           tid,
 		Name:               "默认项目 (Default)",
-		BudgetCapBaseUnits: 1000000000, // 1000 USDC default budget cap
+		BudgetCapBaseUnits: 1000000000, // 1000 units in tenant base currency
 		Status:             ProjectStatusActive,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
 	s.projects[defaultPrjID] = defaultProject
 
-	s.recordAudit(tid, ownerMember.MemberID, "auth.register", "Tenant", tid, nil, map[string]interface{}{"email": cleanEmail, "tenant": cleanName, "project_id": defaultPrjID}, "127.0.0.1")
+	s.recordAudit(tid, ownerMember.MemberID, "auth.register", "Tenant", tid, nil, map[string]interface{}{"email": cleanEmail, "tenant": cleanName, "currency": curr, "project_id": defaultPrjID}, "127.0.0.1")
 	return t, ownerMember, nil
 }
 
@@ -370,13 +381,22 @@ func (s *MemoryService) SetMemberPassword(ctx context.Context, tenantID, memberI
 // Tenants
 // ----------------------------------------------------------------------------
 
-func (s *MemoryService) CreateTenant(ctx context.Context, name string, tenantID string, ownerEmail string) (*Tenant, *Member, error) {
+func (s *MemoryService) CreateTenant(ctx context.Context, name string, tenantID string, ownerEmail string, currency ...string) (*Tenant, *Member, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	cleanName := strings.TrimSpace(name)
 	if cleanName == "" {
 		return nil, nil, fmt.Errorf("tenant name cannot be empty")
+	}
+
+	rawCurr := ""
+	if len(currency) > 0 {
+		rawCurr = strings.TrimSpace(currency[0])
+	}
+	curr, err := NormalizeCurrency(rawCurr)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	for _, t := range s.tenants {
@@ -394,6 +414,7 @@ func (s *MemoryService) CreateTenant(ctx context.Context, name string, tenantID 
 	t := &Tenant{
 		TenantID:  tid,
 		Name:      cleanName,
+		Currency:  curr,
 		Status:    TenantStatusActive,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -414,14 +435,14 @@ func (s *MemoryService) CreateTenant(ctx context.Context, name string, tenantID 
 		s.members[ownerMember.MemberID] = ownerMember
 	}
 
-	// Initialize master wallet
+	// Initialize master wallet with tenant's selected base currency
 	if s.walletSvc != nil {
 		memWlt, ok := s.walletSvc.(*wallet.MemoryService)
 		if ok {
 			memWlt.RegisterWallet(&wallet.Wallet{
 				WalletID:       fmt.Sprintf("wlt_%s", tid),
 				TenantID:       tid,
-				Asset:          "USDC",
+				Asset:          curr,
 				Status:         wallet.StatusActive,
 				Version:        1,
 				AvailableCache: 0,
@@ -432,7 +453,7 @@ func (s *MemoryService) CreateTenant(ctx context.Context, name string, tenantID 
 		}
 	}
 
-	s.recordAudit(tid, "system", "tenant.created", "Tenant", tid, nil, map[string]interface{}{"name": cleanName}, "127.0.0.1")
+	s.recordAudit(tid, "system", "tenant.created", "Tenant", tid, nil, map[string]interface{}{"name": cleanName, "currency": curr}, "127.0.0.1")
 	return t, ownerMember, nil
 }
 
@@ -444,6 +465,9 @@ func (s *MemoryService) GetTenant(ctx context.Context, tenantID string) (*Tenant
 	if !ok {
 		return nil, ErrTenantNotFound
 	}
+	if t.Currency == "" {
+		t.Currency = "USD"
+	}
 	return t, nil
 }
 
@@ -453,6 +477,9 @@ func (s *MemoryService) ListTenants(ctx context.Context) ([]*Tenant, error) {
 
 	res := make([]*Tenant, 0, len(s.tenants))
 	for _, t := range s.tenants {
+		if t.Currency == "" {
+			t.Currency = "USD"
+		}
 		res = append(res, t)
 	}
 	return res, nil
@@ -487,6 +514,63 @@ func (s *MemoryService) UpdateTenant(ctx context.Context, tenantID string, name 
 	t.UpdatedAt = time.Now().Unix()
 
 	s.recordAudit(tenantID, actorMemberID, "tenant.updated", "Tenant", tenantID, before, map[string]interface{}{"name": cleanName}, "127.0.0.1")
+	return t, nil
+}
+
+func (s *MemoryService) UpdateTenantCurrency(ctx context.Context, tenantID string, currency string, actorMemberID string) (*Tenant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tenants[tenantID]
+	if !ok {
+		return nil, ErrTenantNotFound
+	}
+
+	if actorMemberID != "" {
+		actor, ok := s.members[actorMemberID]
+		if !ok || actor.TenantID != tenantID {
+			return nil, ErrPermissionDenied
+		}
+		if err := EnforcePermission(actor, PermissionTenantUpdate); err != nil {
+			return nil, err
+		}
+	}
+
+	curr, err := NormalizeCurrency(strings.TrimSpace(currency))
+	if err != nil {
+		return nil, err
+	}
+
+	// Enforce C2 immutability: cannot change currency once routes exist or ledger entries exist
+	for _, r := range s.routes {
+		if r.TenantID == tenantID {
+			return nil, ErrCurrencyLocked
+		}
+	}
+	if s.walletSvc != nil {
+		wlt, err := s.walletSvc.GetWalletByTenant(ctx, tenantID)
+		if err == nil && wlt != nil {
+			entries, _ := s.walletSvc.GetLedgerEntries(ctx, wlt.WalletID)
+			if len(entries) > 0 {
+				return nil, ErrCurrencyLocked
+			}
+		}
+	}
+
+	before := map[string]interface{}{"currency": t.Currency}
+	t.Currency = curr
+	t.UpdatedAt = time.Now().Unix()
+
+	if s.walletSvc != nil {
+		if memWlt, ok := s.walletSvc.(*wallet.MemoryService); ok {
+			if wlt, err := memWlt.GetWalletByTenant(ctx, tenantID); err == nil && wlt != nil {
+				wlt.Asset = curr
+				wlt.UpdatedAt = time.Now()
+			}
+		}
+	}
+
+	s.recordAudit(tenantID, actorMemberID, "tenant.currency.updated", "Tenant", tenantID, before, map[string]interface{}{"currency": curr}, "127.0.0.1")
 	return t, nil
 }
 
@@ -1300,7 +1384,16 @@ func (s *MemoryService) CreateRoute(ctx context.Context, r *Route, actorMemberID
 		r.RateLimitRPM = 600
 	}
 	if r.Asset == "" {
-		r.Asset = "USDC"
+		if r.AllowedPaymentMethods == "onchain" {
+			r.Asset = "USDC"
+		} else if t, ok := s.tenants[r.TenantID]; ok && t.Currency != "" && (r.AllowedPaymentMethods == "wallet" || t.Currency != "USD") {
+			r.Asset = t.Currency
+		} else {
+			r.Asset = "USDC"
+		}
+	}
+	if r.OnchainAsset == "" && r.AllowedPaymentMethods != "wallet" {
+		r.OnchainAsset = "USDC"
 	}
 	if r.Status == "" {
 		r.Status = RouteStatusActive
@@ -1445,6 +1538,18 @@ func (s *MemoryService) UpdateRoute(ctx context.Context, input *UpdateRouteInput
 
 	if input.Asset != nil {
 		existing.Asset = strings.TrimSpace(*input.Asset)
+	}
+
+	if input.OnchainPriceBaseUnits != nil {
+		if *input.OnchainPriceBaseUnits < 0 {
+			return nil, fmt.Errorf("onchain_price_base_units cannot be negative")
+		}
+		val := *input.OnchainPriceBaseUnits
+		existing.OnchainPriceBaseUnits = &val
+	}
+
+	if input.OnchainAsset != nil {
+		existing.OnchainAsset = strings.TrimSpace(*input.OnchainAsset)
 	}
 
 	if input.PayeeAddress != nil {
@@ -1655,6 +1760,8 @@ func (s *MemoryService) syncRCULocked() error {
 				UpstreamURL:           r.UpstreamURL,
 				PriceBaseUnits:        r.PriceBaseUnits,
 				Asset:                 r.Asset,
+				OnchainPriceBaseUnits: r.OnchainPriceBaseUnits,
+				OnchainAsset:          r.OnchainAsset,
 				PayeeAddress:          r.PayeeAddress,
 				AllowedPaymentMethods: r.AllowedPaymentMethods,
 				TimeoutMS:             r.TimeoutMs,
@@ -2378,6 +2485,8 @@ func (s *MemoryService) PublishConfig(ctx context.Context, tenantID string, chan
 			UpstreamURL:           r.UpstreamURL,
 			PriceBaseUnits:        r.PriceBaseUnits,
 			Asset:                 r.Asset,
+			OnchainPriceBaseUnits: r.OnchainPriceBaseUnits,
+			OnchainAsset:          r.OnchainAsset,
 			PayeeAddress:          r.PayeeAddress,
 			AllowedPaymentMethods: r.AllowedPaymentMethods,
 			TimeoutMS:             r.TimeoutMs,

@@ -5,12 +5,14 @@ export const MOCK_TENANTS: Tenant[] = [
   {
     tenant_id: 'ten_9a8b7c6d5e',
     name: 'Acme Autonomous AI Corp',
+    currency: 'CNY',
     status: 'active',
     created_at: '2026-10-01T08:00:00Z'
   },
   {
     tenant_id: 'ten_3f4e5d6c7b',
     name: 'DevLab Testing Org',
+    currency: 'USD',
     status: 'active',
     created_at: '2026-10-10T12:00:00Z'
   }

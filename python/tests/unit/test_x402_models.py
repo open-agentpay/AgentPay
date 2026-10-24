@@ -206,3 +206,27 @@ class TestSignatureData:
                 s="0x530e805bb1a29839651fac0cb1f3f1c05a7c659760488173ed1fd582819467e0",
             )
         assert exc.value.code == X402ErrorCode.INVALID_SIGNATURE
+
+
+class TestWalletFiatCurrencies:
+    @pytest.mark.parametrize("currency", ["CNY", "USD", "EUR"])
+    def test_wallet_challenge_accepts_supported_fiat_currencies(self, currency: str) -> None:
+        challenge = PaymentChallenge(
+            version="2.0",
+            scheme="agentpay-wallet",
+            challengeId="0x" + "ab" * 32,
+            network="agentpay:internal-ledger",
+            asset=currency,
+            assetSymbol=currency,
+            decimals=6,
+            amount="350000",
+            payee="agentpay:route:rt_cny_demo",
+            validAfter=1700000000,
+            validBefore=1700000300,
+            resourceUri="/api/v1/chat",
+        )
+        assert challenge.asset == currency
+        req = challenge.to_payment_request(domain="api.example.com")
+        assert req.asset == currency
+        assert req.is_agentpay_wallet is True
+

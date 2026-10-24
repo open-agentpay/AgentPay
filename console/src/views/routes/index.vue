@@ -267,7 +267,8 @@ const createForm = reactive({
   path_pattern: '',
   upstream_url: '',
   price_usdc: 0.05,
-  asset: 'USDC',
+  onchain_price_usdc: 0.05,
+  asset: 'USD',
   payee_address: '',
   allowed_payment_methods: 'both' as PaymentMethod,
   rate_limit_rpm: 600,
@@ -280,7 +281,8 @@ function openCreateDialog() {
   createForm.path_pattern = '';
   createForm.upstream_url = '';
   createForm.price_usdc = 0.05;
-  createForm.asset = 'USDC';
+  createForm.onchain_price_usdc = 0.05;
+  createForm.asset = tenantStore.currentCurrency;
   createForm.payee_address = '';
   createForm.allowed_payment_methods = 'both';
   createForm.rate_limit_rpm = 600;
@@ -297,13 +299,20 @@ async function handleCreateRoute() {
     createLoading.value = true;
     try {
       const isWalletOnly = createForm.allowed_payment_methods === 'wallet';
+      const isOnchainOnly = createForm.allowed_payment_methods === 'onchain';
       const priceBaseUnits = Math.round(createForm.price_usdc * 1000000);
+      const onchainPriceBaseUnits =
+        createForm.allowed_payment_methods === 'both'
+          ? Math.round((createForm.onchain_price_usdc || createForm.price_usdc) * 1000000)
+          : priceBaseUnits;
       const payload: CreateRoutePayload = {
         project_id: createForm.project_id,
         path_pattern: createForm.path_pattern.trim(),
         upstream_url: createForm.upstream_url.trim(),
         price_base_units: priceBaseUnits,
-        asset: isWalletOnly ? 'USD' : createForm.asset,
+        asset: isOnchainOnly ? 'USDC' : tenantStore.currentCurrency,
+        onchain_price_base_units: isWalletOnly ? 0 : onchainPriceBaseUnits,
+        onchain_asset: 'USDC',
         payee_address: isWalletOnly ? '' : createForm.payee_address.trim().toLowerCase(),
         allowed_payment_methods: createForm.allowed_payment_methods,
         rate_limit_rpm: createForm.rate_limit_rpm,
@@ -338,7 +347,8 @@ const editForm = reactive({
   path_pattern: '',
   upstream_url: '',
   price_usdc: 0.05,
-  asset: 'USDC',
+  onchain_price_usdc: 0.05,
+  asset: 'USD',
   payee_address: '',
   allowed_payment_methods: 'both' as PaymentMethod,
   rate_limit_rpm: 600,
@@ -353,7 +363,8 @@ function openEditDialog(route: Route) {
   editForm.path_pattern = route.path_pattern;
   editForm.upstream_url = route.upstream_url;
   editForm.price_usdc = route.price_base_units / 1000000;
-  editForm.asset = route.asset || 'USDC';
+  editForm.onchain_price_usdc = (route.onchain_price_base_units || route.price_base_units) / 1000000;
+  editForm.asset = route.asset || tenantStore.currentCurrency;
   editForm.payee_address = route.payee_address;
   editForm.allowed_payment_methods = route.allowed_payment_methods;
   editForm.rate_limit_rpm = route.rate_limit_rpm || 600;
@@ -373,13 +384,20 @@ async function handleUpdateRoute() {
     editLoading.value = true;
     try {
       const isWalletOnly = editForm.allowed_payment_methods === 'wallet';
+      const isOnchainOnly = editForm.allowed_payment_methods === 'onchain';
       const priceBaseUnits = Math.round(editForm.price_usdc * 1000000);
+      const onchainPriceBaseUnits =
+        editForm.allowed_payment_methods === 'both'
+          ? Math.round((editForm.onchain_price_usdc || editForm.price_usdc) * 1000000)
+          : priceBaseUnits;
       const payload: UpdateRoutePayload = {
         project_id: editForm.project_id,
         path_pattern: editForm.path_pattern.trim(),
         upstream_url: editForm.upstream_url.trim(),
         price_base_units: priceBaseUnits,
-        asset: isWalletOnly ? 'USD' : editForm.asset,
+        asset: isOnchainOnly ? 'USDC' : tenantStore.currentCurrency,
+        onchain_price_base_units: isWalletOnly ? 0 : onchainPriceBaseUnits,
+        onchain_asset: 'USDC',
         payee_address: isWalletOnly ? '' : editForm.payee_address.trim().toLowerCase(),
         allowed_payment_methods: editForm.allowed_payment_methods,
         rate_limit_rpm: editForm.rate_limit_rpm,
@@ -656,14 +674,20 @@ function copyToClipboard(text: string) {
           </template>
         </el-table-column>
 
-        <el-table-column :label="$t('单次定价')" width="140">
+        <el-table-column :label="$t('单次定价')" width="180">
           <template #default="{ row }">
             <span v-if="row.allowed_payment_methods === 'wallet'" class="price-text">
-              $ {{ (row.price_base_units / 1000000).toFixed(4) }} ({{ $t('美元') }})
+              {{ tenantStore.currencySymbol }} {{ (row.price_base_units / 1000000).toFixed(4) }} {{ tenantStore.currentCurrency }}
             </span>
-            <span v-else class="price-text">
-              {{ (row.price_base_units / 1000000).toFixed(4) }} {{ row.asset || 'USDC' }}
+            <span v-else-if="row.allowed_payment_methods === 'onchain'" class="price-text">
+              {{ (row.price_base_units / 1000000).toFixed(4) }} USDC
             </span>
+            <div v-else class="price-text">
+              <div>{{ tenantStore.currencySymbol }} {{ (row.price_base_units / 1000000).toFixed(4) }} {{ tenantStore.currentCurrency }}</div>
+              <div class="text-muted" style="font-size: 11px">
+                {{ $t('链上:') }} {{ ((row.onchain_price_base_units || row.price_base_units) / 1000000).toFixed(4) }} USDC
+              </div>
+            </div>
           </template>
         </el-table-column>
 
@@ -799,7 +823,7 @@ function copyToClipboard(text: string) {
         </el-form-item>
 
         <!-- 单次调用单价 (置于支付通道之后，根据支付通道自动适应单位) -->
-        <el-form-item :label="$t('单次调用单价')" prop="price_usdc">
+        <el-form-item :label="createForm.allowed_payment_methods === 'both' ? $t('钱包结算单价') : $t('单次调用单价')" prop="price_usdc">
           <el-input-number
             v-model="createForm.price_usdc"
             :min="0"
@@ -808,10 +832,28 @@ function copyToClipboard(text: string) {
             style="width: 200px"
           />
           <span style="margin-left: 8px; font-weight: 500">
-            {{ createForm.allowed_payment_methods === 'wallet' ? $t('美元 ($)') : 'USDC' }}
+            {{ createForm.allowed_payment_methods === 'onchain' ? 'USDC' : `${tenantStore.currentCurrency} (${tenantStore.currencySymbol})` }}
           </span>
           <div class="form-hint">
-            {{ createForm.allowed_payment_methods === 'wallet' ? $t('虚拟支付单价，以美元为结算单位') : $t('计费精度为 6 位小数，系统自动转为整数基础单位 (Base Units)') }}
+            {{ createForm.allowed_payment_methods === 'onchain' ? $t('链上直付单价，计费精度为 6 位小数') : `${$t('内部虚拟钱包结算单价，以租户本位币')} ${tenantStore.currentCurrency} ${$t('计价 (6 位精度)')}` }}
+          </div>
+        </el-form-item>
+
+        <!-- 双通道模式下的独立链上结算单价 (USDC) -->
+        <el-form-item
+          v-if="createForm.allowed_payment_methods === 'both'"
+          :label="$t('链上结算单价')"
+        >
+          <el-input-number
+            v-model="createForm.onchain_price_usdc"
+            :min="0"
+            :step="0.01"
+            :precision="4"
+            style="width: 200px"
+          />
+          <span style="margin-left: 8px; font-weight: 500">USDC</span>
+          <div class="form-hint">
+            {{ $t('双通道模式下链上 x402 EIP-3009 签名支付的独立 USDC 定价，网关不做实时汇率换算') }}
           </div>
         </el-form-item>
 
@@ -928,7 +970,7 @@ function copyToClipboard(text: string) {
         </el-form-item>
 
         <!-- 单次调用单价 (置于支付通道之后，根据支付通道自动适应单位) -->
-        <el-form-item :label="$t('单次调用单价')" prop="price_usdc">
+        <el-form-item :label="editForm.allowed_payment_methods === 'both' ? $t('钱包结算单价') : $t('单次调用单价')" prop="price_usdc">
           <el-input-number
             v-model="editForm.price_usdc"
             :min="0"
@@ -937,10 +979,28 @@ function copyToClipboard(text: string) {
             style="width: 200px"
           />
           <span style="margin-left: 8px; font-weight: 500">
-            {{ editForm.allowed_payment_methods === 'wallet' ? $t('美元 ($)') : 'USDC' }}
+            {{ editForm.allowed_payment_methods === 'onchain' ? 'USDC' : `${tenantStore.currentCurrency} (${tenantStore.currencySymbol})` }}
           </span>
           <div class="form-hint">
-            {{ editForm.allowed_payment_methods === 'wallet' ? $t('虚拟支付单价，以美元为结算单位') : $t('计费精度为 6 位小数，系统自动转为整数基础单位 (Base Units)') }}
+            {{ editForm.allowed_payment_methods === 'onchain' ? $t('链上直付单价，计费精度为 6 位小数') : `${$t('内部虚拟钱包结算单价，以租户本位币')} ${tenantStore.currentCurrency} ${$t('计价 (6 位精度)')}` }}
+          </div>
+        </el-form-item>
+
+        <!-- 双通道模式下的独立链上结算单价 (USDC) -->
+        <el-form-item
+          v-if="editForm.allowed_payment_methods === 'both'"
+          :label="$t('链上结算单价')"
+        >
+          <el-input-number
+            v-model="editForm.onchain_price_usdc"
+            :min="0"
+            :step="0.01"
+            :precision="4"
+            style="width: 200px"
+          />
+          <span style="margin-left: 8px; font-weight: 500">USDC</span>
+          <div class="form-hint">
+            {{ $t('双通道模式下链上 x402 EIP-3009 签名支付的独立 USDC 定价，网关不做实时汇率换算') }}
           </div>
         </el-form-item>
 

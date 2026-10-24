@@ -623,11 +623,16 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			if resourceURI == "" {
 				resourceURI = "/"
 			}
+			walletAsset := "USD"
+			switch strings.ToUpper(strings.TrimSpace(route.Asset)) {
+			case "CNY", "USD", "EUR":
+				walletAsset = strings.ToUpper(strings.TrimSpace(route.Asset))
+			}
 			walletChallenge = &payment.WalletChallenge{
 				ChallengeID: challengeID, TenantID: wallet.TenantID, WalletID: wallet.WalletID,
 				APIKeyHash: hex.EncodeToString(keyDigest[:]), RouteID: route.RouteID, IntentID: intentID,
 				IdempotencyKey: idemKey,
-				RequestBinding: requestBinding, Amount: route.PriceBaseUnits, Asset: "USD", ResourceURI: resourceURI,
+				RequestBinding: requestBinding, Amount: route.PriceBaseUnits, Asset: walletAsset, ResourceURI: resourceURI,
 				ValidAfter: now, ValidBefore: validBefore, Status: "issued",
 			}
 			projectID := wallet.ProjectID
@@ -643,7 +648,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			}
 			ch := &PaymentChallenge{
 				Version: DefaultVersion, ChallengeID: challengeID, Network: "agentpay:internal-ledger",
-				Asset: "USD", AssetSymbol: "USD", Decimals: 6, Amount: fmt.Sprintf("%d", route.PriceBaseUnits),
+				Asset: walletAsset, AssetSymbol: walletAsset, Decimals: 6, Amount: fmt.Sprintf("%d", route.PriceBaseUnits),
 				Payee: "agentpay:route:" + route.RouteID, Scheme: WalletScheme,
 				ValidAfter: now.Unix(), ValidBefore: validBefore.Unix(), ResourceURI: resourceURI,
 				Extensions: map[string]interface{}{"paymentMethod": "wallet", "routeId": route.RouteID, "requestBinding": requestBinding},
@@ -1293,12 +1298,20 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				return
 			}
 
+			onchainPrice := route.PriceBaseUnits
+			if route.OnchainPriceBaseUnits != nil && *route.OnchainPriceBaseUnits > 0 {
+				onchainPrice = *route.OnchainPriceBaseUnits
+			}
+			onchainAsset := route.Asset
+			if route.OnchainAsset != "" {
+				onchainAsset = route.OnchainAsset
+			}
 			ch := &PaymentChallenge{
 				Version:     auth.Version,
 				ChallengeID: auth.ChallengeID,
 				Network:     network,
-				Asset:       route.Asset,
-				Amount:      fmt.Sprintf("%d", route.PriceBaseUnits),
+				Asset:       onchainAsset,
+				Amount:      fmt.Sprintf("%d", onchainPrice),
 				Payee:       route.PayeeAddress,
 				ValidAfter:  auth.ValidAfter,
 				ValidBefore: auth.ValidBefore,
@@ -1332,8 +1345,8 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				PaymentIntentID: intentID,
 				PaymentMethod:   "onchain",
 				Payer:           auth.Payer,
-				Amount:          route.PriceBaseUnits,
-				Asset:           route.Asset,
+				Amount:          onchainPrice,
+				Asset:           onchainAsset,
 				Network:         network,
 				TxHashOrNonce:   auth.Nonce,
 				Status:          recovery.SettlementSubmitted,
@@ -1343,8 +1356,8 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 
 			pCtx := &proxy.PaymentContext{
 				PayerAddress:    result.Payer,
-				AmountBaseUnits: route.PriceBaseUnits,
-				Asset:           route.Asset,
+				AmountBaseUnits: onchainPrice,
+				Asset:           onchainAsset,
 				Network:         network,
 				TxHash:          auth.Nonce,
 				IdempotencyKey:  idemKey,
@@ -1386,7 +1399,15 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		}
 
 		// 2.2 Non-Idempotent On-Chain Request
-		validNonce, err := p.nonceStore.CheckAndRecordNonce(network, route.Asset, auth.Payer, auth.Nonce)
+		onchainPrice := route.PriceBaseUnits
+		if route.OnchainPriceBaseUnits != nil && *route.OnchainPriceBaseUnits > 0 {
+			onchainPrice = *route.OnchainPriceBaseUnits
+		}
+		onchainAsset := route.Asset
+		if route.OnchainAsset != "" {
+			onchainAsset = route.OnchainAsset
+		}
+		validNonce, err := p.nonceStore.CheckAndRecordNonce(network, onchainAsset, auth.Payer, auth.Nonce)
 		if err != nil || !validNonce {
 			p.metrics.IncPaymentsFailed()
 			initIntent(route.TenantID, "prj_default", "", intentID, idemKey, "onchain", payment.IntentStatusFailed)
@@ -1403,8 +1424,8 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			Version:     auth.Version,
 			ChallengeID: auth.ChallengeID,
 			Network:     network,
-			Asset:       route.Asset,
-			Amount:      fmt.Sprintf("%d", route.PriceBaseUnits),
+			Asset:       onchainAsset,
+			Amount:      fmt.Sprintf("%d", onchainPrice),
 			Payee:       route.PayeeAddress,
 			ValidAfter:  auth.ValidAfter,
 			ValidBefore: auth.ValidBefore,
@@ -1434,8 +1455,8 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		p.metrics.IncPaymentsVerified()
 		pCtx := &proxy.PaymentContext{
 			PayerAddress:    result.Payer,
-			AmountBaseUnits: route.PriceBaseUnits,
-			Asset:           route.Asset,
+			AmountBaseUnits: onchainPrice,
+			Asset:           onchainAsset,
 			Network:         network,
 			TxHash:          auth.Nonce,
 			RequestID:       requestID,
@@ -1482,12 +1503,20 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 	if route.Network != "" {
 		network = route.Network
 	}
+	onchainPrice := route.PriceBaseUnits
+	if route.OnchainPriceBaseUnits != nil && *route.OnchainPriceBaseUnits > 0 {
+		onchainPrice = *route.OnchainPriceBaseUnits
+	}
+	onchainAsset := route.Asset
+	if route.OnchainAsset != "" {
+		onchainAsset = route.OnchainAsset
+	}
 	ch := NewChallenge(
 		network,
-		route.Asset,
+		onchainAsset,
 		"USDC",
 		6,
-		fmt.Sprintf("%d", route.PriceBaseUnits),
+		fmt.Sprintf("%d", onchainPrice),
 		route.PayeeAddress,
 		"http://127.0.0.1:8001",
 		r.URL.Path,

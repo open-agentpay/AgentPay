@@ -77,6 +77,7 @@ erDiagram
 CREATE TABLE ap_tenant (
     tenant_id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(128) NOT NULL,
+    currency VARCHAR(16) NOT NULL DEFAULT 'USD' CHECK (currency IN ('CNY', 'USD', 'EUR', 'USDC')),
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'terminated')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -147,7 +148,9 @@ CREATE TABLE ap_route (
     path_pattern VARCHAR(256) NOT NULL,          -- 如 /api/v1/llm/chat
     upstream_url VARCHAR(512) NOT NULL,          -- 如 https://api.openai.com/v1/chat/completions
     price_base_units BIGINT NOT NULL CHECK (price_base_units >= 0),
-    asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
+    asset VARCHAR(16) NOT NULL DEFAULT 'USD',    -- 与租户本位币一致（CNY / USD / EUR / USDC）
+    onchain_price_base_units BIGINT NULL CHECK (onchain_price_base_units >= 0), -- 链上结算价格（6位精度 USDC）
+    onchain_asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
     payee_address VARCHAR(128) NOT NULL,         -- 收款钱包地址 (EVM 0x...)
     allowed_payment_methods VARCHAR(32) NOT NULL DEFAULT 'both' CHECK (allowed_payment_methods IN ('wallet', 'onchain', 'both')),
     timeout_ms INT NOT NULL DEFAULT 30000,
@@ -204,7 +207,7 @@ CREATE INDEX idx_config_active ON ap_config_version(tenant_id, is_active);
 CREATE TABLE ap_wallet (
     wallet_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL UNIQUE REFERENCES ap_tenant(tenant_id) ON DELETE RESTRICT,
-    asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
+    asset VARCHAR(16) NOT NULL DEFAULT 'USD',    -- 继承自所属租户的本位币 (ap_tenant.currency)
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'frozen', 'frozen_arrears', 'closed')),
     version BIGINT NOT NULL DEFAULT 1,           -- 乐观锁版本号
     available_cache BIGINT NOT NULL DEFAULT 0 CHECK (available_cache >= 0 OR status = 'frozen_arrears'),

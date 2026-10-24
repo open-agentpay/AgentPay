@@ -63,10 +63,16 @@ const metrics = computed(() => {
   };
 });
 
-// Format USDC amount
-function formatUSDC(baseUnits: number): string {
-  if (baseUnits === 0) return '$0.00';
-  return `$${(baseUnits / 1_000_000).toFixed(4)} USDC`;
+// Format amount with tenant base currency (or USDC for onchain)
+function formatUSDC(baseUnits: number, paymentMethod?: string): string {
+  if (paymentMethod === 'onchain') {
+    if (baseUnits === 0) return '0.00 USDC';
+    return `${(baseUnits / 1_000_000).toFixed(4)} USDC`;
+  }
+  const sym = tenantStore.currencySymbol;
+  const code = tenantStore.currentCurrency;
+  if (baseUnits === 0) return `${sym}0.00 ${code}`;
+  return `${sym}${(baseUnits / 1_000_000).toFixed(4)} ${code}`;
 }
 
 // Format date
@@ -424,7 +430,7 @@ watch(
         <el-table-column :label="$t('消费金额')" width="140" align="right">
           <template #default="{ row }">
             <div class="amount-cell">
-              <span class="amount-val">{{ formatUSDC(row.amount_base_units) }}</span>
+              <span class="amount-val">{{ formatUSDC(row.amount_base_units, row.payment_method) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -546,7 +552,7 @@ watch(
                   <span class="mono">{{ activeRecord.project_id }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item :label="$t('意图金额')">
-                  <span class="bold-text">{{ formatUSDC(activeRecord.amount_base_units) }}</span>
+                  <span class="bold-text">{{ formatUSDC(activeRecord.amount_base_units, activeRecord.payment_method) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item :label="$t('创建时间')">
                   {{ formatDate(activeRecord.created_at) }}
@@ -588,7 +594,7 @@ watch(
                   <el-descriptions-item :label="$t('账本流水 (Ledger Entry)')" :span="2" v-if="activeRecord.ledger">
                     <span class="mono">{{ activeRecord.ledger.entry_id }}</span>
                     <el-tag size="small" class="ml-2" :type="activeRecord.ledger.type === 'capture' ? 'success' : 'warning'">
-                      {{ activeRecord.ledger.type }} ({{ activeRecord.ledger.amount > 0 ? '+' : '' }}{{ activeRecord.ledger.amount / 1000000 }} USDC)
+                      {{ activeRecord.ledger.type }} ({{ activeRecord.ledger.amount > 0 ? '+' : '' }}{{ activeRecord.ledger.amount / 1000000 }} {{ tenantStore.currentCurrency }})
                     </el-tag>
                   </el-descriptions-item>
                 </template>
