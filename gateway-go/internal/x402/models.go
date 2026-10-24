@@ -3,9 +3,11 @@
 package x402
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -66,16 +68,123 @@ func ComputeRequestBinding(method string, requestURL *url.URL, body []byte) stri
 	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
+// SignatureData holds components of the EIP-712 / ECDSA signature.
+// Aligned with facilitator-go and agentpay Python client models.
+// Supports both a structured object (v, r, s, serialized, compact) and a hex string ("0x...").
+type SignatureData struct {
+	V          uint8  `json:"v,omitempty"`
+	R          string `json:"r,omitempty"`
+	S          string `json:"s,omitempty"`
+	Serialized string `json:"serialized,omitempty"`
+	Compact    string `json:"compact,omitempty"`
+	rawString  string `json:"-"`
+}
+
+// Hex returns the normalized 0x hex representation of the signature.
+func (s *SignatureData) Hex() string {
+	if s == nil {
+		return ""
+	}
+	if s.Compact != "" {
+		return s.Compact
+	}
+	if s.Serialized != "" {
+		if strings.HasPrefix(s.Serialized, "0x") {
+			return s.Serialized
+		}
+		return "0x" + s.Serialized
+	}
+	if s.R != "" && s.S != "" {
+		rClean := strings.TrimPrefix(s.R, "0x")
+		sClean := strings.TrimPrefix(s.S, "0x")
+		vHex := fmt.Sprintf("%02x", s.V)
+		return "0x" + rClean + sClean + vHex
+	}
+	if s.rawString != "" {
+		return s.rawString
+	}
+	return ""
+}
+
+// IsEmpty checks if signature data is empty.
+func (s *SignatureData) IsEmpty() bool {
+	if s == nil {
+		return true
+	}
+	return s.Hex() == "" && s.V == 0 && s.R == "" && s.S == ""
+}
+
+// NewSignatureFromString constructs a SignatureData from a hex string.
+func NewSignatureFromString(sig string) SignatureData {
+	clean := strings.TrimPrefix(sig, "0x")
+	return SignatureData{
+		Compact:    "0x" + clean,
+		Serialized: clean,
+		rawString:  sig,
+	}
+}
+
+// UnmarshalJSON supports signature as either an object or a hex string.
+func (s *SignatureData) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == `""` || string(data) == "null" {
+		return nil
+	}
+
+	// Handle string format: "0x..."
+	if data[0] == '"' {
+		var str string
+		if err := json.Unmarshal(data, &str); err != nil {
+			return err
+		}
+		s.rawString = str
+		clean := strings.TrimPrefix(str, "0x")
+		s.Serialized = clean
+		s.Compact = "0x" + clean
+		return nil
+	}
+
+	// Handle object format: {"v": 28, "r": "...", ...}
+	type Alias SignatureData
+	var alias Alias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*s = SignatureData(alias)
+	if s.Compact == "" && s.Serialized != "" {
+		s.Compact = "0x" + strings.TrimPrefix(s.Serialized, "0x")
+	}
+	return nil
+}
+
+// MarshalJSON marshals signature as an object if components exist, or as string if only raw string exists.
+func (s SignatureData) MarshalJSON() ([]byte, error) {
+	if s.V != 0 || s.R != "" || s.S != "" {
+		type Alias SignatureData
+		return json.Marshal(Alias(s))
+	}
+	if s.Compact != "" {
+		return json.Marshal(s.Compact)
+	}
+	if s.Serialized != "" {
+		return json.Marshal(s.Serialized)
+	}
+	if s.rawString != "" {
+		return json.Marshal(s.rawString)
+	}
+	return []byte(`""`), nil
+}
+
 // PaymentAuthorization represents the buyer's signed payment authorization payload.
 type PaymentAuthorization struct {
-	Version     string `json:"version"`
-	ChallengeID string `json:"challengeId"`
-	Payer       string `json:"payer"`  // Payer signer address
-	Scheme      string `json:"scheme"` // EIP-3009
-	Nonce       string `json:"nonce"`  // 32-byte hex nonce
-	ValidAfter  int64  `json:"validAfter"`
-	ValidBefore int64  `json:"validBefore"`
-	Signature   string `json:"signature"` // Serialized signature (0x...)
+	Version     string        `json:"version"`
+	ChallengeID string        `json:"challengeId"`
+	Payer       string        `json:"payer"`  // Payer signer address
+	Scheme      string        `json:"scheme"` // EIP-3009
+	Nonce       string        `json:"nonce"`  // 32-byte hex nonce
+	ValidAfter  int64         `json:"validAfter"`
+	ValidBefore int64         `json:"validBefore"`
+	Signature   SignatureData `json:"signature"` // Serialized signature (0x...) or structured object
 }
 
 // NewChallenge generates a fresh PaymentChallenge with a random challenge ID.

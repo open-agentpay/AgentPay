@@ -46,6 +46,12 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		clientIP = r.RemoteAddr
 	}
 
+	// Public Read-Only Marketplace Discovery Endpoints
+	if strings.HasPrefix(path, "/api/v1/public/marketplace") {
+		NewPublicMarketplaceHandler(h.svc).ServeHTTP(w, r)
+		return
+	}
+
 	// 0. Auth endpoints
 	if path == "/api/v1/auth/register" && method == http.MethodPost {
 		var body struct {

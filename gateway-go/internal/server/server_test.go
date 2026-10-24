@@ -13,6 +13,7 @@ import (
 	"github.com/open-agentpay/agentpay-gateway-go/internal/config"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/metrics"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/rcu"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/x402"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -257,5 +258,36 @@ func TestServerRejectsEmptyJWTSecret(t *testing.T) {
 	_, err = New(&cfg, rcuMgr, m)
 	if err == nil {
 		t.Fatalf("expected server.New to fail when JWT secret is empty, got nil")
+	}
+}
+
+func TestServerNewWiresFacilitatorVerifier(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Auth.JWTSecret = "test-secret-at-least-32-characters-long"
+	cfg.Facilitator.URL = "http://127.0.0.1:8001"
+	cfg.Facilitator.TimeoutSeconds = 5.0
+
+	snap := &rcu.ConfigSnapshot{
+		SchemaVersion: "2.0.0",
+		TenantID:      "ten_default",
+		VersionID:     "ver_init",
+		Routes:        []rcu.RouteConfig{},
+	}
+	rcuMgr, err := rcu.NewManager(snap)
+	if err != nil {
+		t.Fatalf("failed to init rcu: %v", err)
+	}
+
+	srv, err := New(&cfg, rcuMgr, metrics.New())
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	verifier := srv.processor.GetVerifier()
+	if verifier == nil {
+		t.Fatalf("expected non-nil verifier")
+	}
+	if _, ok := verifier.(*x402.FacilitatorVerifier); !ok {
+		t.Errorf("expected processor verifier to be *x402.FacilitatorVerifier, got %T", verifier)
 	}
 }

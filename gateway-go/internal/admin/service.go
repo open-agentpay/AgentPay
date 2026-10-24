@@ -77,6 +77,10 @@ type Service interface {
 	UpdateRoute(ctx context.Context, input *UpdateRouteInput, actorMemberID string) (*Route, error)
 	DeleteRoute(ctx context.Context, tenantID, routeID, actorMemberID string) error
 
+	// Public Marketplace (Read-Only Discovery)
+	ListMarketplaceRoutes(ctx context.Context, filter MarketplaceFilter) ([]*MarketplaceRouteItem, error)
+	GetMarketplaceRouteBySlug(ctx context.Context, slug string) (*MarketplaceRouteItem, error)
+
 	// Policies
 	CreatePolicy(ctx context.Context, pol *Policy, actorMemberID string) (*Policy, error)
 	GetPolicy(ctx context.Context, tenantID, policyID string) (*Policy, error)
@@ -1374,6 +1378,21 @@ func (s *MemoryService) CreateRoute(ctx context.Context, r *Route, actorMemberID
 	}
 	r.PathPattern = cleanPath
 	r.UpstreamURL = cleanUpstream
+	r.Slug = NormalizeSlug(r.Slug, cleanPath)
+	r.Title = DefaultTitleFromSlug(r.Title, r.Slug, cleanPath)
+	if strings.TrimSpace(r.Category) == "" {
+		r.Category = "AI & LLM"
+	} else {
+		r.Category = strings.TrimSpace(r.Category)
+	}
+	if strings.TrimSpace(r.Network) == "" {
+		r.Network = "eip155:421614"
+	} else {
+		r.Network = strings.TrimSpace(r.Network)
+	}
+	if r.Tags == nil {
+		r.Tags = []string{}
+	}
 	if r.TimeoutMs <= 0 {
 		r.TimeoutMs = 30000
 	}
@@ -1430,6 +1449,8 @@ func (s *MemoryService) CreateRoute(ctx context.Context, r *Route, actorMemberID
 
 	s.recordAudit(r.TenantID, actorMemberID, "route.created", "Route", r.RouteID, nil, map[string]interface{}{
 		"path":         r.PathPattern,
+		"slug":         r.Slug,
+		"is_public":    r.IsPublic,
 		"upstream_url": r.UpstreamURL,
 		"price":        r.PriceBaseUnits,
 		"status":       string(r.Status),
@@ -1483,6 +1504,8 @@ func (s *MemoryService) UpdateRoute(ctx context.Context, input *UpdateRouteInput
 
 	before := map[string]interface{}{
 		"project_id":              existing.ProjectID,
+		"slug":                    existing.Slug,
+		"is_public":               existing.IsPublic,
 		"path_pattern":            existing.PathPattern,
 		"upstream_url":            existing.UpstreamURL,
 		"price_base_units":        existing.PriceBaseUnits,
@@ -1508,6 +1531,36 @@ func (s *MemoryService) UpdateRoute(ctx context.Context, input *UpdateRouteInput
 			}
 		}
 		existing.PathPattern = cleanPath
+	}
+
+	if input.Slug != nil {
+		existing.Slug = NormalizeSlug(*input.Slug, existing.PathPattern)
+	} else if existing.Slug == "" {
+		existing.Slug = NormalizeSlug("", existing.PathPattern)
+	}
+
+	if input.Title != nil {
+		existing.Title = DefaultTitleFromSlug(*input.Title, existing.Slug, existing.PathPattern)
+	}
+
+	if input.IsPublic != nil {
+		existing.IsPublic = *input.IsPublic
+	}
+
+	if input.Category != nil {
+		existing.Category = strings.TrimSpace(*input.Category)
+	}
+
+	if input.Tags != nil {
+		existing.Tags = input.Tags
+	}
+
+	if input.DescriptionMD != nil {
+		existing.DescriptionMD = *input.DescriptionMD
+	}
+
+	if input.Network != nil && strings.TrimSpace(*input.Network) != "" {
+		existing.Network = strings.TrimSpace(*input.Network)
 	}
 
 	if input.UpstreamURL != nil {
@@ -1610,6 +1663,8 @@ func (s *MemoryService) UpdateRoute(ctx context.Context, input *UpdateRouteInput
 
 	s.recordAudit(input.TenantID, actorMemberID, "route.updated", "Route", input.RouteID, before, map[string]interface{}{
 		"path_pattern":            existing.PathPattern,
+		"slug":                    existing.Slug,
+		"is_public":               existing.IsPublic,
 		"upstream_url":            existing.UpstreamURL,
 		"price_base_units":        existing.PriceBaseUnits,
 		"payee_address":           existing.PayeeAddress,
@@ -1756,6 +1811,7 @@ func (s *MemoryService) syncRCULocked() error {
 				RouteID:               r.RouteID,
 				TenantID:              r.TenantID,
 				ProjectID:             r.ProjectID,
+				Network:               r.Network,
 				PathPattern:           r.PathPattern,
 				UpstreamURL:           r.UpstreamURL,
 				PriceBaseUnits:        r.PriceBaseUnits,
@@ -2481,6 +2537,7 @@ func (s *MemoryService) PublishConfig(ctx context.Context, tenantID string, chan
 		rcuRoutes = append(rcuRoutes, rcu.RouteConfig{
 			RouteID:               r.RouteID,
 			ProjectID:             r.ProjectID,
+			Network:               r.Network,
 			PathPattern:           r.PathPattern,
 			UpstreamURL:           r.UpstreamURL,
 			PriceBaseUnits:        r.PriceBaseUnits,

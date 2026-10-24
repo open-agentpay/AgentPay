@@ -264,7 +264,7 @@ func TestOnChainPaymentSignatureAndNonceReplayGuard(t *testing.T) {
 		Nonce:       "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
 		ValidAfter:  now - 10,
 		ValidBefore: now + 300,
-		Signature:   "0xmock_signature",
+		Signature:   NewSignatureFromString("0xmock_signature"),
 	}
 	authHeader, _ := EncodeAuthorization(auth, true)
 

@@ -359,7 +359,7 @@ func TestOnChainIdempotencyAndAntiRollback(t *testing.T) {
 		Nonce:       "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
 		ValidAfter:  now - 60,
 		ValidBefore: now + 300,
-		Signature:   "0xmock_signature",
+		Signature:   NewSignatureFromString("0xmock_signature"),
 	}
 	encodedAuth, _ := EncodeAuthorization(auth, true)
 	idemKey := "key_onchain_fault_001"

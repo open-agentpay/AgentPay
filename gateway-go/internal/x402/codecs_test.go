@@ -97,7 +97,7 @@ func TestAuthorizationCodecsRoundtrip(t *testing.T) {
 		Nonce:       "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 		ValidAfter:  1729000000,
 		ValidBefore: 1729000300,
-		Signature:   "0xd90ab6b3serialized",
+		Signature:   NewSignatureFromString("0xd90ab6b3serialized"),
 	}
 
 	encoded, err := EncodeAuthorization(auth, true)
@@ -111,5 +111,53 @@ func TestAuthorizationCodecsRoundtrip(t *testing.T) {
 	}
 	if parsed.Payer != auth.Payer || parsed.Nonce != auth.Nonce {
 		t.Errorf("auth fields mismatch: %+v", parsed)
+	}
+	if parsed.Signature.Hex() != "0xd90ab6b3serialized" {
+		t.Errorf("expected signature hex 0xd90ab6b3serialized, got %s", parsed.Signature.Hex())
+	}
+}
+
+func TestDecodeAuthorizationWithStructuredSignatureObject(t *testing.T) {
+	// Payload with signature as an object (v, r, s, serialized, compact), as sent by Python/TypeScript SDKs
+	rawJSON := `{
+		"version": "2.0",
+		"challengeId": "ch_0b9b3a11bf5f0a4b929300f0",
+		"payer": "0x90f8bf6a479f320ead074411a4b0e7944ea8c9c1",
+		"scheme": "EIP-3009",
+		"nonce": "0x779a25ffef341f1b78c6a5bfdced2fe1b08def5327b13a4808c6742c2ed1ed1a",
+		"validAfter": 1792839979,
+		"validBefore": 1792840279,
+		"signature": {
+			"v": 28,
+			"r": "0x4e7d0b7600c3764fc84853832c295cdab973e09f469fc99edd0d95d401adbac4",
+			"s": "0x0da592de707c994d029160d97dc38f00b9ba9c3bcdc97369b151aa63bf28ca89",
+			"serialized": "4e7d0b7600c3764fc84853832c295cdab973e09f469fc99edd0d95d401adbac40da592de707c994d029160d97dc38f00b9ba9c3bcdc97369b151aa63bf28ca891c",
+			"compact": "0x4e7d0b7600c3764fc84853832c295cdab973e09f469fc99edd0d95d401adbac40da592de707c994d029160d97dc38f00b9ba9c3bcdc97369b151aa63bf28ca891c"
+		}
+	}`
+
+	auth, err := DecodeAuthorization(rawJSON)
+	if err != nil {
+		t.Fatalf("failed to decode authorization with object signature: %v", err)
+	}
+
+	if auth.Signature.V != 28 {
+		t.Errorf("expected signature V=28, got %d", auth.Signature.V)
+	}
+	if auth.Signature.R != "0x4e7d0b7600c3764fc84853832c295cdab973e09f469fc99edd0d95d401adbac4" {
+		t.Errorf("unexpected R: %s", auth.Signature.R)
+	}
+	if auth.Signature.Compact != "0x4e7d0b7600c3764fc84853832c295cdab973e09f469fc99edd0d95d401adbac40da592de707c994d029160d97dc38f00b9ba9c3bcdc97369b151aa63bf28ca891c" {
+		t.Errorf("unexpected Compact: %s", auth.Signature.Compact)
+	}
+
+	// Base64URL encoded format test
+	encodedBase64 := Base64URLEncode([]byte(rawJSON))
+	authB64, err := DecodeAuthorization(encodedBase64)
+	if err != nil {
+		t.Fatalf("failed to decode base64 authorization: %v", err)
+	}
+	if authB64.Signature.V != 28 {
+		t.Errorf("expected b64 signature V=28, got %d", authB64.Signature.V)
 	}
 }

@@ -57,7 +57,7 @@ func NewPostgresService(db *sql.DB, agentReg *agent.Registry, walletSvc wallet.S
 
 // initSync loads active agents and active API keys from PostgreSQL into the fast-path in-memory registry.
 func (p *PostgresService) initSync(ctx context.Context) error {
-	// 0. Ensure api_auth_configs table exists for upstream auth storage
+	// 0. Ensure api_auth_configs table and marketplace columns on ap_route exist
 	_, _ = p.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS api_auth_configs (
 			id VARCHAR(64) PRIMARY KEY,
@@ -71,6 +71,14 @@ func (p *PostgresService) initSync(ctx context.Context) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_api_auth_configs_tenant ON api_auth_configs(tenant_id);
 		CREATE INDEX IF NOT EXISTS idx_api_auth_configs_api ON api_auth_configs(api_id);
+
+		ALTER TABLE ap_route ADD COLUMN IF NOT EXISTS slug VARCHAR(128) NULL;
+		ALTER TABLE ap_route ADD COLUMN IF NOT EXISTS title VARCHAR(256) NOT NULL DEFAULT '';
+		ALTER TABLE ap_route ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE;
+		ALTER TABLE ap_route ADD COLUMN IF NOT EXISTS category VARCHAR(64) NOT NULL DEFAULT 'General';
+		ALTER TABLE ap_route ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+		ALTER TABLE ap_route ADD COLUMN IF NOT EXISTS description_md TEXT NOT NULL DEFAULT '';
+		ALTER TABLE ap_route ADD COLUMN IF NOT EXISTS network VARCHAR(64) NOT NULL DEFAULT 'eip155:421614';
 	`)
 
 	if p.agentReg == nil {
@@ -1521,6 +1529,21 @@ func (p *PostgresService) CreateRoute(ctx context.Context, route *Route, actorMe
 	if route.RouteID == "" {
 		route.RouteID = GenerateRouteID()
 	}
+	route.Slug = NormalizeSlug(route.Slug, cleanPath)
+	route.Title = DefaultTitleFromSlug(route.Title, route.Slug, cleanPath)
+	if strings.TrimSpace(route.Category) == "" {
+		route.Category = "AI & LLM"
+	} else {
+		route.Category = strings.TrimSpace(route.Category)
+	}
+	if strings.TrimSpace(route.Network) == "" {
+		route.Network = "eip155:421614"
+	} else {
+		route.Network = strings.TrimSpace(route.Network)
+	}
+	if route.Tags == nil {
+		route.Tags = []string{}
+	}
 	if route.AllowedPaymentMethods == "" {
 		route.AllowedPaymentMethods = "both"
 	}
@@ -1559,11 +1582,17 @@ func (p *PostgresService) CreateRoute(ctx context.Context, route *Route, actorMe
 	if onchainAsset == "" {
 		onchainAsset = "USDC"
 	}
+	tagsJSON, _ := json.Marshal(route.Tags)
 
 	_, err := p.db.ExecContext(ctx, `
-		INSERT INTO ap_route (route_id, tenant_id, project_id, path_pattern, upstream_url, price_base_units, asset, onchain_price_base_units, onchain_asset, payee_address, allowed_payment_methods, timeout_ms, rate_limit_rpm, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15);
-	`, route.RouteID, route.TenantID, route.ProjectID, cleanPath, route.UpstreamURL, route.PriceBaseUnits, route.Asset, onchainPrice, onchainAsset, route.PayeeAddress, route.AllowedPaymentMethods, route.TimeoutMs, route.RateLimitRPM, string(route.Status), now)
+		INSERT INTO ap_route (
+			route_id, tenant_id, project_id, slug, title, is_public, category, tags, description_md, network,
+			path_pattern, upstream_url, price_base_units, asset, onchain_price_base_units, onchain_asset,
+			payee_address, allowed_payment_methods, timeout_ms, rate_limit_rpm, status, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $22);
+	`, route.RouteID, route.TenantID, route.ProjectID, route.Slug, route.Title, route.IsPublic, route.Category, tagsJSON, route.DescriptionMD, route.Network,
+		cleanPath, route.UpstreamURL, route.PriceBaseUnits, route.Asset, onchainPrice, onchainAsset,
+		route.PayeeAddress, route.AllowedPaymentMethods, route.TimeoutMs, route.RateLimitRPM, string(route.Status), now)
 	if err != nil {
 		return nil, err
 	}
@@ -1605,14 +1634,16 @@ func (p *PostgresService) CreateRoute(ctx context.Context, route *Route, actorMe
 		}
 	}
 
-	p.recordAudit(ctx, route.TenantID, actorMemberID, "route.created", "Route", route.RouteID, nil, map[string]interface{}{"path": cleanPath}, "127.0.0.1")
+	p.recordAudit(ctx, route.TenantID, actorMemberID, "route.created", "Route", route.RouteID, nil, map[string]interface{}{"path": cleanPath, "slug": route.Slug, "is_public": route.IsPublic}, "127.0.0.1")
 	_ = p.SyncRCU(ctx)
 	return route, nil
 }
 
 func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string) (*Route, error) {
 	query := `
-		SELECT r.route_id, r.tenant_id, r.project_id, r.path_pattern, r.upstream_url, r.price_base_units, r.asset,
+		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''), r.is_public,
+		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''), COALESCE(r.network, 'eip155:421614'),
+		       r.path_pattern, r.upstream_url, r.price_base_units, r.asset,
 		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm, r.status,
 		       EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
 		       c.type, c.params, c.secret_enc, c.key_version, EXTRACT(EPOCH FROM c.updated_at)::bigint
@@ -1621,6 +1652,7 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 		WHERE r.route_id = $1;
 	`
 	var r Route
+	var tagsBytes []byte
 	var onchainPrice sql.NullInt64
 	var onchainAsset sql.NullString
 	var cType sql.NullString
@@ -1628,7 +1660,9 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 	var cKeyVersion, cUpdatedAt sql.NullInt64
 
 	err := p.db.QueryRowContext(ctx, query, routeID).Scan(
-		&r.RouteID, &r.TenantID, &r.ProjectID, &r.PathPattern, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
+		&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title, &r.IsPublic,
+		&r.Category, &tagsBytes, &r.DescriptionMD, &r.Network,
+		&r.PathPattern, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
 		&onchainPrice, &onchainAsset, &r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM, &r.Status, &r.CreatedAt, &r.UpdatedAt,
 		&cType, &cParamsBytes, &cSecretEnc, &cKeyVersion, &cUpdatedAt,
 	)
@@ -1641,6 +1675,14 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 	if tenantID != "" && r.TenantID != tenantID {
 		return nil, ErrRouteNotFound
 	}
+	if len(tagsBytes) > 0 {
+		_ = json.Unmarshal(tagsBytes, &r.Tags)
+	}
+	if r.Tags == nil {
+		r.Tags = []string{}
+	}
+	r.Slug = NormalizeSlug(r.Slug, r.PathPattern)
+	r.Title = DefaultTitleFromSlug(r.Title, r.Slug, r.PathPattern)
 	if onchainPrice.Valid {
 		v := onchainPrice.Int64
 		r.OnchainPriceBaseUnits = &v
@@ -1668,7 +1710,9 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 
 func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*Route, error) {
 	query := `
-		SELECT r.route_id, r.tenant_id, r.project_id, r.path_pattern, r.upstream_url, r.price_base_units, r.asset,
+		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''), r.is_public,
+		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''), COALESCE(r.network, 'eip155:421614'),
+		       r.path_pattern, r.upstream_url, r.price_base_units, r.asset,
 		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm, r.status,
 		       EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
 		       c.type, c.params, c.secret_enc, c.key_version, EXTRACT(EPOCH FROM c.updated_at)::bigint
@@ -1686,6 +1730,7 @@ func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*R
 	routes := make([]*Route, 0)
 	for rows.Next() {
 		var r Route
+		var tagsBytes []byte
 		var onchainPrice sql.NullInt64
 		var onchainAsset sql.NullString
 		var cType sql.NullString
@@ -1693,12 +1738,22 @@ func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*R
 		var cKeyVersion, cUpdatedAt sql.NullInt64
 
 		if err := rows.Scan(
-			&r.RouteID, &r.TenantID, &r.ProjectID, &r.PathPattern, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
+			&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title, &r.IsPublic,
+			&r.Category, &tagsBytes, &r.DescriptionMD, &r.Network,
+			&r.PathPattern, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
 			&onchainPrice, &onchainAsset, &r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM, &r.Status, &r.CreatedAt, &r.UpdatedAt,
 			&cType, &cParamsBytes, &cSecretEnc, &cKeyVersion, &cUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
+		if len(tagsBytes) > 0 {
+			_ = json.Unmarshal(tagsBytes, &r.Tags)
+		}
+		if r.Tags == nil {
+			r.Tags = []string{}
+		}
+		r.Slug = NormalizeSlug(r.Slug, r.PathPattern)
+		r.Title = DefaultTitleFromSlug(r.Title, r.Slug, r.PathPattern)
 		if onchainPrice.Valid {
 			v := onchainPrice.Int64
 			r.OnchainPriceBaseUnits = &v
@@ -1738,7 +1793,7 @@ func (p *PostgresService) UpdateRoute(ctx context.Context, input *UpdateRouteInp
 		return nil, err
 	}
 
-	before := map[string]interface{}{"path": r.PathPattern, "upstream": r.UpstreamURL, "price": r.PriceBaseUnits}
+	before := map[string]interface{}{"path": r.PathPattern, "slug": r.Slug, "is_public": r.IsPublic, "upstream": r.UpstreamURL, "price": r.PriceBaseUnits}
 
 	if input.PathPattern != nil {
 		clean := strings.TrimSpace(*input.PathPattern)
@@ -1748,6 +1803,29 @@ func (p *PostgresService) UpdateRoute(ctx context.Context, input *UpdateRouteInp
 			return nil, ErrRouteAlreadyExists
 		}
 		r.PathPattern = clean
+	}
+	if input.Slug != nil {
+		r.Slug = NormalizeSlug(*input.Slug, r.PathPattern)
+	} else if r.Slug == "" {
+		r.Slug = NormalizeSlug("", r.PathPattern)
+	}
+	if input.Title != nil {
+		r.Title = DefaultTitleFromSlug(*input.Title, r.Slug, r.PathPattern)
+	}
+	if input.IsPublic != nil {
+		r.IsPublic = *input.IsPublic
+	}
+	if input.Category != nil {
+		r.Category = strings.TrimSpace(*input.Category)
+	}
+	if input.Tags != nil {
+		r.Tags = input.Tags
+	}
+	if input.DescriptionMD != nil {
+		r.DescriptionMD = *input.DescriptionMD
+	}
+	if input.Network != nil && strings.TrimSpace(*input.Network) != "" {
+		r.Network = strings.TrimSpace(*input.Network)
 	}
 	if input.UpstreamURL != nil {
 		r.UpstreamURL = *input.UpstreamURL
@@ -1789,12 +1867,18 @@ func (p *PostgresService) UpdateRoute(ctx context.Context, input *UpdateRouteInp
 	if onchainAsset == "" {
 		onchainAsset = "USDC"
 	}
+	tagsJSON, _ := json.Marshal(r.Tags)
 
 	_, err = p.db.ExecContext(ctx, `
 		UPDATE ap_route
-		SET path_pattern = $1, upstream_url = $2, price_base_units = $3, asset = $4, onchain_price_base_units = $5, onchain_asset = $6, payee_address = $7, allowed_payment_methods = $8, timeout_ms = $9, rate_limit_rpm = $10, status = $11, updated_at = NOW()
-		WHERE route_id = $12;
-	`, r.PathPattern, r.UpstreamURL, r.PriceBaseUnits, r.Asset, onchainPrice, onchainAsset, r.PayeeAddress, r.AllowedPaymentMethods, r.TimeoutMs, r.RateLimitRPM, string(r.Status), input.RouteID)
+		SET path_pattern = $1, upstream_url = $2, price_base_units = $3, asset = $4, onchain_price_base_units = $5, onchain_asset = $6,
+		    payee_address = $7, allowed_payment_methods = $8, timeout_ms = $9, rate_limit_rpm = $10, status = $11,
+		    slug = $12, title = $13, is_public = $14, category = $15, tags = $16, description_md = $17, network = $18,
+		    updated_at = NOW()
+		WHERE route_id = $19;
+	`, r.PathPattern, r.UpstreamURL, r.PriceBaseUnits, r.Asset, onchainPrice, onchainAsset,
+		r.PayeeAddress, r.AllowedPaymentMethods, r.TimeoutMs, r.RateLimitRPM, string(r.Status),
+		r.Slug, r.Title, r.IsPublic, r.Category, tagsJSON, r.DescriptionMD, r.Network, input.RouteID)
 	if err != nil {
 		return nil, err
 	}
@@ -2361,6 +2445,7 @@ func (p *PostgresService) PublishConfig(ctx context.Context, tenantID string, ch
 		rcuRoutes = append(rcuRoutes, rcu.RouteConfig{
 			RouteID:               r.RouteID,
 			ProjectID:             r.ProjectID,
+			Network:               r.Network,
 			PathPattern:           r.PathPattern,
 			UpstreamURL:           r.UpstreamURL,
 			PriceBaseUnits:        r.PriceBaseUnits,

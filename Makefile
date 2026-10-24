@@ -44,6 +44,16 @@ gateway-test:
 gateway-clean:
 	$(MAKE) -C gateway-go clean
 
+# Go Facilitator targets
+facilitator-build:
+	cd facilitator-go && go build -o bin/facilitator ./cmd/facilitator
+
+facilitator-test:
+	cd facilitator-go && go test -v ./...
+
+facilitator-clean:
+	rm -rf facilitator-go/bin
+
 # Console targets (Vue 3 + Element Plus)
 console-dev:
 	npm --prefix console run dev
@@ -53,6 +63,16 @@ console-build:
 
 console-test:
 	npm --prefix console run test
+
+# Marketplace targets (Next.js 15)
+marketplace-dev:
+	npm --prefix marketplace-web run dev
+
+marketplace-build:
+	npm --prefix marketplace-web run build
+
+marketplace-lint:
+	npm --prefix marketplace-web run lint
 
 # Docker build & Compose targets
 docker-build:

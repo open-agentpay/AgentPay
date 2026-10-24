@@ -73,6 +73,54 @@ services:
     networks:
       - agentpay-net
 
+  marketplace:
+    image: ${DOCKER_REGISTRY:-openagentpay}/marketplace:${IMAGE_TAG:-latest}
+    container_name: agentpay-marketplace
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      GATEWAY_INTERNAL_URL: http://gateway:8000
+      NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-https://gate.openagentpay.dev}
+      NEXT_PUBLIC_CONSOLE_URL: ${NEXT_PUBLIC_CONSOLE_URL:-https://console.openagentpay.dev}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://openagentpay.dev}
+    ports:
+      - "${MARKETPLACE_PORT:-3001}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      - agentpay-net
+
+  facilitator:
+    image: ${DOCKER_REGISTRY:-openagentpay}/facilitator:${IMAGE_TAG:-latest}
+    container_name: agentpay-facilitator
+    restart: unless-stopped
+    environment:
+      FACILITATOR_HOST: "0.0.0.0"
+      FACILITATOR_PORT: 8001
+      RPC_URL: ${RPC_URL:-https://sepolia-rollup.arbitrum.io/rpc}
+      CHAIN_ID: ${CHAIN_ID:-421614}
+      USDC_ADDRESS: ${USDC_ADDRESS:-0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d}
+      FACILITATOR_PRIVATE_KEY: ${FACILITATOR_PRIVATE_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${FACILITATOR_PORT:-8001}:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8001/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      - agentpay-net
+
 volumes:
   postgres_data:
     driver: local

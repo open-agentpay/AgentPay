@@ -7,6 +7,13 @@ export interface Route {
   route_id: string;
   tenant_id: string;
   project_id: string;
+  slug?: string;
+  title?: string;
+  is_public?: boolean;
+  category?: string;
+  tags?: string[];
+  description_md?: string;
+  network?: string;
   path_pattern: string;
   upstream_url: string;
   price_base_units: number;
@@ -25,6 +32,13 @@ export interface Route {
 
 export interface CreateRoutePayload {
   project_id: string;
+  slug?: string;
+  title?: string;
+  is_public?: boolean;
+  category?: string;
+  tags?: string[];
+  description_md?: string;
+  network?: string;
   path_pattern: string;
   upstream_url: string;
   price_base_units: number;
@@ -41,6 +55,13 @@ export interface CreateRoutePayload {
 
 export interface UpdateRoutePayload {
   project_id?: string;
+  slug?: string;
+  title?: string;
+  is_public?: boolean;
+  category?: string;
+  tags?: string[];
+  description_md?: string;
+  network?: string;
   path_pattern?: string;
   upstream_url?: string;
   price_base_units?: number;

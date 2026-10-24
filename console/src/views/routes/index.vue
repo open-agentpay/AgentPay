@@ -256,6 +256,20 @@ const routeRules: FormRules = {
   rate_limit_rpm: [{ required: true, message: t('请输入频控限制'), trigger: 'blur' }]
 };
 
+const marketplaceCategories = [
+  { label: 'AI & LLM (模型与推理)', value: 'AI & LLM' },
+  { label: 'Crypto & On-Chain Data (链上与行情数据)', value: 'Crypto & On-Chain Data' },
+  { label: 'Web Scraping & Search (网页抓取与搜索)', value: 'Web Scraping & Search' },
+  { label: 'Financial & Market Intel (金融与研报)', value: 'Financial & Market Intel' },
+  { label: 'Compute & Developer Tools (算力与开发工具)', value: 'Compute & Developer Tools' }
+];
+
+const marketplaceNetworks = [
+  { label: 'Base Mainnet / Sepolia (eip155:84532)', value: 'eip155:84532' },
+  { label: 'Arbitrum Sepolia (eip155:421614)', value: 'eip155:421614' },
+  { label: 'Solana (solana:mainnet)', value: 'solana:mainnet' }
+];
+
 // ----------------------------------------------------------------------------
 // Create Route Dialog
 // ----------------------------------------------------------------------------
@@ -264,6 +278,13 @@ const createLoading = ref(false);
 const createFormRef = ref<FormInstance>();
 const createForm = reactive({
   project_id: '',
+  slug: '',
+  title: '',
+  is_public: true,
+  category: 'AI & LLM',
+  tags: ['x402', 'USDC'] as string[],
+  description_md: '',
+  network: 'eip155:84532',
   path_pattern: '',
   upstream_url: '',
   price_usdc: 0.05,
@@ -278,6 +299,13 @@ const createForm = reactive({
 
 function openCreateDialog() {
   createForm.project_id = tenantStore.currentProject?.project_id || (tenantStore.projects[0]?.project_id ?? '');
+  createForm.slug = '';
+  createForm.title = '';
+  createForm.is_public = true;
+  createForm.category = 'AI & LLM';
+  createForm.tags = ['x402', 'USDC'];
+  createForm.description_md = '';
+  createForm.network = 'eip155:84532';
   createForm.path_pattern = '';
   createForm.upstream_url = '';
   createForm.price_usdc = 0.05;
@@ -307,6 +335,13 @@ async function handleCreateRoute() {
           : priceBaseUnits;
       const payload: CreateRoutePayload = {
         project_id: createForm.project_id,
+        slug: createForm.slug.trim() || undefined,
+        title: createForm.title.trim() || undefined,
+        is_public: createForm.is_public,
+        category: createForm.category,
+        tags: createForm.tags,
+        description_md: createForm.description_md.trim() || undefined,
+        network: createForm.network,
         path_pattern: createForm.path_pattern.trim(),
         upstream_url: createForm.upstream_url.trim(),
         price_base_units: priceBaseUnits,
@@ -344,6 +379,13 @@ const editFormRef = ref<FormInstance>();
 const editingRouteId = ref('');
 const editForm = reactive({
   project_id: '',
+  slug: '',
+  title: '',
+  is_public: false,
+  category: 'AI & LLM',
+  tags: [] as string[],
+  description_md: '',
+  network: 'eip155:84532',
   path_pattern: '',
   upstream_url: '',
   price_usdc: 0.05,
@@ -360,6 +402,13 @@ const editForm = reactive({
 function openEditDialog(route: Route) {
   editingRouteId.value = route.route_id;
   editForm.project_id = route.project_id;
+  editForm.slug = route.slug || '';
+  editForm.title = route.title || '';
+  editForm.is_public = Boolean(route.is_public);
+  editForm.category = route.category || 'AI & LLM';
+  editForm.tags = Array.isArray(route.tags) ? [...route.tags] : [];
+  editForm.description_md = route.description_md || '';
+  editForm.network = route.network || 'eip155:84532';
   editForm.path_pattern = route.path_pattern;
   editForm.upstream_url = route.upstream_url;
   editForm.price_usdc = route.price_base_units / 1000000;
@@ -392,6 +441,13 @@ async function handleUpdateRoute() {
           : priceBaseUnits;
       const payload: UpdateRoutePayload = {
         project_id: editForm.project_id,
+        slug: editForm.slug.trim(),
+        title: editForm.title.trim(),
+        is_public: editForm.is_public,
+        category: editForm.category,
+        tags: editForm.tags,
+        description_md: editForm.description_md.trim(),
+        network: editForm.network,
         path_pattern: editForm.path_pattern.trim(),
         upstream_url: editForm.upstream_url.trim(),
         price_base_units: priceBaseUnits,
@@ -608,7 +664,27 @@ function copyToClipboard(text: string) {
       <el-table v-loading="loading" :data="filteredRoutes" stripe style="width: 100%">
         <el-table-column prop="path_pattern" :label="$t('暴露路径')" min-width="200">
           <template #default="{ row }">
-            <code class="code-path">{{ row.path_pattern }}</code>
+            <div>
+              <code class="code-path">{{ row.path_pattern }}</code>
+              <div v-if="row.title" class="text-muted" style="font-size: 12px; margin-top: 2px">
+                {{ row.title }}
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="$t('功能商店 (Marketplace)')" min-width="190">
+          <template #default="{ row }">
+            <div v-if="row.is_public" style="display: flex; flex-direction: column; gap: 4px">
+              <div>
+                <el-tag size="small" type="success" effect="light">已上架公开商店</el-tag>
+                <el-tag v-if="row.category" size="small" type="info" style="margin-left: 4px">
+                  {{ row.category }}
+                </el-tag>
+              </div>
+              <code v-if="row.slug" style="font-size: 11px; color: #0284c7">/hub/{{ row.slug }}</code>
+            </div>
+            <el-tag v-else size="small" type="info" effect="plain">仅私有内部调用</el-tag>
           </template>
         </el-table-column>
 
@@ -765,14 +841,14 @@ function copyToClipboard(text: string) {
     <el-dialog
       v-model="createDialogVisible"
       :title="$t('新建代理路由')"
-      width="640px"
+      width="680px"
       :close-on-click-modal="false"
     >
       <el-form
         ref="createFormRef"
         :model="createForm"
         :rules="routeRules"
-        label-width="120px"
+        label-width="130px"
         status-icon
       >
         <el-form-item :label="$t('所属项目')" prop="project_id">
@@ -805,6 +881,91 @@ function copyToClipboard(text: string) {
           />
           <div class="form-hint">{{ $t('网关收到校验通过的请求后转发的目标真实后端地址') }}</div>
         </el-form-item>
+
+        <!-- 功能商店 (Marketplace & GEO) 配置区 -->
+        <el-divider content-position="left">OpenAgentPay 功能商店与 GEO 展示配置</el-divider>
+
+        <el-form-item label="上架公开商店">
+          <el-switch
+            v-model="createForm.is_public"
+            active-text="公开展示 (上架 openagentpay.dev/hub 与 /llms.txt)"
+            inactive-text="仅私有路由"
+          />
+        </el-form-item>
+
+        <template v-if="createForm.is_public">
+          <el-form-item label="商品名称 (Title)">
+            <el-input
+              v-model="createForm.title"
+              placeholder="例如: Solana Smart Money Tracker X402 API"
+              clearable
+            />
+          </el-form-item>
+
+          <el-form-item label="语义化别名 (Slug)">
+            <el-input
+              v-model="createForm.slug"
+              placeholder="例如: solana-smart-money-tracker-x402-api (留空将自动根据路径生成)"
+              clearable
+            >
+              <template #prepend>/hub/</template>
+            </el-input>
+            <div class="form-hint">用于生成高权重 GEO 详情页 URL 与 SDK route 标识</div>
+          </el-form-item>
+
+          <el-form-item label="商店分类">
+            <el-select v-model="createForm.category" style="width: 100%">
+              <el-option
+                v-for="cat in marketplaceCategories"
+                :key="cat.value"
+                :label="cat.label"
+                :value="cat.value"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="结算链网络">
+            <el-select v-model="createForm.network" style="width: 100%">
+              <el-option
+                v-for="net in marketplaceNetworks"
+                :key="net.value"
+                :label="net.label"
+                :value="net.value"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="检索标签 (Tags)">
+            <el-select
+              v-model="createForm.tags"
+              multiple
+              filterable
+              allow-create
+              default-first-option
+              placeholder="输入标签后回车，例如 Solana、Smart Money、x402"
+              style="width: 100%"
+            >
+              <el-option label="x402" value="x402" />
+              <el-option label="USDC" value="USDC" />
+              <el-option label="Solana" value="Solana" />
+              <el-option label="Base" value="Base" />
+              <el-option label="Arbitrum" value="Arbitrum" />
+              <el-option label="LLM" value="LLM" />
+              <el-option label="Web Scraping" value="Web Scraping" />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="语义描述与Schema">
+            <el-input
+              v-model="createForm.description_md"
+              type="textarea"
+              :rows="4"
+              placeholder="支持 Markdown：填写 API 功能定义、入参/出参 JSON Schema 说明，供人类开发者与 AI Agent 理解如何传参调用"
+            />
+          </el-form-item>
+        </template>
+
+        <el-divider content-position="left">上游鉴权与 X402 计费策略</el-divider>
 
         <!-- 上游鉴权方式配置 -->
         <AuthConfigForm
@@ -922,14 +1083,14 @@ function copyToClipboard(text: string) {
     <el-dialog
       v-model="editDialogVisible"
       :title="$t('编辑代理路由配置')"
-      width="640px"
+      width="680px"
       :close-on-click-modal="false"
     >
       <el-form
         ref="editFormRef"
         :model="editForm"
         :rules="routeRules"
-        label-width="120px"
+        label-width="130px"
         status-icon
       >
         <el-form-item :label="$t('所属项目')" prop="project_id">
@@ -952,6 +1113,90 @@ function copyToClipboard(text: string) {
         <el-form-item :label="$t('目标上游URL')" prop="upstream_url">
           <el-input v-model="editForm.upstream_url" clearable />
         </el-form-item>
+
+        <!-- 功能商店 (Marketplace & GEO) 配置区 -->
+        <el-divider content-position="left">OpenAgentPay 功能商店与 GEO 展示配置</el-divider>
+
+        <el-form-item label="上架公开商店">
+          <el-switch
+            v-model="editForm.is_public"
+            active-text="公开展示 (上架 openagentpay.dev/hub 与 /llms.txt)"
+            inactive-text="仅私有路由"
+          />
+        </el-form-item>
+
+        <template v-if="editForm.is_public">
+          <el-form-item label="商品名称 (Title)">
+            <el-input
+              v-model="editForm.title"
+              placeholder="例如: Solana Smart Money Tracker X402 API"
+              clearable
+            />
+          </el-form-item>
+
+          <el-form-item label="语义化别名 (Slug)">
+            <el-input
+              v-model="editForm.slug"
+              placeholder="例如: solana-smart-money-tracker-x402-api"
+              clearable
+            >
+              <template #prepend>/hub/</template>
+            </el-input>
+          </el-form-item>
+
+          <el-form-item label="商店分类">
+            <el-select v-model="editForm.category" style="width: 100%">
+              <el-option
+                v-for="cat in marketplaceCategories"
+                :key="cat.value"
+                :label="cat.label"
+                :value="cat.value"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="结算链网络">
+            <el-select v-model="editForm.network" style="width: 100%">
+              <el-option
+                v-for="net in marketplaceNetworks"
+                :key="net.value"
+                :label="net.label"
+                :value="net.value"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="检索标签 (Tags)">
+            <el-select
+              v-model="editForm.tags"
+              multiple
+              filterable
+              allow-create
+              default-first-option
+              placeholder="输入标签后回车"
+              style="width: 100%"
+            >
+              <el-option label="x402" value="x402" />
+              <el-option label="USDC" value="USDC" />
+              <el-option label="Solana" value="Solana" />
+              <el-option label="Base" value="Base" />
+              <el-option label="Arbitrum" value="Arbitrum" />
+              <el-option label="LLM" value="LLM" />
+              <el-option label="Web Scraping" value="Web Scraping" />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="语义描述与Schema">
+            <el-input
+              v-model="editForm.description_md"
+              type="textarea"
+              :rows="4"
+              placeholder="支持 Markdown：填写 API 功能定义、入参/出参 JSON Schema 说明"
+            />
+          </el-form-item>
+        </template>
+
+        <el-divider content-position="left">上游鉴权与 X402 计费策略</el-divider>
 
         <!-- 上游鉴权方式配置 -->
         <AuthConfigForm

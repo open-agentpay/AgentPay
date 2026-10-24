@@ -167,18 +167,20 @@ func (m *MemoryWalletService) ReleaseFunds(ctx context.Context, holdID string) e
 // PaymentProcessor orchestrates dual-path routing, challenge generation, payment validation,
 // idempotency enforcement, and anti-rollback failure recovery.
 type PaymentProcessor struct {
-	verifier         PaymentVerifier
-	nonceStore       NonceStore
-	walletService    WalletService
-	idempotencyStore idempotency.Store
-	recoveryCoord    *recovery.RecoveryCoordinator
-	proxyHandler     *proxy.Handler
-	metrics          *metrics.Metrics
-	agentRegistry    *agent.Registry
-	agentEnforcer    *agent.Enforcer
-	auditEmitter     agent.AuditEmitter
-	usageService     usage.Service
-	paymentService   payment.Service
+	verifier           PaymentVerifier
+	nonceStore         NonceStore
+	walletService      WalletService
+	idempotencyStore   idempotency.Store
+	recoveryCoord      *recovery.RecoveryCoordinator
+	proxyHandler       *proxy.Handler
+	metrics            *metrics.Metrics
+	agentRegistry      *agent.Registry
+	agentEnforcer      *agent.Enforcer
+	auditEmitter       agent.AuditEmitter
+	usageService       usage.Service
+	paymentService     payment.Service
+	facilitatorURL     string
+	settlementDefaults SettlementDefaults
 }
 
 // NewPaymentProcessor creates an initialized PaymentProcessor with full safety defaults.
@@ -227,6 +229,78 @@ func (p *PaymentProcessor) SetPaymentService(svc payment.Service) {
 // GetPaymentService returns the active payment correlation service.
 func (p *PaymentProcessor) GetPaymentService() payment.Service {
 	return p.paymentService
+}
+
+// SetFacilitatorURL configures the Facilitator clearing endpoint URL.
+func (p *PaymentProcessor) SetFacilitatorURL(url string) {
+	p.facilitatorURL = url
+}
+
+// SetVerifier configures a custom payment verifier.
+func (p *PaymentProcessor) SetVerifier(verifier PaymentVerifier) {
+	if verifier != nil {
+		p.verifier = verifier
+	}
+}
+
+// GetVerifier returns the active payment verifier.
+func (p *PaymentProcessor) GetVerifier() PaymentVerifier {
+	return p.verifier
+}
+
+// GetFacilitatorURL returns the configured Facilitator clearing endpoint URL.
+func (p *PaymentProcessor) GetFacilitatorURL() string {
+	return p.facilitatorURL
+}
+
+// dispatchAsyncSettlement dispatches POST /v1/settle to Facilitator in background to broadcast transaction on-chain.
+func (p *PaymentProcessor) dispatchAsyncSettlement(settlementID string, vToken string, auth *PaymentAuthorization, idemKey string) {
+	if p.facilitatorURL == "" || vToken == "" || auth == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		var fv *FacilitatorVerifier
+		if v, ok := p.verifier.(*FacilitatorVerifier); ok {
+			fv = v
+		} else {
+			fv = NewFacilitatorVerifier(p.facilitatorURL, 15*time.Second)
+		}
+
+		res, err := fv.SettlePayment(ctx, vToken, auth, idemKey)
+		if err != nil {
+			slog.Error("async on-chain settlement broadcast failed",
+				slog.String("settlement_id", settlementID),
+				slog.Any("error", err),
+			)
+			if p.paymentService != nil {
+				_ = p.paymentService.UpdateSettlementStatus(context.Background(), settlementID, payment.SettlementStatusUnknown, "", nil, err.Error())
+			}
+			return
+		}
+
+		slog.Info("on-chain settlement broadcast succeeded",
+			slog.String("settlement_id", settlementID),
+			slog.String("tx_hash", res.TxHash),
+			slog.String("status", res.Status),
+		)
+
+		if p.paymentService != nil {
+			_ = p.paymentService.UpdateSettlementStatus(context.Background(), settlementID, payment.SettlementStatusConfirmed, res.TxHash, nil, "")
+		}
+	}()
+}
+
+// SetSettlementDefaults configures default blockchain settlement parameters across routes.
+func (p *PaymentProcessor) SetSettlementDefaults(defaults SettlementDefaults) {
+	p.settlementDefaults = defaults
+}
+
+// GetSettlementDefaults returns configured default blockchain settlement parameters.
+func (p *PaymentProcessor) GetSettlementDefaults() SettlementDefaults {
+	return p.settlementDefaults
 }
 
 // SetUsageService configures a custom usage service.
@@ -323,181 +397,19 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 	snap *rcu.ConfigSnapshot,
 	requestID string,
 ) {
-	var configVersion, configHash string
+	sc := newReqScope(p, r, route, requestID, snap)
+	configVersion, configHash := sc.configVersion, sc.configHash
 	if snap != nil {
-		configVersion = snap.VersionID
-		configHash = snap.SnapshotHash
 		w.Header().Set("X-Config-Version", configVersion)
 	}
+	startTime, clientIP := sc.startTime, sc.clientIP
 
-	startTime := time.Now()
-	clientIP := agent.ExtractClientIP(r)
-
-	recordReq := func(tenantID, projectID, apiKeyID, agentID, intentID string, statusCode int, errorCode string, isReplay bool) {
-		if p.usageService != nil {
-			tID := tenantID
-			if tID == "" && route != nil {
-				tID = route.TenantID
-			}
-			pID := projectID
-			if (pID == "" || pID == "prj_default") && route != nil && route.ProjectID != "" {
-				pID = route.ProjectID
-			}
-			if pID == "" {
-				pID = "prj_default"
-			}
-			if err := p.usageService.RecordRequest(r.Context(), &usage.RequestRecord{
-				RequestID:     requestID,
-				TenantID:      tID,
-				ProjectID:     pID,
-				APIKeyID:      apiKeyID,
-				AgentID:       agentID,
-				RouteID:       route.RouteID,
-				ConfigVersion: configVersion,
-				ClientIP:      clientIP,
-				HTTPMethod:    r.Method,
-				RequestPath:   r.URL.Path,
-				StatusCode:    statusCode,
-				DurationMs:    time.Since(startTime).Milliseconds(),
-				ErrorCode:     errorCode,
-				IsReplay:      isReplay,
-				IntentID:      intentID,
-				CreatedAt:     time.Now(),
-			}); err != nil {
-				slog.Error("failed to record request audit record", slog.String("request_id", requestID), slog.Any("error", err))
-			}
-		}
-	}
-
-	recordUsage := func(tenantID, projectID, agentID, intentID, paymentMethod string, isSuccess bool) {
-		if p.usageService != nil {
-			tID := tenantID
-			if tID == "" && route != nil {
-				tID = route.TenantID
-			}
-			pID := projectID
-			if (pID == "" || pID == "prj_default") && route != nil && route.ProjectID != "" {
-				pID = route.ProjectID
-			}
-			if pID == "" {
-				pID = "prj_default"
-			}
-			if err := p.usageService.RecordUsage(r.Context(), &usage.UsageEvent{
-				EventID:         usage.GenerateUsageEventID(),
-				TenantID:        tID,
-				ProjectID:       pID,
-				AgentID:         agentID,
-				RouteID:         route.RouteID,
-				IntentID:        intentID,
-				AmountBaseUnits: route.PriceBaseUnits,
-				Asset:           route.Asset,
-				PaymentMethod:   paymentMethod,
-				IsSuccess:       isSuccess,
-				CreatedAt:       time.Now(),
-			}); err != nil {
-				slog.Error("failed to record usage event", slog.String("request_id", requestID), slog.String("intent_id", intentID), slog.Any("error", err))
-			}
-		}
-	}
-
-	initIntent := func(tenantID, projectID, agentID, intentID, idemKey, paymentMethod, status string) {
-		if p.paymentService != nil {
-			tID := tenantID
-			if tID == "" && route != nil {
-				tID = route.TenantID
-			}
-			pID := projectID
-			if (pID == "" || pID == "prj_default") && route != nil && route.ProjectID != "" {
-				pID = route.ProjectID
-			}
-			if pID == "" {
-				pID = "prj_default"
-			}
-			if err := p.paymentService.CreateIntent(r.Context(), &payment.PaymentIntent{
-				IntentID:        intentID,
-				TenantID:        tID,
-				ProjectID:       pID,
-				AgentID:         agentID,
-				RouteID:         route.RouteID,
-				IdempotencyKey:  idemKey,
-				RequestID:       requestID,
-				PaymentMethod:   paymentMethod,
-				AmountBaseUnits: route.PriceBaseUnits,
-				Asset:           route.Asset,
-				Status:          status,
-				ConfigVersionID: configVersion,
-				CreatedAt:       startTime,
-			}); err != nil {
-				slog.Error("failed to create payment intent record", slog.String("request_id", requestID), slog.String("intent_id", intentID), slog.Any("error", err))
-			}
-		}
-	}
-
-	initSettlement := func(settlementID, intentID, paymentMethod, status, payer, payee, nonce, txHash string) {
-		if p.paymentService != nil {
-			if err := p.paymentService.RecordSettlement(r.Context(), &payment.SettlementRecord{
-				SettlementID:    settlementID,
-				IntentID:        intentID,
-				PaymentMethod:   paymentMethod,
-				NetworkID:       route.Network,
-				AssetAddress:    route.Asset,
-				PayerAddress:    payer,
-				PayeeAddress:    payee,
-				AmountBaseUnits: route.PriceBaseUnits,
-				Nonce:           nonce,
-				TxHash:          txHash,
-				Status:          status,
-				CreatedAt:       startTime,
-			}); err != nil {
-				slog.Error("failed to record settlement record", slog.String("request_id", requestID), slog.String("settlement_id", settlementID), slog.Any("error", err))
-			}
-		}
-	}
-
-	initFulfillment := func(fulfillmentID, intentID string) {
-		if p.paymentService != nil {
-			if err := p.paymentService.RecordFulfillment(r.Context(), &payment.FulfillmentRecord{
-				FulfillmentID: fulfillmentID,
-				IntentID:      intentID,
-				UpstreamURL:   route.UpstreamURL,
-				Status:        payment.FulfillmentStatusInProgress,
-				CreatedAt:     startTime,
-			}); err != nil {
-				slog.Error("failed to record fulfillment record", slog.String("request_id", requestID), slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
-			}
-		}
-	}
-
-	updateCorrelationOutcome := func(intentID, settlementID, fulfillmentID string, statusCode int) {
-		if p.paymentService != nil {
-			durationMs := time.Since(startTime).Milliseconds()
-			if statusCode >= 200 && statusCode < 300 {
-				if err := p.paymentService.UpdateSettlementStatus(r.Context(), settlementID, payment.SettlementStatusConfirmed, "", nil, ""); err != nil {
-					slog.Error("failed to update settlement status confirmed", slog.String("settlement_id", settlementID), slog.Any("error", err))
-				}
-				if err := p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusSucceeded, statusCode, durationMs, ""); err != nil {
-					slog.Error("failed to update fulfillment succeeded", slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
-				}
-				if err := p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusCompleted); err != nil {
-					slog.Error("failed to update intent completed", slog.String("intent_id", intentID), slog.Any("error", err))
-				}
-			} else if statusCode >= 400 && statusCode < 500 {
-				if err := p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusFailed, statusCode, durationMs, ""); err != nil {
-					slog.Error("failed to update fulfillment failed", slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
-				}
-				if err := p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusFailed); err != nil {
-					slog.Error("failed to update intent failed", slog.String("intent_id", intentID), slog.Any("error", err))
-				}
-			} else {
-				if err := p.paymentService.UpdateFulfillment(r.Context(), fulfillmentID, payment.FulfillmentStatusUnknown, statusCode, durationMs, ""); err != nil {
-					slog.Error("failed to update fulfillment unknown", slog.String("fulfillment_id", fulfillmentID), slog.Any("error", err))
-				}
-				if err := p.paymentService.UpdateIntentStatus(r.Context(), intentID, payment.IntentStatusNeedsReview); err != nil {
-					slog.Error("failed to update intent needs review", slog.String("intent_id", intentID), slog.Any("error", err))
-				}
-			}
-		}
-	}
+	recordReq := sc.recordReq
+	recordUsage := sc.recordUsage
+	initIntent := sc.initIntent
+	initSettlement := sc.initSettlement
+	initFulfillment := sc.initFulfillment
+	updateCorrelationOutcome := sc.updateCorrelationOutcome
 
 	// 1. Enforce route-specific or global Policy checks (T2.5)
 	if policy != nil && policy.IsActive {
@@ -1201,7 +1113,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			})
 			return
 		}
-
+		slog.Info("x402 authorization received", slog.String("request_id", requestID))
 		auth, err := DecodeAuthorization(authHeader)
 		if err != nil {
 			p.metrics.IncPaymentsFailed()
@@ -1214,7 +1126,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			return
 		}
 
-		network := "eip155:84532"
+		oc := p.resolveOnchain(route)
+		network, onchainPrice, onchainAsset := oc.Network, oc.Price, oc.Asset
+		contractAddress := oc.Contract
 		intentID := fmt.Sprintf("pi_%s", requestID)
 		settlementID := fmt.Sprintf("stl_%s", auth.Nonce)
 
@@ -1248,7 +1162,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				pCtx := &proxy.PaymentContext{
 					PayerAddress:    auth.Payer,
 					AmountBaseUnits: route.PriceBaseUnits,
-					Asset:           route.Asset,
+					Asset:           contractAddress,
 					Network:         network,
 					TxHash:          auth.Nonce,
 					IdempotencyKey:  idemKey,
@@ -1284,7 +1198,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			}
 
 			// ResultNew: Validate Nonce & Signature
-			validNonce, err := p.nonceStore.CheckAndRecordNonce(network, route.Asset, auth.Payer, auth.Nonce)
+			validNonce, err := p.nonceStore.CheckAndRecordNonce(network, contractAddress, auth.Payer, auth.Nonce)
 			if err != nil || !validNonce {
 				_ = p.idempotencyStore.ReleaseLock(r.Context(), tenantID, idemKey)
 				p.metrics.IncPaymentsFailed()
@@ -1298,38 +1212,29 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 				return
 			}
 
-			onchainPrice := route.PriceBaseUnits
-			if route.OnchainPriceBaseUnits != nil && *route.OnchainPriceBaseUnits > 0 {
-				onchainPrice = *route.OnchainPriceBaseUnits
-			}
-			onchainAsset := route.Asset
-			if route.OnchainAsset != "" {
-				onchainAsset = route.OnchainAsset
-			}
-			ch := &PaymentChallenge{
-				Version:     auth.Version,
-				ChallengeID: auth.ChallengeID,
-				Network:     network,
-				Asset:       onchainAsset,
-				Amount:      fmt.Sprintf("%d", onchainPrice),
-				Payee:       route.PayeeAddress,
-				ValidAfter:  auth.ValidAfter,
-				ValidBefore: auth.ValidBefore,
-			}
+			ch := oc.verifyChallenge(auth, p.facilitatorURL)
 
 			result, err := p.verifier.VerifyPayment(r.Context(), ch, auth)
-			if err != nil || !result.Valid {
+			if err != nil || result == nil || !result.Valid {
 				_ = p.idempotencyStore.ReleaseLock(r.Context(), tenantID, idemKey)
 				p.metrics.IncPaymentsFailed()
 				errCode := ErrCodeSignatureInvalid
-				if result != nil && result.ErrorCode != "" {
-					errCode = result.ErrorCode
+				reason := "signature verification failed"
+				if err != nil {
+					reason = err.Error()
+				} else if result != nil {
+					if result.ErrorCode != "" {
+						errCode = result.ErrorCode
+					}
+					if result.Message != "" {
+						reason = result.Message
+					}
 				}
 				initIntent(route.TenantID, "prj_default", "", intentID, idemKey, "onchain", payment.IntentStatusFailed)
 				initSettlement(settlementID, intentID, "onchain", payment.SettlementStatusFailed, auth.Payer, route.PayeeAddress, auth.Nonce, "")
 				recordReq(route.TenantID, "prj_default", "", "", intentID, http.StatusPaymentRequired, errCode, false)
 				WriteProtocolError(w, errCode, requestID, map[string]interface{}{
-					"reason": result.Message,
+					"reason": reason,
 				})
 				return
 			}
@@ -1387,6 +1292,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 					slog.Error("failed to mark idempotency completed", slog.String("tenant_id", tenantID), slog.String("idempotency_key", idemKey), slog.Any("error", err))
 				}
 				recordUsage(route.TenantID, "prj_default", "", intentID, "onchain", true)
+				if result != nil && result.VerificationToken != "" {
+					p.dispatchAsyncSettlement(settlementID, result.VerificationToken, auth, idemKey)
+				}
 			} else {
 				// Anti-Rollback: Record remains SUBMITTED, Mark recovery required
 				_ = p.recoveryCoord.MarkUnknown(settlementID, "upstream error")
@@ -1399,15 +1307,7 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		}
 
 		// 2.2 Non-Idempotent On-Chain Request
-		onchainPrice := route.PriceBaseUnits
-		if route.OnchainPriceBaseUnits != nil && *route.OnchainPriceBaseUnits > 0 {
-			onchainPrice = *route.OnchainPriceBaseUnits
-		}
-		onchainAsset := route.Asset
-		if route.OnchainAsset != "" {
-			onchainAsset = route.OnchainAsset
-		}
-		validNonce, err := p.nonceStore.CheckAndRecordNonce(network, onchainAsset, auth.Payer, auth.Nonce)
+		validNonce, err := p.nonceStore.CheckAndRecordNonce(network, contractAddress, auth.Payer, auth.Nonce)
 		if err != nil || !validNonce {
 			p.metrics.IncPaymentsFailed()
 			initIntent(route.TenantID, "prj_default", "", intentID, idemKey, "onchain", payment.IntentStatusFailed)
@@ -1420,29 +1320,28 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 			return
 		}
 
-		ch := &PaymentChallenge{
-			Version:     auth.Version,
-			ChallengeID: auth.ChallengeID,
-			Network:     network,
-			Asset:       onchainAsset,
-			Amount:      fmt.Sprintf("%d", onchainPrice),
-			Payee:       route.PayeeAddress,
-			ValidAfter:  auth.ValidAfter,
-			ValidBefore: auth.ValidBefore,
-		}
+		ch := oc.verifyChallenge(auth, p.facilitatorURL)
 
 		result, err := p.verifier.VerifyPayment(r.Context(), ch, auth)
-		if err != nil || !result.Valid {
+		if err != nil || result == nil || !result.Valid {
 			p.metrics.IncPaymentsFailed()
 			errCode := ErrCodeSignatureInvalid
-			if result != nil && result.ErrorCode != "" {
-				errCode = result.ErrorCode
+			reason := "signature verification failed"
+			if err != nil {
+				reason = err.Error()
+			} else if result != nil {
+				if result.ErrorCode != "" {
+					errCode = result.ErrorCode
+				}
+				if result.Message != "" {
+					reason = result.Message
+				}
 			}
 			initIntent(route.TenantID, "prj_default", "", intentID, idemKey, "onchain", payment.IntentStatusFailed)
 			initSettlement(settlementID, intentID, "onchain", payment.SettlementStatusFailed, auth.Payer, route.PayeeAddress, auth.Nonce, "")
 			recordReq(route.TenantID, "prj_default", "", "", intentID, http.StatusPaymentRequired, errCode, false)
 			WriteProtocolError(w, errCode, requestID, map[string]interface{}{
-				"reason": result.Message,
+				"reason": reason,
 			})
 			return
 		}
@@ -1482,6 +1381,9 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		recordReq(route.TenantID, "prj_default", "", "", intentID, resp.StatusCode, "", false)
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			recordUsage(route.TenantID, "prj_default", "", intentID, "onchain", true)
+			if result != nil && result.VerificationToken != "" {
+				p.dispatchAsyncSettlement(settlementID, result.VerificationToken, auth, idemKey)
+			}
 		} else {
 			recordUsage(route.TenantID, "prj_default", "", intentID, "onchain", false)
 		}
@@ -1499,30 +1401,12 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 	initIntent(route.TenantID, "prj_default", "", intentID, idemKey, "onchain", payment.IntentStatusChallenged)
 	recordReq(route.TenantID, "prj_default", "", "", intentID, http.StatusPaymentRequired, ErrCodePaymentRequired, false)
 	p.metrics.IncChallenges()
-	network := "eip155:84532"
-	if route.Network != "" {
-		network = route.Network
+	oc := p.resolveOnchain(route)
+	facURL := p.facilitatorURL
+	if facURL == "" {
+		facURL = "http://127.0.0.1:8001"
 	}
-	onchainPrice := route.PriceBaseUnits
-	if route.OnchainPriceBaseUnits != nil && *route.OnchainPriceBaseUnits > 0 {
-		onchainPrice = *route.OnchainPriceBaseUnits
-	}
-	onchainAsset := route.Asset
-	if route.OnchainAsset != "" {
-		onchainAsset = route.OnchainAsset
-	}
-	ch := NewChallenge(
-		network,
-		onchainAsset,
-		"USDC",
-		6,
-		fmt.Sprintf("%d", onchainPrice),
-		route.PayeeAddress,
-		"http://127.0.0.1:8001",
-		r.URL.Path,
-		300*time.Second,
-	)
-
+	ch := oc.newChallenge(facURL, r.URL.Path, 300*time.Second)
 	encodedChallenge, err := EncodeChallenge(ch, true)
 	if err != nil {
 		WriteProtocolError(w, ErrCodeUpstreamBadGateway, requestID, nil)

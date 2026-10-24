@@ -54,14 +54,22 @@ func main() {
 		if netID == "" {
 			netID = cfg.Settlement.DefaultNetwork
 		}
+		payee := r.PayeeAddress
+		if payee == "" {
+			payee = cfg.Settlement.DefaultPayTo
+		}
+		asset := r.Asset
+		if asset == "" {
+			asset = cfg.Settlement.DefaultAssetSymbol
+		}
 		bootstrapRoutes[i] = rcu.RouteConfig{
 			RouteID:               r.RouteID,
 			PathPattern:           r.Path,
 			UpstreamURL:           r.Upstream,
 			PriceBaseUnits:        r.PriceBaseUnits,
-			Asset:                 r.Asset,
+			Asset:                 asset,
 			Network:               netID,
-			PayeeAddress:          r.PayeeAddress,
+			PayeeAddress:          payee,
 			AllowedPaymentMethods: r.AllowedPaymentMethods,
 			RateLimitRPM:          r.RateLimitRPM,
 			Status:                "active",

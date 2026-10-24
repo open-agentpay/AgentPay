@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from agentpay_gateway.config.loader import load_gateway_config
+from agentpay_gateway.config.models import FacilitatorConfig
 from agentpay_gateway.config.router import RouteMatcher
 from agentpay_gateway.facilitator.client import FacilitatorClient
 from agentpay_gateway.payment.challenge import ChallengeManager
@@ -57,11 +58,12 @@ def create_gateway_service() -> GatewayProxyService:
 
     # Facilitator Client
     facilitator_url = os.environ.get("FACILITATOR_URL", config.facilitator.url)
+    facilitator_cfg = FacilitatorConfig(url=facilitator_url, timeout_seconds=config.facilitator.timeout_seconds)
     facilitator_client = FacilitatorClient(base_url=facilitator_url, timeout=config.facilitator.timeout_seconds)
 
     # Challenge Manager & Payment Verifier
     challenge_manager = ChallengeManager(
-        facilitator_config=config.facilitator,
+        facilitator_config=facilitator_cfg,
         settlement_defaults=config.defaults,
     )
     payment_verifier = PaymentVerifier(

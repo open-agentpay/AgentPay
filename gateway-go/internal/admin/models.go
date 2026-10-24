@@ -199,6 +199,13 @@ type Route struct {
 	RouteID               string              `json:"route_id"`
 	TenantID              string              `json:"tenant_id"`
 	ProjectID             string              `json:"project_id"`
+	Slug                  string              `json:"slug,omitempty"`
+	Title                 string              `json:"title,omitempty"`
+	IsPublic              bool                `json:"is_public"`
+	Category              string              `json:"category,omitempty"`
+	Tags                  []string            `json:"tags,omitempty"`
+	DescriptionMD         string              `json:"description_md,omitempty"`
+	Network               string              `json:"network,omitempty"`
 	PathPattern           string              `json:"path_pattern"`
 	UpstreamURL           string              `json:"upstream_url"`
 	PriceBaseUnits        int64               `json:"price_base_units"`
@@ -219,6 +226,13 @@ type UpdateRouteInput struct {
 	RouteID               string              `json:"route_id"`
 	TenantID              string              `json:"tenant_id"`
 	ProjectID             *string             `json:"project_id,omitempty"`
+	Slug                  *string             `json:"slug,omitempty"`
+	Title                 *string             `json:"title,omitempty"`
+	IsPublic              *bool               `json:"is_public,omitempty"`
+	Category              *string             `json:"category,omitempty"`
+	Tags                  []string            `json:"tags,omitempty"`
+	DescriptionMD         *string             `json:"description_md,omitempty"`
+	Network               *string             `json:"network,omitempty"`
 	PathPattern           *string             `json:"path_pattern,omitempty"`
 	UpstreamURL           *string             `json:"upstream_url,omitempty"`
 	PriceBaseUnits        *int64              `json:"price_base_units,omitempty"`
@@ -231,6 +245,50 @@ type UpdateRouteInput struct {
 	TimeoutMs             *int                `json:"timeout_ms,omitempty"`
 	UpstreamAuth          *UpstreamAuthConfig `json:"upstream_auth,omitempty"`
 	Status                *RouteStatus        `json:"status,omitempty"`
+}
+
+// MarketplaceSLAMetrics represents real-time gateway telemetry for a public marketplace route.
+type MarketplaceSLAMetrics struct {
+	SuccessRate24h float64 `json:"success_rate_24h"`
+	P95LatencyMs   int64   `json:"p95_latency_ms"`
+	PaidCalls24h   int64   `json:"paid_calls_24h"`
+	TotalCalls     int64   `json:"total_calls"`
+	HealthStatus   string  `json:"health_status"` // "healthy" | "degraded" | "maintenance"
+}
+
+// MarketplaceRouteItem represents a public storefront listing enriched with gateway SLA metrics.
+type MarketplaceRouteItem struct {
+	RouteID               string                `json:"route_id"`
+	TenantID              string                `json:"tenant_id"`
+	ProviderName          string                `json:"provider_name"`
+	Slug                  string                `json:"slug"`
+	Title                 string                `json:"title"`
+	Category              string                `json:"category"`
+	Tags                  []string              `json:"tags"`
+	DescriptionMD         string                `json:"description_md"`
+	Network               string                `json:"network"`
+	PathPattern           string                `json:"path_pattern"`
+	Methods               []string              `json:"methods"`
+	PriceBaseUnits        int64                 `json:"price_base_units"`
+	Asset                 string                `json:"asset"`
+	OnchainPriceBaseUnits int64                 `json:"onchain_price_base_units"`
+	OnchainAsset          string                `json:"onchain_asset"`
+	PayeeAddress          string                `json:"payee_address"`
+	AllowedPaymentMethods string                `json:"allowed_payment_methods"`
+	RateLimitRPM          int                   `json:"rate_limit_rpm"`
+	TimeoutMs             int                   `json:"timeout_ms"`
+	Status                RouteStatus           `json:"status"`
+	SLA                   MarketplaceSLAMetrics `json:"sla"`
+	CreatedAt             int64                 `json:"created_at"`
+	UpdatedAt             int64                 `json:"updated_at"`
+}
+
+// MarketplaceFilter defines search and category filtering for public marketplace routes.
+type MarketplaceFilter struct {
+	Query    string
+	Category string
+	Network  string
+	Tag      string
 }
 
 type TestUpstreamInput struct {

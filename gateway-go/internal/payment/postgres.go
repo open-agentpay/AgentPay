@@ -23,6 +23,9 @@ func NewPostgresService(db *sql.DB) *PostgresService {
 		// Snapshot/sync config versions (e.g. ver_sync_..., ver_default) are runtime dynamic
 		// and do not exist in the ap_config_version release table.
 		_, _ = db.Exec("ALTER TABLE ap_payment_intent DROP CONSTRAINT IF EXISTS ap_payment_intent_config_version_id_fkey;")
+		// Auto-migrate idempotency_key to allow NULL in legacy initialized databases (non-idempotent requests)
+		_, _ = db.Exec("ALTER TABLE ap_payment_intent ALTER COLUMN idempotency_key DROP NOT NULL;")
+		_, _ = db.Exec("ALTER TABLE ap_wallet_challenge ALTER COLUMN idempotency_key DROP NOT NULL;")
 	}
 	return &PostgresService{db: db}
 }

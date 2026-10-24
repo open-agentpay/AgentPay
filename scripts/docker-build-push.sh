@@ -56,15 +56,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 GATEWAY_IMAGE="${REGISTRY}/gateway:${TAG}"
+FACILITATOR_IMAGE="${REGISTRY}/facilitator:${TAG}"
 CONSOLE_IMAGE="${REGISTRY}/console:${TAG}"
+MARKETPLACE_IMAGE="${REGISTRY}/marketplace:${TAG}"
 
 echo "============================================================"
 echo "AgentPay Docker Image Builder"
-echo "Gateway Image: ${GATEWAY_IMAGE}"
-echo "Console Image: ${CONSOLE_IMAGE}"
-echo "Push to Registry: ${PUSH}"
+echo "Gateway Image:     ${GATEWAY_IMAGE}"
+echo "Facilitator Image: ${FACILITATOR_IMAGE}"
+echo "Console Image:     ${CONSOLE_IMAGE}"
+echo "Marketplace Image: ${MARKETPLACE_IMAGE}"
+echo "Push to Registry:  ${PUSH}"
 if [[ -n "${PLATFORM}" ]]; then
-  echo "Target Platform: ${PLATFORM}"
+  echo "Target Platform:   ${PLATFORM}"
 fi
 echo "============================================================"
 
@@ -99,7 +103,15 @@ fi
   -f "${ROOT_DIR}/gateway-go/Dockerfile" \
   "${ROOT_DIR}/gateway-go"
 
-# 2. Build Console Frontend image
+# 2. Build Facilitator Go image
+echo ""
+echo ">>> Building Go Facilitator image: ${FACILITATOR_IMAGE} ..."
+"${BUILD_CMD[@]}" \
+  -t "${FACILITATOR_IMAGE}" \
+  -f "${ROOT_DIR}/facilitator-go/Dockerfile" \
+  "${ROOT_DIR}/facilitator-go"
+
+# 3. Build Console Frontend image
 echo ""
 echo ">>> Building Console Frontend image: ${CONSOLE_IMAGE} ..."
 "${BUILD_CMD[@]}" \
@@ -107,17 +119,29 @@ echo ">>> Building Console Frontend image: ${CONSOLE_IMAGE} ..."
   -f "${ROOT_DIR}/console/Dockerfile" \
   "${ROOT_DIR}/console"
 
-# 3. Push images if requested and not already pushed via buildx
+# 4. Build Marketplace Web image
+echo ""
+echo ">>> Building Marketplace Web image: ${MARKETPLACE_IMAGE} ..."
+"${BUILD_CMD[@]}" \
+  -t "${MARKETPLACE_IMAGE}" \
+  -f "${ROOT_DIR}/marketplace-web/Dockerfile" \
+  "${ROOT_DIR}/marketplace-web"
+
+# 5. Push images if requested and not already pushed via buildx
 if [[ "${PUSH}" == "true" && -z "${PLATFORM}" ]]; then
   echo ""
   echo ">>> Pushing images to registry..."
   docker push "${GATEWAY_IMAGE}"
+  docker push "${FACILITATOR_IMAGE}"
   docker push "${CONSOLE_IMAGE}"
+  docker push "${MARKETPLACE_IMAGE}"
 fi
 
 echo ""
 echo "============================================================"
 echo "Build finished successfully!"
-echo "  - Gateway: ${GATEWAY_IMAGE}"
-echo "  - Console: ${CONSOLE_IMAGE}"
+echo "  - Gateway:     ${GATEWAY_IMAGE}"
+echo "  - Facilitator: ${FACILITATOR_IMAGE}"
+echo "  - Console:     ${CONSOLE_IMAGE}"
+echo "  - Marketplace: ${MARKETPLACE_IMAGE}"
 echo "============================================================"

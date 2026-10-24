@@ -13,7 +13,7 @@ export default withMermaid(
     ignoreDeadLinks: true,
     sitemap: { hostname: 'https://openagentpay.dev' },
     head: [
-      ['meta', { name: 'theme-color', content: '#f97316' }],
+      ['meta', { name: 'theme-color', content: '#6366f1' }],
       ['link', { rel: 'icon', type: 'image/png', href: `${base}favicon.png` }],
       ['link', { rel: 'icon', type: 'image/x-icon', href: `${base}favicon.ico` }],
       ['meta', { property: 'og:image', content: 'https://openagentpay.dev/og-image.png' }],

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -12,10 +14,12 @@ import (
 
 // VerificationResult contains cryptographic verification output.
 type VerificationResult struct {
-	Valid     bool   `json:"valid"`
-	Payer     string `json:"payer,omitempty"`
-	ErrorCode string `json:"errorCode,omitempty"`
-	Message   string `json:"message,omitempty"`
+	Valid             bool   `json:"valid"`
+	Payer             string `json:"payer,omitempty"`
+	VerifiedPayer     string `json:"verifiedPayer,omitempty"`
+	VerificationToken string `json:"verificationToken,omitempty"`
+	ErrorCode         string `json:"errorCode,omitempty"`
+	Message           string `json:"message,omitempty"`
 }
 
 // PaymentVerifier verifies EIP-712 / EIP-3009 authorizations.
@@ -69,7 +73,7 @@ func (fv *FacilitatorVerifier) VerifyPayment(ctx context.Context, ch *PaymentCha
 		"challenge":     ch,
 		"authorization": auth,
 	})
-
+	slog.Info("send facilitatorURL verify url ", slog.String("facilitatorURL", fv.facilitatorURL))
 	req, err := http.NewRequestWithContext(ctx, "POST", fv.facilitatorURL+"/v1/verify", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create facilitator request: %w", err)
@@ -82,12 +86,105 @@ func (fv *FacilitatorVerifier) VerifyPayment(ctx context.Context, ch *PaymentCha
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		var errPayload struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&errPayload)
+		errCode := errPayload.Error.Code
+		if errCode == "" {
+			errCode = errPayload.Code
+		}
+		if errCode == "" {
+			errCode = ErrCodeSignatureInvalid
+		}
+		errMsg := errPayload.Error.Message
+		if errMsg == "" {
+			errMsg = errPayload.Message
+		}
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("facilitator rejected verification with HTTP %d", resp.StatusCode)
+		}
+		return &VerificationResult{
+			Valid:     false,
+			ErrorCode: errCode,
+			Message:   errMsg,
+		}, nil
+	}
+
 	var result VerificationResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode facilitator response: %w", err)
 	}
 
+	if result.Payer == "" && result.VerifiedPayer != "" {
+		result.Payer = result.VerifiedPayer
+	}
+
 	return &result, nil
+}
+
+// SettleResult contains the asynchronous settlement output from Facilitator.
+type SettleResult struct {
+	SettlementID string `json:"settlementId"`
+	Status       string `json:"status"`
+	TxHash       string `json:"txHash"`
+}
+
+// SettlePayment dispatches settlement to Facilitator POST /v1/settle to trigger on-chain transaction broadcast.
+func (fv *FacilitatorVerifier) SettlePayment(ctx context.Context, vToken string, auth *PaymentAuthorization, idemKey string) (*SettleResult, error) {
+	if fv == nil || fv.facilitatorURL == "" {
+		return nil, fmt.Errorf("facilitator url not configured")
+	}
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"verificationToken": vToken,
+		"authorization":     auth,
+		"idempotencyKey":    idemKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal settle request: %w", err)
+	}
+
+	slog.Info("dispatching async settlement to facilitator",
+		slog.String("facilitator_url", fv.facilitatorURL),
+		slog.String("verification_token", vToken),
+	)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fv.facilitatorURL+"/v1/settle", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create facilitator settle request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := fv.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("facilitator settle call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		var errResp struct {
+			Error     string `json:"error"`
+			ErrorCode string `json:"errorCode"`
+			Message   string `json:"message"`
+		}
+		if err := json.Unmarshal(bodyBytes, &errResp); err == nil && errResp.Message != "" {
+			return nil, fmt.Errorf("facilitator settle rejected with HTTP %d [%s]: %s", resp.StatusCode, errResp.ErrorCode, errResp.Message)
+		}
+		return nil, fmt.Errorf("facilitator settle rejected with HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var res SettleResult
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return nil, fmt.Errorf("failed to decode facilitator settle response: %w", err)
+	}
+	return &res, nil
 }
 
 // MockPaymentVerifier enables deterministic testing without a live facilitator.

@@ -143,7 +143,29 @@ func NewWithWalletAndTransport(
 		}
 	}
 
-	processor := x402.NewPaymentProcessor(nil, nil, walletSvc, proxyHandler, m)
+	var verifier x402.PaymentVerifier
+	if transport == nil && cfg != nil && cfg.Facilitator.URL != "" {
+		timeout := time.Duration(cfg.Facilitator.TimeoutSeconds) * time.Second
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		verifier = x402.NewFacilitatorVerifier(cfg.Facilitator.URL, timeout)
+		slog.Info("AgentPay Payment Verifier operating with live Facilitator", slog.String("facilitator_url", cfg.Facilitator.URL))
+	}
+
+	processor := x402.NewPaymentProcessor(verifier, nil, walletSvc, proxyHandler, m)
+	if cfg != nil {
+		if cfg.Facilitator.URL != "" {
+			processor.SetFacilitatorURL(cfg.Facilitator.URL)
+		}
+		processor.SetSettlementDefaults(x402.SettlementDefaults{
+			DefaultNetwork:       cfg.Settlement.DefaultNetwork,
+			DefaultAsset:         cfg.Settlement.DefaultAsset,
+			DefaultAssetSymbol:   cfg.Settlement.DefaultAssetSymbol,
+			DefaultAssetDecimals: cfg.Settlement.DefaultAssetDecimals,
+			DefaultPayTo:         cfg.Settlement.DefaultPayTo,
+		})
+	}
 
 	// Control Plane Admin & Tenancy Service
 	agentRegistry := agent.NewRegistry()
@@ -242,6 +264,11 @@ func NewWithWalletAndTransport(
 	mux.HandleFunc(cfg.Metrics.HealthPath, handleHealthz(startTime))
 	mux.HandleFunc(cfg.Metrics.ReadyPath, handleReadyz(rcuMgr))
 	mux.HandleFunc("/version", handleVersion())
+
+	// Register Public Read-Only Marketplace Discovery API (Unauthenticated + CORS)
+	publicMarketplaceHandler := admin.NewPublicMarketplaceHandler(adminSvc)
+	mux.Handle("/api/v1/public/marketplace/routes", publicMarketplaceHandler)
+	mux.Handle("/api/v1/public/marketplace/routes/", publicMarketplaceHandler)
 
 	// Register Control Plane Admin REST API
 	// Note: Explicitly register admin domain endpoints so that proxy routes under /api/v1/... (e.g. /api/v1/simple-weather)

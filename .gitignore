@@ -137,3 +137,7 @@ docs/zh/specs/adr/
 
 # Agent skills
 .agents/skills/
+
+# Next.js build output
+.next/
+*.tsbuildinfo

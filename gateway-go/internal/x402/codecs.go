@@ -179,7 +179,7 @@ func DecodeAuthorization(headerVal string) (*PaymentAuthorization, error) {
 	if auth.Nonce == "" {
 		return nil, fmt.Errorf("%w: nonce", ErrMissingRequiredField)
 	}
-	if auth.Signature == "" {
+	if auth.Signature.IsEmpty() {
 		return nil, fmt.Errorf("%w: signature", ErrMissingRequiredField)
 	}
 

@@ -110,6 +110,13 @@ CREATE TABLE IF NOT EXISTS ap_route (
     route_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE CASCADE,
     project_id VARCHAR(64) NOT NULL REFERENCES ap_project(project_id) ON DELETE CASCADE,
+    slug VARCHAR(128) NULL,
+    title VARCHAR(256) NOT NULL DEFAULT '',
+    is_public BOOLEAN NOT NULL DEFAULT FALSE,
+    category VARCHAR(64) NOT NULL DEFAULT 'General',
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    description_md TEXT NOT NULL DEFAULT '',
+    network VARCHAR(64) NOT NULL DEFAULT 'eip155:421614',
     path_pattern VARCHAR(256) NOT NULL,
     upstream_url VARCHAR(512) NOT NULL,
     price_base_units BIGINT NOT NULL CHECK (price_base_units >= 0),
@@ -126,6 +133,8 @@ CREATE TABLE IF NOT EXISTS ap_route (
     CONSTRAINT uq_tenant_route_path UNIQUE (tenant_id, path_pattern)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_route_public_slug ON ap_route(slug) WHERE slug IS NOT NULL AND slug != '';
+CREATE INDEX IF NOT EXISTS idx_route_is_public ON ap_route(is_public) WHERE is_public = TRUE;
 CREATE INDEX IF NOT EXISTS idx_route_tenant_pattern ON ap_route(tenant_id, path_pattern);
 CREATE TRIGGER trg_route_updated_at BEFORE UPDATE ON ap_route
     FOR EACH ROW EXECUTE FUNCTION set_updated_at_timestamp();

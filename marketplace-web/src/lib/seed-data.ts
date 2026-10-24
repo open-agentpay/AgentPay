@@ -1,0 +1,428 @@
+import type { MarketplaceRouteItem } from '@/types/marketplace';
+
+export const MARKETPLACE_CATEGORIES = [
+  { id: 'all', label: '全部 API (All)', countBadge: true },
+  { id: 'Crypto & On-Chain Data', label: 'Crypto 与链上数据' },
+  { id: 'AI & LLM', label: 'AI 推理与多模态' },
+  { id: 'Web Scraping & Search', label: '网页抓取与实时搜索' },
+  { id: 'Financial & Market Intel', label: '金融行情与研报' },
+  { id: 'Compute & Developer Tools', label: '沙箱算力与开发工具' },
+] as const;
+
+export const SEED_MARKETPLACE_ROUTES: MarketplaceRouteItem[] = [
+  {
+    route_id: 'rte_solana_smart_money_01',
+    tenant_id: 'ten_solana_alpha',
+    provider_name: 'Solana Alpha Labs',
+    slug: 'solana-smart-money-tracker-x402-api',
+    title: 'Solana Smart Money Tracker X402 API',
+    summary:
+      '实时追踪 Solana 链上聪明钱（Smart Money）与巨鲸地址净流入、高频 DEX 异动及大额建仓信号，支持 HTTP 402 (x402 V2) 链上 USDC 按次微支付，无需注册账号或预充值 API Key。',
+    category: 'Crypto & On-Chain Data',
+    tags: ['Solana', 'Smart Money', 'Whale Alert', 'x402', 'DEX Analytics'],
+    network: 'eip155:8453',
+    network_label: 'Base / Solana USDC',
+    path_pattern: '/v1/solana/smart-money',
+    methods: ['GET', 'POST'],
+    price_base_units: 1000, // 0.001 USDC
+    asset: 'USDC',
+    onchain_price_base_units: 1000,
+    onchain_asset: 'USDC',
+    payee_address: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+    allowed_payment_methods: 'both',
+    rate_limit_rpm: 1200,
+    timeout_ms: 10000,
+    status: 'active',
+    sla: {
+      success_rate_24h: 99.94,
+      p95_latency_ms: 142,
+      paid_calls_24h: 48920,
+      total_calls: 312450,
+      health_status: 'healthy',
+    },
+    parameters: [
+      {
+        name: 'timeframe',
+        type: 'string ("1h" | "4h" | "24h" | "7d")',
+        required: true,
+        description: '聚合统计时间窗口，默认推荐 "24h"',
+        example: '"24h"',
+      },
+      {
+        name: 'min_win_rate',
+        type: 'number (0.0 - 1.0)',
+        required: false,
+        description: '过滤聪明钱近 30 天历史胜率下限，默认 0.65',
+        example: '0.7',
+      },
+      {
+        name: 'limit',
+        type: 'integer (1 - 100)',
+        required: false,
+        description: '返回代币净流入排行数量，默认 20',
+        example: '10',
+      },
+    ],
+    sample_params: {
+      timeframe: '24h',
+      min_win_rate: 0.7,
+      limit: 10,
+    },
+    sample_response: {
+      timeframe: '24h',
+      network: 'solana:mainnet',
+      updated_at: '2026-10-24T12:45:00Z',
+      signals: [
+        {
+          token_symbol: 'JUP',
+          token_mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+          smart_wallets_buying: 38,
+          net_inflow_usd: 1485200,
+          avg_entry_price_usd: 1.142,
+          confidence_score: 0.94,
+        },
+      ],
+    },
+    description_md: `### 功能定义 (Overview)
+**Solana Smart Money Tracker X402 API** 专为交易型 AI Agent、DeFi 投研助手与链上监控机器人设计。通过实时索引 Solana 主网 Raydium、Jupiter、Meteora 交易流，标记高胜率聪明钱钱包集群，提供毫秒级净流入与异动信号。
+
+### 为什么适合 AI Agent 直接调用？
+- **免注册零摩擦 (Zero-Onboarding)**：无需在第三方平台填写邮箱、绑定信用卡或申请长生命周期 API Key。
+- **原生 X402 微支付**：单次调用仅需 \`0.001 USDC\`，通过 EIP-3009 离线签名自动完成 402 握手。
+- **结构化 JSON Schema**：输出经过严格类型规整的 JSON，可直接喂入 LangChain、CrewAI、AutoGen 或 MCP 工具上下文。`,
+    created_at: 1729500000,
+    updated_at: 1729740000,
+  },
+  {
+    route_id: 'rte_deepseek_r1_reasoning_02',
+    tenant_id: 'ten_acme_ai',
+    provider_name: 'Acme Autonomous AI Corp',
+    slug: 'deepseek-r1-verifiable-reasoning-x402-api',
+    title: 'DeepSeek-R1 Verifiable Reasoning X402 API',
+    summary:
+      '高吞吐 DeepSeek-R1 深度推理与代码审计接口，附带 TEE 硬件远程证明与确定性 Token 计费。支持 HTTP 402 按次结算（0.005 USDC/req），内置 AgentPay 财务防火墙防死循环保护。',
+    category: 'AI & LLM',
+    tags: ['DeepSeek-R1', 'LLM Reasoning', 'TEE Verified', 'x402', 'Code Audit'],
+    network: 'eip155:421614',
+    network_label: 'Arbitrum / Base USDC',
+    path_pattern: '/v1/llm/deepseek-r1/chat',
+    methods: ['POST'],
+    price_base_units: 5000, // 0.005 USDC
+    asset: 'USDC',
+    onchain_price_base_units: 5000,
+    onchain_asset: 'USDC',
+    payee_address: '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc',
+    allowed_payment_methods: 'both',
+    rate_limit_rpm: 600,
+    timeout_ms: 60000,
+    status: 'active',
+    sla: {
+      success_rate_24h: 99.89,
+      p95_latency_ms: 640,
+      paid_calls_24h: 82410,
+      total_calls: 615900,
+      health_status: 'healthy',
+    },
+    parameters: [
+      {
+        name: 'model',
+        type: 'string',
+        required: true,
+        description: '推理模型标识，固定支持 "deepseek-r1" 或 "deepseek-v3"',
+        example: '"deepseek-r1"',
+      },
+      {
+        name: 'prompt',
+        type: 'string',
+        required: true,
+        description: '需要执行深度逻辑推理、数学证明或智能合约审计的输入指令',
+        example: '"Audit this ERC-20 permit function for signature replay vulnerabilities"',
+      },
+      {
+        name: 'max_tokens',
+        type: 'integer',
+        required: false,
+        description: '最大输出 Token 数量限制，默认 2048',
+        example: '2048',
+      },
+    ],
+    sample_params: {
+      model: 'deepseek-r1',
+      prompt: 'Analyze EIP-3009 transferWithAuthorization replay protection invariants.',
+      max_tokens: 1024,
+    },
+    sample_response: {
+      id: 'chatcmpl_x402_9f8a7b6c',
+      model: 'deepseek-r1',
+      tee_attestation: 'sha256:9e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a',
+      reasoning_content: '1. Check bytes32 nonce uniqueness per authorizer address...',
+      content: 'EIP-3009 uses random 32-byte nonces rather than sequential nonces, enabling parallel gasless signing...',
+    },
+    description_md: `### 功能定义 (Overview)
+**DeepSeek-R1 Verifiable Reasoning X402 API** 为自主智能体提供按需付费的深度思维链（Chain-of-Thought）推理服务。所有推理节点运行于受信执行环境（TEE），并在响应头与响应体中附带哈希签名，确保模型未被降智或篡改。
+
+### 核心优势
+- **按次透明计费**：每次调用固定 \`0.005 USDC\`，告别高昂的月度固定订阅与复杂企业合同。
+- **网关级幂等重放**：如遇网络抖动超时，买方 SDK 自动携带相同幂等键免费重放，绝不二次扣费。`,
+    created_at: 1729480000,
+    updated_at: 1729735000,
+  },
+  {
+    route_id: 'rte_headless_markdown_scraper_03',
+    tenant_id: 'ten_web_mesh',
+    provider_name: 'HyperCrawl Mesh Network',
+    slug: 'stealth-browser-markdown-scraper-x402-api',
+    title: 'Stealth Browser Clean Markdown Scraper X402 API',
+    summary:
+      '专为 LLM 与 RAG 打造的反爬无头浏览器渲染抓取接口，自动过 Cloudflare 盾并将任意动态 SPA 网页转换为高信噪比纯净 Markdown。单次调用 0.002 USDC，支持 X402 自动结算。',
+    category: 'Web Scraping & Search',
+    tags: ['Web Scraping', 'Markdown', 'Headless Browser', 'RAG', 'x402'],
+    network: 'eip155:8453',
+    network_label: 'Base USDC',
+    path_pattern: '/v1/scrape/markdown',
+    methods: ['GET', 'POST'],
+    price_base_units: 2000, // 0.002 USDC
+    asset: 'USDC',
+    onchain_price_base_units: 2000,
+    onchain_asset: 'USDC',
+    payee_address: '0x90f79bf6eb2c4f870365e785982e1f101e93b906',
+    allowed_payment_methods: 'both',
+    rate_limit_rpm: 900,
+    timeout_ms: 25000,
+    status: 'active',
+    sla: {
+      success_rate_24h: 99.62,
+      p95_latency_ms: 820,
+      paid_calls_24h: 64150,
+      total_calls: 428000,
+      health_status: 'healthy',
+    },
+    parameters: [
+      {
+        name: 'url',
+        type: 'string (URI)',
+        required: true,
+        description: '需要抓取并清洗为 Markdown 的目标网页完整 URL',
+        example: '"https://docs.openagentpay.dev/specs/architecture"',
+      },
+      {
+        name: 'wait_for_selector',
+        type: 'string (CSS Selector)',
+        required: false,
+        description: '可选：等待特定 DOM 选择器渲染完成后再提取正文',
+        example: '"main.article-content"',
+      },
+      {
+        name: 'include_links',
+        type: 'boolean',
+        required: false,
+        description: '是否保留正文内联超链接，默认 true',
+        example: 'true',
+      },
+    ],
+    sample_params: {
+      url: 'https://openagentpay.dev',
+      include_links: true,
+    },
+    sample_response: {
+      url: 'https://openagentpay.dev',
+      title: 'OpenAgentPay — Financial Firewall & X402 Marketplace',
+      word_count: 642,
+      markdown: '# OpenAgentPay\n\nThe Open-Source Financial Firewall & Micro-Payment Infrastructure for Autonomous AI Agents...',
+    },
+    description_md: `### 功能定义 (Overview)
+**Stealth Browser Clean Markdown Scraper X402 API** 帮助 Research Agent 与 Coding Agent 在运行时实时读取任意网页，自动剥离广告、导航栏与冗余 DOM 脚本，直接输出可直接送入 LLM Context Window 的纯净 Markdown。
+
+### 平台 SLA 护城河保障
+- **不成功不扣费**：仅当上游无头浏览器成功渲染并返回 \`200 OK\` 有效正文时才完成捕获结算；若目标站点返回 \`403/502\`，网关自动释放预留额度。`,
+    created_at: 1729460000,
+    updated_at: 1729730000,
+  },
+  {
+    route_id: 'rte_sec_edgar_filings_04',
+    tenant_id: 'ten_quant_intel',
+    provider_name: 'QuantSight Financial Feeds',
+    slug: 'us-equities-sec-edgar-realtime-x402-api',
+    title: 'US Equities & SEC 10-K/10-Q Instant Intel X402 API',
+    summary:
+      '美股实时盘口报价与 SEC EDGAR 财报（10-K、10-Q、8-K）结构化关键财务指标提取 API。单次调用 0.01 USDC，支持 X402 协议免 Key 即时查询。',
+    category: 'Financial & Market Intel',
+    tags: ['US Stocks', 'SEC Filings', 'Quant', 'NASDAQ', 'x402'],
+    network: 'eip155:421614',
+    network_label: 'Arbitrum / Base USDC',
+    path_pattern: '/v1/market/sec-intel',
+    methods: ['GET'],
+    price_base_units: 10000, // 0.01 USDC
+    asset: 'USDC',
+    onchain_price_base_units: 10000,
+    onchain_asset: 'USDC',
+    payee_address: '0x15d34aaf54267db7d7c367839aaf71a00a2c6a65',
+    allowed_payment_methods: 'both',
+    rate_limit_rpm: 600,
+    timeout_ms: 12000,
+    status: 'active',
+    sla: {
+      success_rate_24h: 99.98,
+      p95_latency_ms: 95,
+      paid_calls_24h: 29400,
+      total_calls: 195300,
+      health_status: 'healthy',
+    },
+    parameters: [
+      {
+        name: 'ticker',
+        type: 'string',
+        required: true,
+        description: '美股股票代码，例如 "NVDA", "AAPL", "MSFT"',
+        example: '"NVDA"',
+      },
+      {
+        name: 'filing_type',
+        type: 'string ("10-K" | "10-Q" | "8-K" | "QUOTE")',
+        required: false,
+        description: '查询财报类型或实时报价，默认 "QUOTE"',
+        example: '"10-Q"',
+      },
+    ],
+    sample_params: {
+      ticker: 'NVDA',
+      filing_type: '10-Q',
+    },
+    sample_response: {
+      ticker: 'NVDA',
+      company_name: 'NVIDIA Corporation',
+      latest_price_usd: 142.5,
+      revenue_ttm_usd: 96307000000,
+      gross_margin_pct: 75.8,
+      latest_filing_date: '2026-08-28',
+    },
+    description_md: `### 功能定义 (Overview)
+**US Equities & SEC 10-K/10-Q Instant Intel X402 API** 将原本每年数万美元的机构级美股行情与 SEC 财报结构化数据拆解为 \`0.01 USDC/次\` 的原子级微支付接口，赋能金融分析 Agent 按需调取权威财报数据。`,
+    created_at: 1729440000,
+    updated_at: 1729720000,
+  },
+  {
+    route_id: 'rte_evm_honeypot_security_05',
+    tenant_id: 'ten_aegis_sec',
+    provider_name: 'Aegis On-Chain Security',
+    slug: 'evm-token-security-honeypot-detector-x402-api',
+    title: 'EVM Token Security & Honeypot Detector X402 API',
+    summary:
+      '在 AI Agent 执行链上 Swap 前，对 Base、Arbitrum、Ethereum 代币合约进行字节码静态分析与 EVM 沙箱模拟买卖，精准识别貔貅盘（Honeypot）、隐藏增发税率与黑名单后门。单次 0.0015 USDC。',
+    category: 'Crypto & On-Chain Data',
+    tags: ['Security', 'Honeypot', 'EVM Simulation', 'Base', 'Arbitrum', 'x402'],
+    network: 'eip155:8453',
+    network_label: 'Base USDC',
+    path_pattern: '/v1/security/token-audit',
+    methods: ['GET', 'POST'],
+    price_base_units: 1500, // 0.0015 USDC
+    asset: 'USDC',
+    onchain_price_base_units: 1500,
+    onchain_asset: 'USDC',
+    payee_address: '0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc',
+    allowed_payment_methods: 'both',
+    rate_limit_rpm: 1500,
+    timeout_ms: 8000,
+    status: 'active',
+    sla: {
+      success_rate_24h: 99.91,
+      p95_latency_ms: 168,
+      paid_calls_24h: 53120,
+      total_calls: 389000,
+      health_status: 'healthy',
+    },
+    parameters: [
+      {
+        name: 'chain_id',
+        type: 'integer (8453 | 42161 | 1)',
+        required: true,
+        description: '目标 EVM 链 ID（8453 为 Base，42161 为 Arbitrum）',
+        example: '8453',
+      },
+      {
+        name: 'token_address',
+        type: 'string (0x...)',
+        required: true,
+        description: '待检测的 ERC-20 代币合约地址',
+        example: '"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"',
+      },
+    ],
+    sample_params: {
+      chain_id: 8453,
+      token_address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    },
+    sample_response: {
+      is_honeypot: false,
+      buy_tax_pct: 0.0,
+      sell_tax_pct: 0.0,
+      is_open_source: true,
+      can_take_back_ownership: false,
+      risk_level: 'SAFE',
+    },
+    description_md: `### 功能定义 (Overview)
+**EVM Token Security & Honeypot Detector X402 API** 是 DeFi 交易型 Agent 的必备安全前置护栏。在签名任何链上交易前，仅需花费 \`0.0015 USDC\` 即可完成合约模拟交易与权限审计。`,
+    created_at: 1729420000,
+    updated_at: 1729710000,
+  },
+  {
+    route_id: 'rte_python_sandbox_exec_06',
+    tenant_id: 'ten_cloud_ microvm',
+    provider_name: 'Firecracker Cloud Compute',
+    slug: 'ephemeral-python-code-interpreter-x402-api',
+    title: 'Ephemeral Firecracker Python Sandbox X402 API',
+    summary:
+      '毫秒级冷启动的 Firecracker MicroVM 隔离 Python 代码执行沙箱，预装 Pandas、NumPy、SymPy、Matplotlib，让任何 Agent 安全执行数据分析与数学验证。单次调用 0.003 USDC。',
+    category: 'Compute & Developer Tools',
+    tags: ['Code Interpreter', 'Firecracker VM', 'Python Sandbox', 'x402'],
+    network: 'eip155:421614',
+    network_label: 'Arbitrum / Base USDC',
+    path_pattern: '/v1/compute/python-exec',
+    methods: ['POST'],
+    price_base_units: 3000, // 0.003 USDC
+    asset: 'USDC',
+    onchain_price_base_units: 3000,
+    onchain_asset: 'USDC',
+    payee_address: '0x976ea74026e726554db657fa54763abd0c3a0aa9',
+    allowed_payment_methods: 'both',
+    rate_limit_rpm: 300,
+    timeout_ms: 30000,
+    status: 'active',
+    sla: {
+      success_rate_24h: 99.76,
+      p95_latency_ms: 310,
+      paid_calls_24h: 19840,
+      total_calls: 114200,
+      health_status: 'healthy',
+    },
+    parameters: [
+      {
+        name: 'code',
+        type: 'string',
+        required: true,
+        description: '要在隔离沙箱内执行的 Python 3.12 代码脚本',
+        example: '"import numpy as np; print(np.linalg.eigvals([[2, 1], [1, 2]]).tolist())"',
+      },
+      {
+        name: 'timeout_sec',
+        type: 'integer (1 - 30)',
+        required: false,
+        description: '最大执行超时秒数，默认 10 秒',
+        example: '10',
+      },
+    ],
+    sample_params: {
+      code: 'import math; print({"sharpe_ratio": round(0.18 / math.sqrt(0.0144), 4)})',
+      timeout_sec: 10,
+    },
+    sample_response: {
+      exit_code: 0,
+      stdout: "{'sharpe_ratio': 1.5}\n",
+      stderr: '',
+      execution_time_ms: 48,
+    },
+    description_md: `### 功能定义 (Overview)
+**Ephemeral Firecracker Python Sandbox X402 API** 为不具备本地容器环境的轻量级 Agent 提供硬件虚拟化隔离的代码执行能力，单次请求结束后立即销毁内存镜像，兼顾安全与按需低成本调用。`,
+    created_at: 1729400000,
+    updated_at: 1729700000,
+  },
+];

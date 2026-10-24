@@ -1,28 +1,31 @@
 # AgentPay Docker 容器化与云服务器部署指南
 
-本文档介绍如何将 AgentPay **Golang 服务端 (`gateway-go`)**、**前端控制台 (`console`)** 以及 **PostgreSQL 15** 打包为 Docker 镜像，并通过 `docker-compose.yml` 快速部署到云服务器（如阿里云 ECS、腾讯云 CVM、AWS EC2、DigitalOcean 等）。
+本文档介绍如何将 AgentPay **Golang 服务端 (`gateway-go`)**、**前端控制台 (`console`)**、**功能商店与 GEO 门户 (`marketplace-web`)** 以及 **PostgreSQL 15** 打包为 Docker 镜像，并通过 `docker-compose.yml` 快速部署到云服务器（如阿里云 ECS、腾讯云 CVM、AWS EC2、DigitalOcean 等）。
 
 ---
 
 ## 1. 部署架构拓扑
 
 ```
-  [客户端浏览器 / 运营人员]             [AI Agent / 开发者 API 请求]
-             │                                      │
-             ▼ :80                                  ▼ :8000
-    ┌─────────────────┐                    ┌─────────────────┐
-    │ agentpay-console│                    │ agentpay-gateway│
-    │  (Vue3 + Nginx) │ ── /api/ 代理 ───> │  (Golang Core)  │
-    └─────────────────┘                    └────────┬────────┘
-                                                    │
-                                                    ▼ :5432
-                                           ┌─────────────────┐
-                                           │agentpay-postgres│
-                                           │ (PostgreSQL 15) │
-                                           └─────────────────┘
+  [客户端浏览器 / 运营人员]    [开发者 / 探索者 / AI 搜索引擎]        [AI Agent / 开发者 API 请求]
+             │                               │                                     │
+             ▼ :3000                         ▼ :3001                               ▼ :8000
+    ┌─────────────────┐             ┌─────────────────────┐               ┌─────────────────┐
+    │ agentpay-console│             │agentpay-marketplace │               │ agentpay-gateway│
+    │  (Vue3 + Nginx) │             │ (Next.js 15 Stand.) │ ── 内部查询 ─>│  (Golang Core)  │
+    └────────┬────────┘             └─────────────────────┘               └────────┬────────┘
+             │                                                                     │
+             └─────────────────────── /api/ 代理 ──────────────────────────────────┘
+                                                                                   │
+                                                                                   ▼ :5432
+                                                                          ┌─────────────────┐
+                                                                          │agentpay-postgres│
+                                                                          │ (PostgreSQL 15) │
+                                                                          └─────────────────┘
 ```
 
-- **`agentpay-console` (端口 80)**：静态 Web 控制台，由 Nginx 托管；内置反向代理将 `/api/*` 请求透明转发给后端网关。
+- **`agentpay-console` (端口 3000 / 80)**：静态 Web 控制台，由 Nginx 托管；内置反向代理将 `/api/*` 请求透明转发给后端网关。
+- **`agentpay-marketplace` (端口 3001)**：公开功能商店与 GEO (Generative Engine Optimization) 门户，基于 Next.js 15 独立轻量容器运行，提供 API 发现、GEO 页面与 `/llms.txt`。
 - **`agentpay-gateway` (端口 8000)**：Golang 高性能网关核心服务，负责 x402 支付校验、RCU 动态路由、额度风控与 Admin API。
 - **`agentpay-postgres` (端口 5432)**：持久化存储租户、项目、虚拟钱包、账本与审计日志，容器启动时自动执行 `schema.sql` 初始化。
 
@@ -40,6 +43,10 @@ AgentPay/
 │   ├── Dockerfile             # 前端控制台多阶段构建镜像文件 (Node.js -> Nginx)
 │   ├── .dockerignore          # 排除 node_modules 等
 │   └── nginx.conf             # Nginx 反向代理与 SPA 路由配置
+├── marketplace-web/
+│   ├── Dockerfile             # 功能商店 Next.js 15 Standalone 多阶段构建镜像文件
+│   ├── .dockerignore          # 排除 node_modules、.next 等
+│   └── next.config.mjs        # Next.js 独立输出构建配置
 ├── infra/postgres/
 │   └── schema.sql             # PostgreSQL 初始化 DDL 表结构
 ├── scripts/
@@ -57,7 +64,7 @@ AgentPay/
 
 ### 3.1 本地快速构建
 ```bash
-# 使用 Makefile 一键构建本地镜像（默认镜像名：openagentpay/gateway:latest, openagentpay/console:latest）
+# 使用 Makefile 一键构建本地镜像（默认镜像名：openagentpay/gateway:latest, openagentpay/console:latest, openagentpay/marketplace:latest）
 make docker-build
 
 # 或直接运行脚本并指定版本 Tag
@@ -131,7 +138,8 @@ POSTGRES_PASSWORD=SetAStrongRandomPasswordHere_2026!
 AGENTPAY_JWT_SECRET=production-secret-token-please-change-to-a-high-entropy-string-32b!
 
 # 端口配置
-CONSOLE_PORT=80
+CONSOLE_PORT=3000
+MARKETPLACE_PORT=3001
 GATEWAY_PORT=8000
 ```
 
@@ -145,10 +153,11 @@ docker compose ps
 ```
 正常启动后输出如下：
 ```text
-NAME                IMAGE                      COMMAND                  SERVICE      STATUS                    PORTS
-agentpay-console    openagentpay/console:latest "/docker-entrypoint.…"   console      Up (healthy)              0.0.0.0:80->80/tcp
-agentpay-gateway    openagentpay/gateway:latest "/app/gateway -confi…"   gateway      Up (healthy)              0.0.0.0:8000->8000/tcp
-agentpay-postgres   postgres:15-alpine         "docker-entrypoint.s…"   postgres     Up (healthy)              0.0.0.0:5432->5432/tcp
+NAME                 IMAGE                          COMMAND                  SERVICE        STATUS                    PORTS
+agentpay-console     openagentpay/console:latest     "/docker-entrypoint.…"   console        Up (healthy)              0.0.0.0:3000->80/tcp
+agentpay-marketplace openagentpay/marketplace:latest "docker-entrypoint.s…"   marketplace    Up (healthy)              0.0.0.0:3001->3000/tcp
+agentpay-gateway     openagentpay/gateway:latest     "/app/gateway -confi…"   gateway        Up (healthy)              0.0.0.0:8000->8000/tcp
+agentpay-postgres    postgres:15-alpine             "docker-entrypoint.s…"   postgres       Up (healthy)              0.0.0.0:5432->5432/tcp
 ```
 
 ---
@@ -156,9 +165,14 @@ agentpay-postgres   postgres:15-alpine         "docker-entrypoint.s…"   postgr
 ## 5. 验证与访问
 
 1. **Web 控制台访问**：
-   打开浏览器访问：`http://<云服务器公网IP>/`
+   打开浏览器访问：`http://<云服务器公网IP>:3000/`
    - 可以点击“立即注册”创建首个租户与管理员账号；
    - 也可以通过界面上的角色切换体验各模块功能。
+
+2. **功能商店与 GEO 门户访问**：
+   打开浏览器访问：`http://<云服务器公网IP>:3001/` 或 `http://<云服务器公网IP>:3001/llms.txt`
+   - 浏览已发布的 x402 API 商店并查看实时 SLA、代码示例与价格；
+   - AI 爬虫抓取将自动识别并返回 GEO Markdown 格式。
 
 2. **网关健康检查与版本接口**：
    ```bash
