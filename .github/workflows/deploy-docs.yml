@@ -43,7 +43,7 @@ jobs:
 
       - name: Build Docs with VitePress
         env:
-          DOCS_BASE: ${{ steps.pages.outputs.base_path || '/AgentPay/' }}
+          DOCS_BASE: ${{ steps.pages.outputs.base_path || '/' }}
         run: npm run docs:build
 
       - name: Upload Pages artifact
