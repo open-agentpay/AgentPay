@@ -98,10 +98,9 @@ policy = MemoryPolicyEngine(
 )
 
 # 钱包模式不产生链上签名，因此 signer 只是占位。
-# 请使用一次性的公开开发私钥，切勿使用持有资金的密钥。
-signer = LocalSigner(
-    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-)
+# ⚠️ 仅限测试网开发：此公钥对应 Hardhat/Anvil 默认公开测试密钥，切勿转入任何主网真实资产！
+dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(dev_key)
 
 client = AgentPayClient(
     signer=signer,

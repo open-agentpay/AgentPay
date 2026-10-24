@@ -88,8 +88,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/open-agentpay/AgentPay"
-Documentation = "https://open-agentpay.github.io/AgentPay/"
+Homepage = "https://openagentpay.dev/"
+Documentation = "https://openagentpay.dev/"
 Repository = "https://github.com/open-agentpay/AgentPay"
 
 [tool.hatch.build.targets.wheel]
@@ -116,7 +116,7 @@ from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 ```
 
 For documentation and full source code, visit:
-- **Official Documentation**: https://open-agentpay.github.io/AgentPay/
+- **Official Documentation**: https://openagentpay.dev/
 - **GitHub Repository**: https://github.com/open-agentpay/AgentPay
 """
             (tmp_path / "README.md").write_text(readme_content, encoding="utf-8")

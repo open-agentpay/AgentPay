@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/">
+  <a href="https://openagentpay.dev/">
     <img src="https://raw.githubusercontent.com/open-agentpay/AgentPay/main/docs/public/logo.png" alt="AgentPay Logo" width="120" height="120" />
   </a>
 </p>
@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI open-agentpay"></a>
   <a href="https://pypi.org/project/agentpay-gateway/"><img src="https://img.shields.io/pypi/v/agentpay-gateway.svg" alt="PyPI agentpay-gateway"></a>
-  <a href="https://open-agentpay.github.io/AgentPay/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
+  <a href="https://openagentpay.dev/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/Follow-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="https://github.com/open-agentpay/AgentPay/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/">📚 Documentation</a> •
+  <a href="https://openagentpay.dev/">📚 Documentation</a> •
   <a href="https://github.com/open-agentpay/AgentPay">💻 GitHub Repository</a> •
   <a href="https://x.com/OpenAgentPay">🐦 Follow on X (@OpenAgentPay)</a> •
   <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 Report Issue</a>
@@ -62,11 +62,15 @@ pip install -e python/packages/agentpay -e python/packages/agentpay-gateway
 ### 2. Basic Client Usage
 
 ```python
+import os
 from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 
 # 1. Initialize local signer (non-custodial private key)
-signer = LocalSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+# ⚠️ TESTNET DEVELOPMENT ONLY: This fallback key is Hardhat's publicly known default test key.
+# NEVER send real mainnet funds to this address! In production, inject via environment variable:
+private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(private_key)
 
 # 2. Configure local financial firewall
 policy = SQLitePolicyEngine.create_in_memory(
@@ -135,7 +139,7 @@ Built artifacts (`.whl` and `.tar.gz`) are output to `dist_all/`.
 
 ## 📖 Documentation & Community
 
-- **Official Documentation**: [https://open-agentpay.github.io/AgentPay/](https://open-agentpay.github.io/AgentPay/)
+- **Official Documentation**: [https://openagentpay.dev/](https://openagentpay.dev/)
 - **GitHub Repository**: [https://github.com/open-agentpay/AgentPay](https://github.com/open-agentpay/AgentPay)
 - **Twitter / X**: [@OpenAgentPay](https://x.com/OpenAgentPay)
 - **Issue Tracker**: [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues)

@@ -145,10 +145,9 @@ policy = MemoryPolicyEngine(
 )
 
 # 2. 签名器。钱包模式不需要链上签名，这里仅作占位。
-#    这是公开的开发用私钥，切勿向其转入任何资金。
-signer = LocalSigner(
-    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-)
+#    ⚠️ 仅限测试网开发：此公钥对应 Hardhat/Anvil 默认公开测试密钥，切勿转入任何主网真实资产！
+dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(dev_key)
 
 # 3. 为 Agent 颁发的 API Key（开发密钥，已预置测试钱包余额）。
 api_key = os.getenv("AGENTPAY_API_KEY", "apk_live_valid123")

@@ -153,7 +153,7 @@ Under EIP-3009 meta-transactions (`transferWithAuthorization`), the Buyer Agent 
 AgentPay formally supports three settlement sponsorship modes (detailed in [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md)):
 
 1. **Mode 1: Seller-Subsidized Gasless Settlement (2026 Baseline - v0.1.0):**
-   * Facilitator sponsors L2 native gas (Arbitrum / Base, $0.001 - $0.005 per tx); Buyer pays exact API price in USDC.
+   * Facilitator sponsors L2 native gas (Arbitrum Sepolia / Base Sepolia, $0.001 - $0.005 per tx); Buyer pays exact API price in USDC.
    * Ideal for high-margin APIs and friction-free agent micro-payments.
 2. **Mode 2: Dynamic Gas Surcharge & Reimbursement (2027 Q1 - v0.2.0):**
    * Gateway dynamically estimates EVM gas + L1 data fees, converts to USDC via Oracle, and appends to Challenge `amount`. Buyer pays both via USDC signature, fully reimbursing the Facilitator.

@@ -57,6 +57,7 @@ from agentpay_gateway.state.coordinator import GatewayStateCoordinator
 from agentpay_gateway.state.db import create_gateway_connection, init_gateway_database
 
 # Keys and Accounts
+# ⚠️ TESTNET / DEMO ONLY: Hardhat public development key. NEVER send real assets!
 BUYER_PRIVATE_KEY = os.environ.get(
     "BUYER_PRIVATE_KEY",
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",

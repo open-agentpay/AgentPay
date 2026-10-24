@@ -3,8 +3,7 @@
 Build and publish npm packages for AgentPay:
 1. open-agentpay (Canonical core package)
 2. agentpay-core (Alias package)
-3. agent-pay (Alias package)
-4. agentpay-firewall (Alias package)
+3. agentpay-firewall (Alias package)
 """
 
 import json
@@ -106,13 +105,13 @@ def prepare_packages() -> None:
             (pkg_dir / "README.md").write_text(
                 f"# {pkg['name']}\n\n"
                 "**The Open-Source Payment Infrastructure & Financial Firewall for Autonomous AI Agents.**\n\n"
-                "AgentPay equips autonomous AI agents with gasless micro-payments (Circle USDC on Arbitrum Sepolia & Base) "
+                "AgentPay equips autonomous AI agents with gasless micro-payments (Circle USDC on Arbitrum Sepolia & Base Sepolia) "
                 "governed by an in-process, non-custodial **Financial Firewall**.\n\n"
                 "## Installation\n\n"
                 "```bash\n"
                 f"npm install {pkg['name']}\n"
                 "```\n\n"
-                "For documentation, visit https://github.com/open-agentpay/AgentPay\n",
+                "For documentation, visit https://openagentpay.dev/ (GitHub: https://github.com/open-agentpay/AgentPay)\n",
                 encoding="utf-8",
             )
         else:

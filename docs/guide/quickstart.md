@@ -145,10 +145,9 @@ policy = MemoryPolicyEngine(
 )
 
 # 2. Signer. In wallet mode no on-chain signature is made, so this is only a placeholder.
-#    This is a well-known public development key: never put funds on it.
-signer = LocalSigner(
-    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-)
+#    ⚠️ TESTNET DEVELOPMENT ONLY: This is a well-known public Hardhat key. NEVER deposit real funds!
+dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(dev_key)
 
 # 3. API key issued for your agent (development key seeded with a test wallet balance).
 api_key = os.getenv("AGENTPAY_API_KEY", "apk_live_valid123")

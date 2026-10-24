@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/">
+  <a href="https://openagentpay.dev/">
     <img src="https://raw.githubusercontent.com/open-agentpay/AgentPay/main/docs/public/logo.png" alt="AgentPay Logo" width="120" height="120" />
   </a>
 </p>
@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/agentpay-gateway/"><img src="https://img.shields.io/pypi/v/agentpay-gateway.svg" alt="PyPI Version"></a>
-  <a href="https://open-agentpay.github.io/AgentPay/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
+  <a href="https://openagentpay.dev/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/Follow-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="https://github.com/open-agentpay/AgentPay/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/">📚 Documentation</a> •
+  <a href="https://openagentpay.dev/">📚 Documentation</a> •
   <a href="https://github.com/open-agentpay/AgentPay">💻 GitHub Repository</a> •
   <a href="https://x.com/OpenAgentPay">🐦 Follow on X (@OpenAgentPay)</a> •
   <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 Report Issue</a>
@@ -31,7 +31,7 @@
 
 ## ⚡ What is AgentPay Gateway?
 
-`agentpay-gateway` sits directly in front of existing REST APIs, AI agent microservices, and compute endpoints. It monetizes incoming requests via standard **HTTP 402 Payment Required** challenges settled gaslessly on-chain (Circle USDC on Arbitrum Sepolia & Base) or via virtual tenant wallets.
+`agentpay-gateway` sits directly in front of existing REST APIs, AI agent microservices, and compute endpoints. It monetizes incoming requests via standard **HTTP 402 Payment Required** challenges settled gaslessly on-chain (Circle USDC on Arbitrum Sepolia & Base Sepolia) or via virtual tenant wallets.
 
 ---
 
@@ -54,7 +54,8 @@ server:
   db_path: "./data/gateway.db"
 
 facilitator:
-  url: "https://facilitator.agentpay.network"
+  # Demo URL (not yet live). For local development, use a local mock facilitator (e.g. http://localhost:8080/facilitator)
+  url: "https://facilitator.openagentpay.dev"
 
 settlement:
   default_network: "eip155:421614"                             # Arbitrum Sepolia
@@ -66,6 +67,8 @@ routes:
     upstream: "https://httpbin.org/get"
     price: "0.001 USDC"
 ```
+
+> 💡 **Facilitator URL Note**: `https://facilitator.openagentpay.dev` is the planned public testnet demo service (not yet live). For local development, point `facilitator.url` to your local mock service (such as `http://localhost:8080/facilitator`) or use AgentPay's built-in `MockFacilitatorService`.
 
 ### 3. Running the Gateway
 
@@ -86,8 +89,8 @@ python3 -m agentpay_gateway.server --config ./gateway.yaml
 
 ## 📖 Documentation & Community
 
-- **Official Documentation**: [https://open-agentpay.github.io/AgentPay/](https://open-agentpay.github.io/AgentPay/)
-- **Gateway Guide**: [https://open-agentpay.github.io/AgentPay/guide/overview.html](https://open-agentpay.github.io/AgentPay/guide/overview.html)
+- **Official Documentation**: [https://openagentpay.dev/](https://openagentpay.dev/)
+- **Gateway Guide**: [https://openagentpay.dev/guide/overview.html](https://openagentpay.dev/guide/overview.html)
 - **GitHub Repository**: [https://github.com/open-agentpay/AgentPay](https://github.com/open-agentpay/AgentPay)
 - **Issue Tracker**: [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues)
 

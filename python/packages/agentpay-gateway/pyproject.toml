@@ -42,8 +42,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/open-agentpay/AgentPay"
-Documentation = "https://open-agentpay.github.io/AgentPay/"
+Homepage = "https://openagentpay.dev/"
+Documentation = "https://openagentpay.dev/"
 Repository = "https://github.com/open-agentpay/AgentPay"
 
 [tool.hatch.build.targets.wheel]

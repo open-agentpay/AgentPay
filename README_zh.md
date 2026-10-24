@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/zh/">
+  <a href="https://openagentpay.dev/zh/">
     <img src="./docs/public/logo.png" alt="AgentPay Logo" width="130" height="130" />
   </a>
 </p>
@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI"></a>
-  <a href="https://open-agentpay.github.io/AgentPay/zh/"><img src="https://img.shields.io/badge/文档站-在线阅读-blue?logo=vitepress&logoColor=white" alt="文档站"></a>
+  <a href="https://openagentpay.dev/zh/"><img src="https://img.shields.io/badge/文档站-在线阅读-blue?logo=vitepress&logoColor=white" alt="文档站"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/关注-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/zh/">📚 官方在线文档</a> •
+  <a href="https://openagentpay.dev/zh/">📚 官方在线文档</a> •
   <a href="https://x.com/OpenAgentPay">🐦 官方推特 (@OpenAgentPay)</a> •
   <a href="#-5-分钟快速开始">⚡ 快速上手</a> •
   <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 提交反馈</a>
@@ -134,6 +134,7 @@ make demo-live
 ### 3. 买方：5 行代码武装任何 LangChain Agent 工具
 
 ```python
+import os
 from agentpay.client.client import AgentPayClient
 from agentpay.client.signer import LocalSigner
 from agentpay.integrations.langchain import paid_tool
@@ -141,7 +142,10 @@ from agentpay.policy.config import PolicyConfig
 from agentpay.policy.sqlite_engine import SQLitePolicyEngine
 
 # 1. 初始化买方私钥与本地财务防火墙策略
-signer = LocalSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+# ⚠️ 仅限测试网开发：此密钥为公开测试密钥（Hardhat/Anvil 默认账户 0），切勿转入任何主网真实资产！
+# 生产环境请务必从环境变量注入安全私钥：os.environ["AGENT_PRIVATE_KEY"]
+private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(private_key)
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="agent_firewall",
@@ -175,7 +179,8 @@ server:
   host: "0.0.0.0"
   port: 8000
 facilitator:
-  url: "https://facilitator.agentpay.network"
+  # 演示地址（未上线），本地开发测试建议使用本地 Mock Facilitator（如 http://localhost:8080/facilitator）
+  url: "https://facilitator.openagentpay.dev"
 
 routes:
   - path: "/v1/market-data"
@@ -274,7 +279,7 @@ AgentPay 原生支持两种不同的系统部署拓扑，以适应不同阶段�
   - 买方客户端通过公网标准 **HTTPS**（443 端口）与云端网关通信。
 * **卖方 / 基础设施云端域（Cloud VPC / K8s）**：
   - **`agentpay-gateway`**：部署在云厂商负载均衡器（SLB / Ingress）之后，对外开放标准 HTTPS。负责路由匹配、发放 402 质询、幂等去重并将合法流量代理至内网真实微服务。
-  - **`agentpay-facilitator`**：独立的履约清算微服务，持有平台代付 Gas 钱包，对接 Alchemy/QuickNode 等公网 EVM RPC，通过 EIP-1559（Type 2）交易以 1.5x BaseFee 缓冲将授权真实广播至 Arbitrum/Base 上链。
+  - **`agentpay-facilitator`**：独立的履约清算微服务，持有平台代付 Gas 钱包，对接 Alchemy/QuickNode 等公网 EVM RPC，通过 EIP-1559（Type 2）交易以 1.5x BaseFee 缓冲将授权真实广播至 Arbitrum Sepolia / Base Sepolia 测试网上链。
 * *详细架构图解、信任边界划分与时序说明请参阅：[`specs/architecture.md`](./specs/architecture.md#7-deployment-topology-architectures)。*
 
 ---
@@ -387,7 +392,7 @@ make gateway-test      # 运行 Go 单元测试、并发测试与 E2E 测试
 ## 💬 社区与动态
 
 - **X (Twitter)**: 关注 [@OpenAgentPay](https://x.com/OpenAgentPay) 获取最新协议进展、生态合作与版本发布资讯。
-- **官方在线文档**：访问 [open-agentpay.github.io/AgentPay/zh/](https://open-agentpay.github.io/AgentPay/zh/) 在线阅读双语使用指南与完整技术规范。
+- **官方在线文档**：访问 [openagentpay.dev/zh/](https://openagentpay.dev/zh/) 在线阅读双语使用指南与完整技术规范。
 - **GitHub Issues 与讨论**：通过 [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues) 提交缺陷反馈或功能建议。
 
 ---

@@ -98,10 +98,9 @@ policy = MemoryPolicyEngine(
 )
 
 # Wallet mode makes no on-chain signature, so the signer is a placeholder.
-# This is a well-known public development key: never use a key that holds funds.
-signer = LocalSigner(
-    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-)
+# ⚠️ TESTNET DEVELOPMENT ONLY: This is a well-known public Hardhat key. NEVER deposit real funds!
+dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(dev_key)
 
 client = AgentPayClient(
     signer=signer,

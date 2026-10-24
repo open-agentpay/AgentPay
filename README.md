@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/">
+  <a href="https://openagentpay.dev/">
     <img src="./docs/public/logo.png" alt="AgentPay Logo" width="130" height="130" />
   </a>
 </p>
@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI"></a>
-  <a href="https://open-agentpay.github.io/AgentPay/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
+  <a href="https://openagentpay.dev/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/Follow-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/">📚 Documentation</a> •
+  <a href="https://openagentpay.dev/">📚 Documentation</a> •
   <a href="https://x.com/OpenAgentPay">🐦 Follow on X (@OpenAgentPay)</a> •
   <a href="#-5-minute-quickstart">⚡ Quickstart</a> •
   <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 Report Issue</a>
@@ -134,6 +134,7 @@ make demo-live
 ### 3. Protect Any LangChain Agent Tool in 5 Lines of Code (Buyer)
 
 ```python
+import os
 from agentpay.client.client import AgentPayClient
 from agentpay.client.signer import LocalSigner
 from agentpay.integrations.langchain import paid_tool
@@ -141,7 +142,10 @@ from agentpay.policy.config import PolicyConfig
 from agentpay.policy.sqlite_engine import SQLitePolicyEngine
 
 # 1. Setup buyer signer and local financial firewall policy
-signer = LocalSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+# ⚠️ TESTNET DEVELOPMENT ONLY: This key is Hardhat's publicly known default test key.
+# NEVER send real mainnet funds to this address! In production, inject via environment variable:
+private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(private_key)
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="agent_firewall",
@@ -175,7 +179,8 @@ server:
   host: "0.0.0.0"
   port: 8000
 facilitator:
-  url: "https://facilitator.agentpay.network"
+  # Demo URL (not yet live). For local development, use a local mock facilitator (e.g. http://localhost:8080/facilitator)
+  url: "https://facilitator.openagentpay.dev"
 
 routes:
   - path: "/v1/market-data"
@@ -273,7 +278,7 @@ AgentPay natively supports two distinct operational topologies:
   - Communicates with the Cloud Gateway over standard public **HTTPS** (port 443).
 * **Seller / Platform Cloud Domain**:
   - **`agentpay-gateway`**: Public reverse proxy behind a Cloud Load Balancer (SLB/Ingress). Issues 402 challenges, checks idempotency, and forwards valid traffic to internal microservices.
-  - **`agentpay-facilitator`**: Independent microservice holding gas-sponsorship keys, connecting to cloud EVM RPCs (Alchemy, QuickNode), and broadcasting EIP-1559 settlement transactions to Arbitrum/Base.
+  - **`agentpay-facilitator`**: Independent microservice holding gas-sponsorship keys, connecting to cloud EVM RPCs (Alchemy, QuickNode), and broadcasting EIP-1559 settlement transactions to Arbitrum Sepolia & Base Sepolia.
 * *Detailed architecture, trust boundaries, and sequence diagrams: [`specs/architecture.md`](./specs/architecture.md#7-deployment-topology-architectures).*
 
 ---
@@ -386,7 +391,7 @@ make gateway-test      # Run Go unit, concurrency, and E2E tests
 ## 💬 Community & Updates
 
 - **X (Twitter)**: Follow [@OpenAgentPay](https://x.com/OpenAgentPay) for protocol updates, ecosystem announcements, and release notes.
-- **Interactive Documentation**: Browse our full guides, specifications, and architecture deep-dives at [open-agentpay.github.io/AgentPay](https://open-agentpay.github.io/AgentPay/).
+- **Interactive Documentation**: Browse our full guides, specifications, and architecture deep-dives at [openagentpay.dev](https://openagentpay.dev/).
 - **GitHub Issues & Discussions**: Use [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues) to report bugs or request features.
 
 ---

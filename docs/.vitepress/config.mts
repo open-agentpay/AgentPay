@@ -16,9 +16,9 @@ export default withMermaid(
       ['meta', { name: 'theme-color', content: '#f97316' }],
       ['link', { rel: 'icon', type: 'image/png', href: `${base}favicon.png` }],
       ['link', { rel: 'icon', type: 'image/x-icon', href: `${base}favicon.ico` }],
-      ['meta', { property: 'og:image', content: 'https://open-agentpay.github.io/AgentPay/og-image.png' }],
+      ['meta', { property: 'og:image', content: 'https://openagentpay.dev/og-image.png' }],
       ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-      ['meta', { name: 'twitter:image', content: 'https://open-agentpay.github.io/AgentPay/og-image.png' }],
+      ['meta', { name: 'twitter:image', content: 'https://openagentpay.dev/og-image.png' }],
     ],
     vite: {
       optimizeDeps: {

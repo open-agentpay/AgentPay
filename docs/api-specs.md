@@ -198,7 +198,9 @@ from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import MemoryPolicyEngine
 
 # 初始化签名器与策略防火墙 (免 APIKey)
-signer = LocalSigner(private_key="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+# ⚠️ 仅限测试网开发：此密钥为公开测试密钥（Hardhat/Anvil 默认账户 0），切勿转入任何主网真实资产！生产环境请从环境变量注入。
+private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(private_key=private_key)
 policy = MemoryPolicyEngine(
     max_per_tx=1_000_000,      # 1 USDC
     daily_budget=10_000_000,   # 10 USDC
@@ -230,8 +232,9 @@ policy = MemoryPolicyEngine(
     max_per_tx=100_000,        # 单笔上限 $0.10 USDC
     daily_budget=5_000_000,    # 24小时上限 $5.00 USDC
 )
-# 钱包模式下 signer 可为占位或从本地获取
-signer = LocalSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+# 钱包模式下 signer 可为占位或从本地获取（⚠️ 公开测试密钥切勿转入任何主网真实资产）
+dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(dev_key)
 
 # 2. 获取控制台颁发给该 Agent 的 API Key
 api_key = os.getenv("AGENTPAY_API_KEY", "agp_live_xxxxxxxxxxxxxxxxxxxx")

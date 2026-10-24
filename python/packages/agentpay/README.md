@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/">
+  <a href="https://openagentpay.dev/">
     <img src="https://raw.githubusercontent.com/open-agentpay/AgentPay/main/docs/public/logo.png" alt="AgentPay Logo" width="120" height="120" />
   </a>
 </p>
@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI Version"></a>
-  <a href="https://open-agentpay.github.io/AgentPay/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
+  <a href="https://openagentpay.dev/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/Follow-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="https://github.com/open-agentpay/AgentPay/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://open-agentpay.github.io/AgentPay/">📚 Documentation</a> •
+  <a href="https://openagentpay.dev/">📚 Documentation</a> •
   <a href="https://github.com/open-agentpay/AgentPay">💻 GitHub Repository</a> •
   <a href="https://x.com/OpenAgentPay">🐦 Follow on X (@OpenAgentPay)</a> •
   <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 Report Issue</a>
@@ -31,7 +31,7 @@
 
 ## 💡 What is AgentPay?
 
-**AgentPay** equips autonomous AI agents with micro-payments (Circle USDC on Arbitrum Sepolia & Base) governed by an in-process, non-custodial **Financial Firewall**. It transparently intercepts `HTTP 402 Payment Required` responses, validates policy limits, and signs off-chain authorizations—protecting agent wallets against runaway loops and LLM hallucinations.
+**AgentPay** equips autonomous AI agents with micro-payments (Circle USDC on Arbitrum Sepolia & Base Sepolia) governed by an in-process, non-custodial **Financial Firewall**. It transparently intercepts `HTTP 402 Payment Required` responses, validates policy limits, and signs off-chain authorizations—protecting agent wallets against runaway loops and LLM hallucinations.
 
 > 📦 **Package Name Note**: The canonical PyPI distribution is [`open-agentpay`](https://pypi.org/project/open-agentpay/) (official aliases: `agentpay-core`, `agentpay-firewall`). Regardless of which package you install, you import `agentpay` in Python code.
 
@@ -55,11 +55,15 @@ pip install "open-agentpay[langchain]"
 Transparently intercepts HTTP 402 challenges, enforces local policy limits, and signs off-chain EIP-712/EIP-3009 authorizations:
 
 ```python
+import os
 from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 
 # 1. Initialize local signer (non-custodial private key, 0 gas required)
-signer = LocalSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+# ⚠️ TESTNET DEVELOPMENT ONLY: This fallback key is Hardhat/Anvil's public Account 0 key.
+# NEVER transfer mainnet funds to this address! In production, inject via environment variable:
+private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(private_key)
 
 # 2. Configure local financial firewall
 policy = SQLitePolicyEngine.create_in_memory(
@@ -85,11 +89,13 @@ print(response.json())
 For sub-millisecond execution using a pre-funded virtual ledger:
 
 ```python
+import os
 from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 
+private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 client = AgentPayClient(
-    signer=LocalSigner("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
+    signer=LocalSigner(private_key),
     policy=SQLitePolicyEngine.create_in_memory(PolicyConfig(...)),
     headers={"Authorization": "Bearer agp_live_your_api_key"},
 )
@@ -142,7 +148,7 @@ asyncio.run(main())
 |---|---|
 | **Zero-Trust Financial Firewall** | Enforces per-transaction caps, 24-hour rolling budgets, lifetime limits, and payee whitelists outside the LLM prompt. |
 | **Autonomous Circuit Breaker** | Automatically halts agent loops and freezes spending when request frequency exceeds safety thresholds (`circuit_max_rpm`). |
-| **Gasless Off-Chain Settlements** | AI Agents hold only Circle USDC; gas is sponsored on Arbitrum Sepolia & Base via EIP-3009 off-chain authorizations. |
+| **Gasless Off-Chain Settlements** | AI Agents hold only Circle USDC; gas is sponsored on Arbitrum Sepolia & Base Sepolia via EIP-3009 off-chain authorizations. |
 | **Agent Session & Audit Observability** | Automatic tracking headers (`X-Agent-Session-ID`, `X-Agent-Task-ID`) connect tool spending to tasks in the AgentPay Console. |
 | **Fail-Closed Guarantees** | Any policy violation, budget overrun, or upstream failure aborts safely with zero funds deducted. |
 
@@ -150,7 +156,7 @@ asyncio.run(main())
 
 ## 📖 Documentation & Community
 
-- **Official Documentation**: [https://open-agentpay.github.io/AgentPay/](https://open-agentpay.github.io/AgentPay/)
+- **Official Documentation**: [https://openagentpay.dev/](https://openagentpay.dev/)
 - **GitHub Repository**: [https://github.com/open-agentpay/AgentPay](https://github.com/open-agentpay/AgentPay)
 - **Twitter / X**: [@OpenAgentPay](https://x.com/OpenAgentPay)
 - **Issue Tracker**: [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues)
