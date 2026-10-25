@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import {
   PUBLIC_CONSOLE_URL,
+  PUBLIC_DOCS_URL,
   PUBLIC_GATEWAY_URL,
   PUBLIC_GITHUB_URL,
   PUBLIC_TWITTER_URL,
@@ -40,12 +41,12 @@ export function FooterNav() {
           >
             {t.footer.storefront}
           </Link>
-          <Link
-            href="/docs/"
+          <a
+            href={PUBLIC_DOCS_URL}
             className="hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             {t.nav.docs}
-          </Link>
+          </a>
           <a
             href={`${PUBLIC_GATEWAY_URL}/api/v1/public/marketplace/routes`}
             target="_blank"

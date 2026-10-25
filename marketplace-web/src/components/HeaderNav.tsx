@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import {
   PUBLIC_CONSOLE_URL,
+  PUBLIC_DOCS_URL,
   PUBLIC_GATEWAY_URL,
   PUBLIC_GITHUB_URL,
   PUBLIC_TWITTER_URL,
@@ -97,12 +98,12 @@ export function HeaderNav() {
             >
               {t.nav.exampleRoute}
             </Link>
-            <Link
-              href="/docs/"
+            <a
+              href={PUBLIC_DOCS_URL}
               className="whitespace-nowrap transition-colors hover:text-indigo-600 dark:hover:text-white"
             >
               {t.nav.docs}
-            </Link>
+            </a>
           </nav>
         </div>
 

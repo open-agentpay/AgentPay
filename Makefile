@@ -69,6 +69,10 @@ marketplace-dev:
 	npm --prefix marketplace-web run dev
 
 marketplace-build:
+	@if [ ! -d marketplace-web/public/docs ] || [ ! -f marketplace-web/public/docs/index.html ]; then \
+		echo "Building and bundling docs into marketplace-web/public/docs..."; \
+		node scripts/sync-specs.mjs && DOCS_BASE=/docs/ npx vitepress build docs && rm -rf marketplace-web/public/docs && cp -r docs/.vitepress/dist marketplace-web/public/docs; \
+	fi
 	npm --prefix marketplace-web run build
 
 marketplace-lint:

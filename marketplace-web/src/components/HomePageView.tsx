@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import {
   PUBLIC_CONSOLE_URL,
+  PUBLIC_DOCS_URL,
   PUBLIC_GATEWAY_URL,
 } from '@/lib/marketplace';
 import { useI18n } from '@/i18n/context';
@@ -156,13 +157,13 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
               <ArrowRight className="h-4 w-4" />
             </Link>
 
-            <Link
-              href="/docs/"
+            <a
+              href={PUBLIC_DOCS_URL}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:text-white"
             >
               <Terminal className="h-4 w-4 text-indigo-500" />
               <span>{t.homePage.btnReadDocs}</span>
-            </Link>
+            </a>
 
             <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 font-mono text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-300">
               <span>pip install open-agentpay</span>

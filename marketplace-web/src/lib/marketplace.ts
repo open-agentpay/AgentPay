@@ -15,6 +15,9 @@ export const PUBLIC_SITE_URL =
 export const PUBLIC_CONSOLE_URL =
   process.env.NEXT_PUBLIC_CONSOLE_URL || 'https://console.openagentpay.dev';
 
+export const PUBLIC_DOCS_URL =
+  process.env.NEXT_PUBLIC_DOCS_URL || '/docs/';
+
 export const PUBLIC_GITHUB_URL =
   process.env.NEXT_PUBLIC_GITHUB_URL || 'https://github.com/open-agentpay/AgentPay';
 

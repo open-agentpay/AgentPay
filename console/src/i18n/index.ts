@@ -10,18 +10,29 @@ export type LocaleKey = 'zh-cn' | 'en';
 const LOCALE_STORAGE_KEY = 'agentpay_locale';
 
 function getInitialLocale(): LocaleKey {
-  const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
-  if (saved === 'en' || saved === 'zh-cn') {
-    return saved;
+  try {
+    if (typeof window !== 'undefined' && window.location) {
+      const params = new URLSearchParams(window.location.search);
+      const urlLang = params.get('lang') || params.get('locale');
+      if (urlLang === 'en' || urlLang === 'zh-cn') {
+        localStorage.setItem(LOCALE_STORAGE_KEY, urlLang);
+        return urlLang;
+      }
+    }
+    const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (saved === 'en' || saved === 'zh-cn') {
+      return saved;
+    }
+  } catch {
+    // ignore storage or window errors
   }
-  const browserLang = navigator.language.toLowerCase();
-  if (browserLang.startsWith('zh')) {
-    return 'zh-cn';
-  }
-  return 'zh-cn'; // default to zh-cn
+  return 'en'; // default to English
 }
 
 const currentLocale = ref<LocaleKey>(getInitialLocale());
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = currentLocale.value;
+}
 
 const messages: Record<LocaleKey, Record<string, any>> = {
   'zh-cn': zhCN,

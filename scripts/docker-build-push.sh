@@ -122,6 +122,16 @@ echo ">>> Building Console Frontend image: ${CONSOLE_IMAGE} ..."
 # 4. Build Marketplace Web image
 echo ""
 echo ">>> Building Marketplace Web image: ${MARKETPLACE_IMAGE} ..."
+
+# Ensure docs are built and bundled into marketplace-web/public/docs
+if [[ ! -d "${ROOT_DIR}/marketplace-web/public/docs" || ! -f "${ROOT_DIR}/marketplace-web/public/docs/index.html" ]]; then
+  echo ">>> Pre-bundling documentation into marketplace-web/public/docs ..."
+  node "${ROOT_DIR}/scripts/sync-specs.mjs"
+  DOCS_BASE=/docs/ npx --yes vitepress build "${ROOT_DIR}/docs"
+  rm -rf "${ROOT_DIR}/marketplace-web/public/docs"
+  cp -r "${ROOT_DIR}/docs/.vitepress/dist" "${ROOT_DIR}/marketplace-web/public/docs"
+fi
+
 "${BUILD_CMD[@]}" \
   -t "${MARKETPLACE_IMAGE}" \
   -f "${ROOT_DIR}/marketplace-web/Dockerfile" \
