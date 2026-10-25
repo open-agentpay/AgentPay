@@ -39,11 +39,25 @@ const messages: Record<LocaleKey, Record<string, any>> = {
   en: en
 };
 
+type LocaleChangeHandler = (lang: LocaleKey) => void;
+const localeChangeHandlers: LocaleChangeHandler[] = [];
+
+export function onLocaleChange(handler: LocaleChangeHandler) {
+  localeChangeHandlers.push(handler);
+}
+
 export function setLocale(lang: LocaleKey) {
   currentLocale.value = lang;
   localStorage.setItem(LOCALE_STORAGE_KEY, lang);
   if (typeof document !== 'undefined') {
     document.documentElement.lang = lang;
+  }
+  for (const handler of localeChangeHandlers) {
+    try {
+      handler(lang);
+    } catch {
+      // ignore handler error
+    }
   }
 }
 

@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { reactive, ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { useAuthStore } from '@/stores/auth';
 import type { UserRole } from '@/types/auth';
 import type { CurrencyCode } from '@/types/tenant';
 import { useI18n, type LocaleKey } from '@/i18n';
+import { updateDocumentTitle } from '@/router';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const { locale, setLocale, t } = useI18n();
+
+onMounted(() => {
+  updateDocumentTitle();
+});
 
 function handleLanguageChange(lang: string | number | object) {
   setLocale(lang as LocaleKey);

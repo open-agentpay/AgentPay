@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import { t } from '@/i18n';
+import { t, onLocaleChange } from '@/i18n';
 import type { UserRole } from '@/types/auth';
 
 declare module 'vue-router' {
@@ -19,13 +19,13 @@ export const routes: RouteRecordRaw[] = [
     path: '/login',
     name: 'Login',
     component: () => import('@/views/login/index.vue'),
-    meta: { title: '登录', requiresAuth: false, hideInMenu: true }
+    meta: { title: 'Sign In', titleKey: 'login.signInButton', requiresAuth: false, hideInMenu: true }
   },
   {
     path: '/',
     component: () => import('@/layout/index.vue'),
     redirect: '/dashboard',
-    meta: { title: '工作台', requiresAuth: true },
+    meta: { title: 'Dashboard', titleKey: 'menu.dashboard', requiresAuth: true },
     children: [
       {
         path: 'dashboard',
@@ -156,14 +156,19 @@ const router = createRouter({
   routes
 });
 
+export function updateDocumentTitle(to = router.currentRoute.value) {
+  if (typeof document !== 'undefined') {
+    const rawTitle = to?.meta?.titleKey ? t(to.meta.titleKey) : (to?.meta?.title ? t(to.meta.title as string) : '');
+    document.title = rawTitle ? `${rawTitle} - AgentPay Console` : 'AgentPay Console';
+  }
+}
+
 // Navigation Guards: Authentication & RBAC Authorization
 router.beforeEach((to, _from, next) => {
   const authStore = useAuthStore();
 
-  // Document title
-  if (to.meta.title) {
-    document.title = `${to.meta.title} - AgentPay Console`;
-  }
+  // Document title with i18n
+  updateDocumentTitle(to);
 
   // Handle public login page
   if (to.path === '/login') {
@@ -192,10 +197,11 @@ router.beforeEach((to, _from, next) => {
 });
 
 router.afterEach((to) => {
-  const pageTitle = to.meta.titleKey ? t(to.meta.titleKey) : (to.meta.title ? t(to.meta.title as string) : '');
-  if (typeof document !== 'undefined') {
-    document.title = pageTitle ? `${pageTitle} - AgentPay` : 'AgentPay';
-  }
+  updateDocumentTitle(to);
+});
+
+onLocaleChange(() => {
+  updateDocumentTitle();
 });
 
 export default router;
