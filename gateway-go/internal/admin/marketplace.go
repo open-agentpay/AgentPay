@@ -56,6 +56,50 @@ func DefaultTitleFromSlug(title, slug, pathPattern string) string {
 	return strings.Join(parts, " ")
 }
 
+// isFirewallOrPreIntercepted determines if a request record was intercepted by the
+// financial firewall, protocol challenge, or gateway security policy layer BEFORE
+// any actual upstream API call was dispatched. Such intercepted requests should not
+// penalize upstream service SLA or count towards actual upstream interface calls.
+func isFirewallOrPreIntercepted(rec *usage.RequestRecord) bool {
+	if rec == nil {
+		return false
+	}
+	// 402: Payment required challenges or payment/wallet denials intercepted before upstream
+	if rec.StatusCode == http.StatusPaymentRequired {
+		return true
+	}
+	// 403: Financial firewall policy denial, agent policy enforcer denial
+	if rec.StatusCode == http.StatusForbidden {
+		return true
+	}
+	// 401: Unauthorized authentication failures
+	if rec.StatusCode == http.StatusUnauthorized {
+		return true
+	}
+	// 405: Payment method / route method disallowed before upstream
+	if rec.StatusCode == http.StatusMethodNotAllowed {
+		return true
+	}
+	// 400: Malformed inbound payload rejected by gateway parser before upstream
+	if rec.StatusCode == http.StatusBadRequest && (rec.ErrorCode == "ERR_INVALID_REQUEST_BODY" || strings.HasPrefix(rec.ErrorCode, "ERR_")) {
+		return true
+	}
+	// Explicit policy/firewall error codes
+	errCode := strings.ToUpper(rec.ErrorCode)
+	if strings.HasPrefix(errCode, "ERR_POLICY_") ||
+		strings.HasPrefix(errCode, "ERR_WALLET_") ||
+		strings.HasPrefix(errCode, "ERR_PAYMENT_") ||
+		strings.HasPrefix(errCode, "ERR_API_KEY_") ||
+		strings.HasPrefix(errCode, "ERR_NONCE_") ||
+		strings.HasPrefix(errCode, "ERR_SIGNATURE_") ||
+		strings.HasPrefix(errCode, "POLICY_") ||
+		strings.HasPrefix(errCode, "CIRCUIT_") ||
+		strings.HasPrefix(errCode, "BUDGET_") {
+		return true
+	}
+	return false
+}
+
 func computeRouteSLA(ctx context.Context, usageSvc usage.Service, route *Route) MarketplaceSLAMetrics {
 	sla := MarketplaceSLAMetrics{
 		SuccessRate24h: 99.8,
@@ -73,35 +117,46 @@ func computeRouteSLA(ctx context.Context, usageSvc usage.Service, route *Route) 
 	}
 
 	since24h := time.Now().Add(-24 * time.Hour)
-	records, totalReqs, err := usageSvc.ListRequestRecords(ctx, usage.RequestFilter{
+	records, _, err := usageSvc.ListRequestRecords(ctx, usage.RequestFilter{
 		TenantID:  route.TenantID,
 		RouteID:   route.RouteID,
 		StartTime: &since24h,
 		Limit:     1000,
 	})
 	if err == nil && len(records) > 0 {
-		var okCount int64
-		latencies := make([]int64, 0, len(records))
-		consecutiveFailures := 0
-		for i, rec := range records {
-			latencies = append(latencies, rec.DurationMs)
-			if rec.StatusCode >= 200 && rec.StatusCode < 400 {
-				okCount++
-			} else if i < 5 && rec.StatusCode >= 500 {
-				consecutiveFailures++
+		// Filter out requests that were intercepted by the financial firewall or gateway policy
+		// before actually reaching the upstream API.
+		validRecords := make([]*usage.RequestRecord, 0, len(records))
+		for _, rec := range records {
+			if !isFirewallOrPreIntercepted(rec) {
+				validRecords = append(validRecords, rec)
 			}
 		}
-		sla.SuccessRate24h = float64(int((float64(okCount)/float64(len(records)))*1000)) / 10.0
-		sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
-		p95Idx := int(float64(len(latencies)-1) * 0.95)
-		if p95Idx >= 0 && p95Idx < len(latencies) {
-			sla.P95LatencyMs = latencies[p95Idx]
-		}
-		sla.TotalCalls = totalReqs
-		if consecutiveFailures >= 3 && len(records) >= 3 {
-			sla.HealthStatus = "maintenance"
-		} else if sla.SuccessRate24h < 95.0 {
-			sla.HealthStatus = "degraded"
+
+		if len(validRecords) > 0 {
+			var okCount int64
+			latencies := make([]int64, 0, len(validRecords))
+			consecutiveFailures := 0
+			for i, rec := range validRecords {
+				latencies = append(latencies, rec.DurationMs)
+				if rec.StatusCode >= 200 && rec.StatusCode < 400 {
+					okCount++
+				} else if i < 5 && rec.StatusCode >= 500 {
+					consecutiveFailures++
+				}
+			}
+			sla.SuccessRate24h = float64(int((float64(okCount)/float64(len(validRecords)))*1000)) / 10.0
+			sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+			p95Idx := int(float64(len(latencies)-1) * 0.95)
+			if p95Idx >= 0 && p95Idx < len(latencies) {
+				sla.P95LatencyMs = latencies[p95Idx]
+			}
+			sla.TotalCalls = int64(len(validRecords))
+			if consecutiveFailures >= 3 && len(validRecords) >= 3 {
+				sla.HealthStatus = "maintenance"
+			} else if sla.SuccessRate24h < 95.0 {
+				sla.HealthStatus = "degraded"
+			}
 		}
 	}
 

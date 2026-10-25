@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -158,5 +159,124 @@ func TestPublicMarketplaceEndpoints(t *testing.T) {
 	handler.ServeHTTP(recPrivate, reqPrivate)
 	if recPrivate.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for private route slug, got %d", recPrivate.Code)
+	}
+}
+
+func TestComputeRouteSLA_FirewallInterceptionExclusion(t *testing.T) {
+	ctx := context.Background()
+	usageSvc := usage.NewMemoryService()
+
+	routeA := &Route{
+		RouteID:  "rou_test_firewall_only",
+		TenantID: "ten_test",
+		Status:   RouteStatusActive,
+	}
+
+	// 1. Only firewall/protocol intercepted records (402 challenges and 403 policy denials).
+	// None of these actually called the upstream API.
+	_ = usageSvc.RecordRequest(ctx, &usage.RequestRecord{
+		RequestID:  "req_402_challenge",
+		TenantID:   routeA.TenantID,
+		RouteID:    routeA.RouteID,
+		StatusCode: http.StatusPaymentRequired,
+		ErrorCode:  "ERR_PAYMENT_REQUIRED",
+		CreatedAt:  time.Now(),
+	})
+	_ = usageSvc.RecordRequest(ctx, &usage.RequestRecord{
+		RequestID:  "req_403_policy",
+		TenantID:   routeA.TenantID,
+		RouteID:    routeA.RouteID,
+		StatusCode: http.StatusForbidden,
+		ErrorCode:  "ERR_POLICY_MAX_PER_TX",
+		CreatedAt:  time.Now(),
+	})
+
+	slaA := computeRouteSLA(ctx, usageSvc, routeA)
+	if slaA.TotalCalls != 0 {
+		t.Errorf("expected 0 total calls when all requests were intercepted by firewall, got %d", slaA.TotalCalls)
+	}
+	if slaA.SuccessRate24h != 99.8 {
+		t.Errorf("expected baseline 99.8%% success rate when no actual upstream call was made, got %v", slaA.SuccessRate24h)
+	}
+	if slaA.HealthStatus != "healthy" {
+		t.Errorf("expected healthy status (not degraded), got %s", slaA.HealthStatus)
+	}
+
+	// 2. Route with mixed requests: 1 firewall 402 challenge + 2 actual 200 OK upstream calls.
+	routeB := &Route{
+		RouteID:  "rou_test_mixed",
+		TenantID: "ten_test",
+		Status:   RouteStatusActive,
+	}
+	_ = usageSvc.RecordRequest(ctx, &usage.RequestRecord{
+		RequestID:  "req_b_challenge",
+		TenantID:   routeB.TenantID,
+		RouteID:    routeB.RouteID,
+		StatusCode: http.StatusPaymentRequired,
+		ErrorCode:  "ERR_PAYMENT_REQUIRED",
+		CreatedAt:  time.Now(),
+	})
+	_ = usageSvc.RecordRequest(ctx, &usage.RequestRecord{
+		RequestID:  "req_b_ok_1",
+		TenantID:   routeB.TenantID,
+		RouteID:    routeB.RouteID,
+		StatusCode: http.StatusOK,
+		DurationMs: 120,
+		CreatedAt:  time.Now(),
+	})
+	_ = usageSvc.RecordRequest(ctx, &usage.RequestRecord{
+		RequestID:  "req_b_ok_2",
+		TenantID:   routeB.TenantID,
+		RouteID:    routeB.RouteID,
+		StatusCode: http.StatusOK,
+		DurationMs: 130,
+		CreatedAt:  time.Now(),
+	})
+
+	slaB := computeRouteSLA(ctx, usageSvc, routeB)
+	if slaB.TotalCalls != 2 {
+		t.Errorf("expected 2 total calls (excluding firewall interception), got %d", slaB.TotalCalls)
+	}
+	if slaB.SuccessRate24h != 100.0 {
+		t.Errorf("expected 100.0%% success rate, got %v", slaB.SuccessRate24h)
+	}
+	if slaB.HealthStatus != "healthy" {
+		t.Errorf("expected healthy status, got %s", slaB.HealthStatus)
+	}
+
+	// 3. Route with actual upstream failures: should flag degraded or maintenance properly.
+	routeC := &Route{
+		RouteID:  "rou_test_degraded",
+		TenantID: "ten_test",
+		Status:   RouteStatusActive,
+	}
+	// 1 OK and 9 actual 500 upstream errors (10% success rate < 95%)
+	_ = usageSvc.RecordRequest(ctx, &usage.RequestRecord{
+		RequestID:  "req_c_ok",
+		TenantID:   routeC.TenantID,
+		RouteID:    routeC.RouteID,
+		StatusCode: http.StatusOK,
+		DurationMs: 100,
+		CreatedAt:  time.Now(),
+	})
+	for i := 0; i < 9; i++ {
+		_ = usageSvc.RecordRequest(ctx, &usage.RequestRecord{
+			RequestID:  fmt.Sprintf("req_c_err_%d", i),
+			TenantID:   routeC.TenantID,
+			RouteID:    routeC.RouteID,
+			StatusCode: http.StatusInternalServerError,
+			DurationMs: 500,
+			CreatedAt:  time.Now(),
+		})
+	}
+	slaC := computeRouteSLA(ctx, usageSvc, routeC)
+	if slaC.TotalCalls != 10 {
+		t.Errorf("expected 10 total calls, got %d", slaC.TotalCalls)
+	}
+	if slaC.SuccessRate24h >= 95.0 {
+		t.Errorf("expected success rate < 95%%, got %v", slaC.SuccessRate24h)
+	}
+	if slaC.HealthStatus != "degraded" && slaC.HealthStatus != "maintenance" {
+		t.Errorf("expected degraded or maintenance for actual upstream failures, got %s", slaC.HealthStatus)
 	}
 }
