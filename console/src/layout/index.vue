@@ -157,7 +157,7 @@ function switchRole(role: UserRole) {
 </script>
 
 <template>
-  <el-container class="layout-container">
+  <el-container :class="['layout-container', theme === 'dark' ? 'theme-dark' : 'theme-light']">
     <!-- Sidebar -->
     <el-aside width="240px" class="aside-menu">
       <div class="logo-box">
@@ -455,6 +455,12 @@ function switchRole(role: UserRole) {
   border: 1px solid rgba(99, 102, 241, 0.3);
   padding: 1px 5px;
   border-radius: 4px;
+}
+
+.theme-light .logo-badge {
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  border-color: rgba(99, 102, 241, 0.25);
 }
 
 .sidebar-el-menu {
