@@ -1390,8 +1390,20 @@ func (s *MemoryService) CreateRoute(ctx context.Context, r *Route, actorMemberID
 	} else {
 		r.Network = strings.TrimSpace(r.Network)
 	}
+	if len(r.Methods) == 0 {
+		r.Methods = []string{"POST"}
+	}
 	if r.Tags == nil {
 		r.Tags = []string{}
+	}
+	if r.Parameters == nil {
+		r.Parameters = []MarketplaceParameter{}
+	}
+	if r.SampleParams == nil {
+		r.SampleParams = map[string]interface{}{}
+	}
+	if r.SampleResponse == nil {
+		r.SampleResponse = map[string]interface{}{}
 	}
 	if r.TimeoutMs <= 0 {
 		r.TimeoutMs = 30000
@@ -1541,6 +1553,34 @@ func (s *MemoryService) UpdateRoute(ctx context.Context, input *UpdateRouteInput
 
 	if input.Title != nil {
 		existing.Title = DefaultTitleFromSlug(*input.Title, existing.Slug, existing.PathPattern)
+	}
+
+	if input.Summary != nil {
+		existing.Summary = strings.TrimSpace(*input.Summary)
+	}
+
+	if input.ProviderName != nil {
+		existing.ProviderName = strings.TrimSpace(*input.ProviderName)
+	}
+
+	if input.Methods != nil {
+		existing.Methods = input.Methods
+	}
+
+	if input.NetworkLabel != nil {
+		existing.NetworkLabel = strings.TrimSpace(*input.NetworkLabel)
+	}
+
+	if input.Parameters != nil {
+		existing.Parameters = input.Parameters
+	}
+
+	if input.SampleParams != nil {
+		existing.SampleParams = input.SampleParams
+	}
+
+	if input.SampleResponse != nil {
+		existing.SampleResponse = input.SampleResponse
 	}
 
 	if input.IsPublic != nil {

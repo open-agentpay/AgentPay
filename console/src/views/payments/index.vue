@@ -156,7 +156,7 @@ async function loadPayments() {
     payments.value = res.payments || [];
     totalCount.value = res.total || 0;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('获取消费记录失败');
+    const msg = err instanceof Error ? t(err.message) : t('获取消费记录失败');
     ElMessage.error(msg);
   } finally {
     loading.value = false;

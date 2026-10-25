@@ -31,7 +31,7 @@ async function loadVersions() {
     const list = await configApi.getVersions(tenantStore.currentTenantId);
     versions.value = list;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('加载版本历史失败');
+    const msg = err instanceof Error ? t(err.message) : t('加载版本历史失败');
     ElMessage.error(msg);
   } finally {
     loading.value = false;
@@ -73,7 +73,7 @@ async function handlePublishClick() {
     await loadVersions();
   } catch (err: unknown) {
     if (err !== 'cancel') {
-      const msg = err instanceof Error ? err.message : t('发布流程失败');
+      const msg = err instanceof Error ? t(err.message) : t('发布流程失败');
       ElMessage.error(msg);
     }
   } finally {
@@ -107,7 +107,7 @@ async function handleRollbackClick(target: ConfigVersion) {
     await loadVersions();
   } catch (err: unknown) {
     if (err !== 'cancel') {
-      const msg = err instanceof Error ? err.message : t('回滚失败');
+      const msg = err instanceof Error ? t(err.message) : t('回滚失败');
       ElMessage.error(msg);
     }
   }
@@ -121,7 +121,7 @@ async function handleViewDiff() {
     draftDiff.value = diff;
     diffDrawerVisible.value = true;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('获取版本差异失败');
+    const msg = err instanceof Error ? t(err.message) : t('获取版本差异失败');
     ElMessage.error(msg);
   } finally {
     diffLoading.value = false;
@@ -136,7 +136,7 @@ async function handleViewVersionDiff(ver: ConfigVersion) {
     draftDiff.value = diff;
     diffDrawerVisible.value = true;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('获取版本差异失败');
+    const msg = err instanceof Error ? t(err.message) : t('获取版本差异失败');
     ElMessage.error(msg);
   } finally {
     diffLoading.value = false;

@@ -161,7 +161,7 @@ async function handleCurrencyChange(newCurr: 'CNY' | 'USD' | 'EUR') {
     }
     ElMessage.success(`${t('已将租户与虚拟钱包本位币切换为')} ${newCurr}`);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('本位币切换失败');
+    const msg = err instanceof Error ? t(err.message) : t('本位币切换失败');
     ElMessage.error(msg);
   }
 }
@@ -215,7 +215,7 @@ async function loadWalletData() {
       );
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('加载钱包信息失败');
+    const msg = err instanceof Error ? t(err.message) : t('加载钱包信息失败');
     ElMessage.error(msg);
   } finally {
     loading.value = false;
@@ -308,7 +308,7 @@ async function handleGrantSubmit() {
       grantDialogVisible.value = false;
       await loadWalletData();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('充值发放失败');
+      const msg = err instanceof Error ? t(err.message) : t('充值发放失败');
       ElMessage.error(msg);
     } finally {
       grantSubmitting.value = false;
@@ -369,7 +369,7 @@ async function handleAdjustSubmit() {
       adjustDialogVisible.value = false;
       await loadWalletData();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('调账失败');
+      const msg = err instanceof Error ? t(err.message) : t('调账失败');
       ElMessage.error(msg);
     } finally {
       adjustSubmitting.value = false;
@@ -416,7 +416,7 @@ async function handleFreezeSubmit() {
       freezeDialogVisible.value = false;
       await loadWalletData();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('操作失败');
+      const msg = err instanceof Error ? t(err.message) : t('操作失败');
       ElMessage.error(msg);
     } finally {
       freezeSubmitting.value = false;
@@ -437,7 +437,7 @@ async function handleReconcile() {
       ElMessage.error(`${t('检出账本差异 (Discrepancy)')}: ${formatUSDC(rep.discrepancy)} ${currencyUnit.value}`);
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('对账检查失败');
+    const msg = err instanceof Error ? t(err.message) : t('对账检查失败');
     ElMessage.error(msg);
   } finally {
     reconciling.value = false;
@@ -644,7 +644,7 @@ function getTopupStatusType(status: TopUpStatus) {
             <span class="unit">{{ currencyUnit }}</span>
           </div>
           <div class="kpi-sub" style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-            <span>{{ $t('本位币:') }} <strong>{{ currencyUnit }}</strong> (6位精度)</span>
+            <span>{{ $t('本位币') }}: <strong>{{ currencyUnit }}</strong> ({{ $t('6位精度') }})</span>
             <PermissionGate :roles="['owner', 'admin']">
               <el-dropdown v-if="canChangeCurrency" trigger="click" @command="handleCurrencyChange">
                 <el-button size="small" type="primary" link>

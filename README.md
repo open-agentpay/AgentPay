@@ -14,6 +14,7 @@
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI"></a>
   <a href="https://openagentpay.dev/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/Follow-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
+  <a href="https://discord.gg/2SYyfx4UuQ"><img src="https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
@@ -26,6 +27,7 @@
 <p align="center">
   <a href="https://openagentpay.dev/">📚 Documentation</a> •
   <a href="https://x.com/OpenAgentPay">🐦 Follow on X (@OpenAgentPay)</a> •
+  <a href="https://discord.gg/2SYyfx4UuQ">💬 Discord Community</a> •
   <a href="#-5-minute-quickstart">⚡ Quickstart</a> •
   <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 Report Issue</a>
 </p>
@@ -390,6 +392,7 @@ make gateway-test      # Run Go unit, concurrency, and E2E tests
 
 ## 💬 Community & Updates
 
+- **Discord**: Join our builder community on [Discord](https://discord.gg/2SYyfx4UuQ) for technical discussions, developer support, and real-time updates.
 - **X (Twitter)**: Follow [@OpenAgentPay](https://x.com/OpenAgentPay) for protocol updates, ecosystem announcements, and release notes.
 - **Interactive Documentation**: Browse our full guides, specifications, and architecture deep-dives at [openagentpay.dev](https://openagentpay.dev/).
 - **GitHub Issues & Discussions**: Use [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues) to report bugs or request features.

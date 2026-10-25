@@ -18,7 +18,7 @@ async function refreshProjects() {
   try {
     await tenantStore.loadProjects();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('加载项目列表失败');
+    const msg = err instanceof Error ? t(err.message) : t('加载项目列表失败');
     ElMessage.error(msg);
   } finally {
     loading.value = false;
@@ -81,7 +81,7 @@ async function handleCreateProject() {
       createDialogVisible.value = false;
       await refreshProjects();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('创建项目失败');
+      const msg = err instanceof Error ? t(err.message) : t('创建项目失败');
       ElMessage.error(msg);
     } finally {
       createLoading.value = false;
@@ -126,7 +126,7 @@ async function handleUpdateProject() {
       editDialogVisible.value = false;
       await refreshProjects();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('更新项目失败');
+      const msg = err instanceof Error ? t(err.message) : t('更新项目失败');
       ElMessage.error(msg);
     } finally {
       editLoading.value = false;
@@ -155,7 +155,7 @@ async function toggleArchive(prj: Project) {
     await refreshProjects();
   } catch (err: unknown) {
     if (err !== 'cancel') {
-      const msg = err instanceof Error ? err.message : t('操作失败');
+      const msg = err instanceof Error ? t(err.message) : t('操作失败');
       ElMessage.error(msg);
     }
   }
@@ -178,7 +178,7 @@ async function handleDeleteProject(prj: Project) {
     await refreshProjects();
   } catch (err: unknown) {
     if (err !== 'cancel') {
-      const msg = err instanceof Error ? err.message : t('删除失败');
+      const msg = err instanceof Error ? t(err.message) : t('删除失败');
       ElMessage.error(msg);
     }
   }

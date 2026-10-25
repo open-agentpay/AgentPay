@@ -14,6 +14,7 @@
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI"></a>
   <a href="https://openagentpay.dev/zh/"><img src="https://img.shields.io/badge/文档站-在线阅读-blue?logo=vitepress&logoColor=white" alt="文档站"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/关注-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
+  <a href="https://discord.gg/2SYyfx4UuQ"><img src="https://img.shields.io/badge/Discord-加入社区-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
@@ -26,6 +27,7 @@
 <p align="center">
   <a href="https://openagentpay.dev/zh/">📚 官方在线文档</a> •
   <a href="https://x.com/OpenAgentPay">🐦 官方推特 (@OpenAgentPay)</a> •
+  <a href="https://discord.gg/2SYyfx4UuQ">💬 Discord 开发者社区</a> •
   <a href="#-5-分钟快速开始">⚡ 快速上手</a> •
   <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 提交反馈</a>
 </p>
@@ -391,6 +393,7 @@ make gateway-test      # 运行 Go 单元测试、并发测试与 E2E 测试
 
 ## 💬 社区与动态
 
+- **Discord 社区**：加入我们的官方 Discord [https://discord.gg/2SYyfx4UuQ](https://discord.gg/2SYyfx4UuQ)，参与实时技术讨论、开发者答疑与生态共建。
 - **X (Twitter)**: 关注 [@OpenAgentPay](https://x.com/OpenAgentPay) 获取最新协议进展、生态合作与版本发布资讯。
 - **官方在线文档**：访问 [openagentpay.dev/zh/](https://openagentpay.dev/zh/) 在线阅读双语使用指南与完整技术规范。
 - **GitHub Issues 与讨论**：通过 [GitHub Issues](https://github.com/open-agentpay/AgentPay/issues) 提交缺陷反馈或功能建议。

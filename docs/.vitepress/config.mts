@@ -366,6 +366,7 @@ export default withMermaid(
       socialLinks: [
         { icon: 'github', link: 'https://github.com/open-agentpay/AgentPay' },
         { icon: 'x', link: 'https://x.com/OpenAgentPay' },
+        { icon: 'discord', link: 'https://discord.gg/2SYyfx4UuQ' },
       ],
       search: { provider: 'local' },
     },

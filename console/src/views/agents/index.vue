@@ -166,7 +166,7 @@ async function loadAgents() {
     );
     agents.value = list;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('加载 Agent 列表失败');
+    const msg = err instanceof Error ? t(err.message) : t('加载 Agent 列表失败');
     ElMessage.error(msg);
   } finally {
     loading.value = false;
@@ -268,7 +268,7 @@ async function openTimelineDrawer(agent: Agent) {
     const events = await agentApi.getAgentTimeline(tenantId, agent.agent_id);
     timelineEvents.value = events;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('获取审计时间线失败');
+    const msg = err instanceof Error ? t(err.message) : t('获取审计时间线失败');
     ElMessage.error(msg);
   } finally {
     timelineLoading.value = false;
@@ -314,7 +314,7 @@ async function handleKillSubmit() {
     killDialogVisible.value = false;
     await loadAgents();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('一键停用失败');
+    const msg = err instanceof Error ? t(err.message) : t('一键停用失败');
     ElMessage.error(msg);
   } finally {
     killSubmitting.value = false;
@@ -339,7 +339,7 @@ async function handleResumeAgent(agent: Agent) {
     ElMessage.success(`Agent ${agent.name} ${t('已成功恢复运行状态')}`);
     await loadAgents();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('恢复状态失败');
+    const msg = err instanceof Error ? t(err.message) : t('恢复状态失败');
     ElMessage.error(msg);
   }
 }
@@ -464,7 +464,7 @@ async function handleAgentFormSubmit() {
       agentDialogVisible.value = false;
       await loadAgents();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('操作失败');
+      const msg = err instanceof Error ? t(err.message) : t('操作失败');
       ElMessage.error(msg);
     } finally {
       agentSubmitting.value = false;
@@ -489,7 +489,7 @@ async function loadAgentKeys() {
     const keys = await agentApi.listAgentKeys(tenantId, activeKeysAgent.value.agent_id);
     agentKeys.value = keys;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('加载凭证失败');
+    const msg = err instanceof Error ? t(err.message) : t('加载凭证失败');
     ElMessage.error(msg);
   } finally {
     keysLoading.value = false;
@@ -516,7 +516,7 @@ async function handleCreateKey() {
     newKeyName.value = '';
     await loadAgentKeys();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('创建 API Key 失败');
+    const msg = err instanceof Error ? t(err.message) : t('创建 API Key 失败');
     ElMessage.error(msg);
   }
 }
@@ -538,7 +538,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
     ElMessage.success(t('API Key 撤销成功并已即时失效'));
     await loadAgentKeys();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('撤销失败');
+    const msg = err instanceof Error ? t(err.message) : t('撤销失败');
     ElMessage.error(msg);
   }
 }
@@ -840,7 +840,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
     <!-- Timeline Drawer -->
     <el-drawer
       v-model="timelineDrawerVisible"
-      :title="`${$t('Agent 行为审计时间线: ${activeTimelineAgent?.name ||')}${activeTimelineAgent?.name || ''}`"
+      :title="`${$t('Agent 行为审计时间线')}: ${activeTimelineAgent?.name || ''}`"
       size="700px"
       direction="rtl"
     >
@@ -1214,7 +1214,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
     <!-- API Keys Management Dialog -->
     <el-dialog
       v-model="keysDialogVisible"
-      :title="`${$t('Agent API Key 凭证管理: ${activeKeysAgent?.name ||')}${activeKeysAgent?.name || ''}`"
+      :title="`${$t('Agent API Key 凭证管理')}: ${activeKeysAgent?.name || ''}`"
       width="640px"
     >
       <div v-loading="keysLoading">

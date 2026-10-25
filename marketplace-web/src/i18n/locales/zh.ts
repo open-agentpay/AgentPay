@@ -260,6 +260,7 @@ export const zh: Translations = {
     descCol: '参数说明与示例 (Description)',
     requiredBadge: 'Required',
     optionalBadge: 'Optional',
+    sampleInputTitle: '请求入参 JSON 示例 (Sample Request Payload)',
     sampleOutputTitle: '200 OK 响应 JSON 示例 (Sample Output)',
     docsTitle: '功能说明与接入指南 (Documentation)',
     curlTitle: '底层 HTTP 402 握手与 AI Markdown 协商测试 (cURL)',

@@ -35,3 +35,12 @@ npm run build
 - `NEXT_PUBLIC_GATEWAY_URL`: Public X402 Gateway URL shown in SDK snippets (`default: https://gate.openagentpay.dev`)
 - `NEXT_PUBLIC_SITE_URL`: Canonical Marketplace domain (`default: https://openagentpay.dev`)
 - `NEXT_PUBLIC_CONSOLE_URL`: Seller/Buyer Console URL (`default: https://console.openagentpay.dev`)
+- `NEXT_PUBLIC_GITHUB_URL`: GitHub repository (`default: https://github.com/open-agentpay/AgentPay`)
+- `NEXT_PUBLIC_TWITTER_URL`: Official X account (`default: https://x.com/OpenAgentPay`)
+- `NEXT_PUBLIC_DISCORD_URL`: Official Discord community (`default: https://discord.gg/2SYyfx4UuQ`)
+
+## Community & Links
+
+- **Discord**: [https://discord.gg/2SYyfx4UuQ](https://discord.gg/2SYyfx4UuQ)
+- **X (Twitter)**: [https://x.com/OpenAgentPay](https://x.com/OpenAgentPay)
+- **GitHub**: [https://github.com/open-agentpay/AgentPay](https://github.com/open-agentpay/AgentPay)

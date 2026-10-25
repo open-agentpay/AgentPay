@@ -57,7 +57,7 @@ async function loadMembers() {
     const list = await memberApi.getMembers(tenantStore.currentTenantId);
     members.value = list;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('加载成员失败');
+    const msg = err instanceof Error ? t(err.message) : t('加载成员失败');
     ElMessage.error(msg);
   } finally {
     loading.value = false;
@@ -98,7 +98,7 @@ async function handleAddMemberSubmit() {
       addDialogVisible.value = false;
       await loadMembers();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('添加成员失败');
+      const msg = err instanceof Error ? t(err.message) : t('添加成员失败');
       ElMessage.error(msg);
     } finally {
       addLoading.value = false;
@@ -123,7 +123,7 @@ async function handleEditRoleSubmit() {
     editDialogVisible.value = false;
     await loadMembers();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('修改角色失败');
+    const msg = err instanceof Error ? t(err.message) : t('修改角色失败');
     ElMessage.error(msg);
   } finally {
     editLoading.value = false;
@@ -151,7 +151,7 @@ async function handleToggleStatus(member: UserProfile) {
     ElMessage.success(newStatus === 'disabled' ? t('已禁用该成员') : t('已启用该成员'));
     await loadMembers();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('操作失败');
+    const msg = err instanceof Error ? t(err.message) : t('操作失败');
     ElMessage.error(msg);
   }
 }
@@ -176,7 +176,7 @@ async function handleRemoveMember(member: UserProfile) {
     ElMessage.success(t('成员已被移除'));
     await loadMembers();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('移除成员失败');
+    const msg = err instanceof Error ? t(err.message) : t('移除成员失败');
     ElMessage.error(msg);
   }
 }

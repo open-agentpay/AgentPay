@@ -260,6 +260,7 @@ export const en: Translations = {
     descCol: 'Description & Example',
     requiredBadge: 'Required',
     optionalBadge: 'Optional',
+    sampleInputTitle: 'Sample Request Payload (application/json)',
     sampleOutputTitle: '200 OK Sample Output (application/json)',
     docsTitle: 'Feature Documentation & Integration Guide',
     curlTitle: 'Raw HTTP 402 Handshake & AI Markdown Test (cURL)',

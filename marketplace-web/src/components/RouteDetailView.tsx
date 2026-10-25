@@ -26,9 +26,58 @@ import {
   formatNetworkLabel,
   formatUsdcPrice,
 } from '@/lib/marketplace';
-import type { MarketplaceRouteItem } from '@/types/marketplace';
+import type { MarketplaceParameter, MarketplaceRouteItem } from '@/types/marketplace';
 import { CopyButton } from '@/components/CopyButton';
 import { useI18n } from '@/i18n/context';
+
+function flattenObjectToParams(
+  obj: Record<string, unknown>,
+  prefix = ''
+): MarketplaceParameter[] {
+  const result: MarketplaceParameter[] = [];
+  for (const [key, val] of Object.entries(obj)) {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+      result.push({
+        name: fullKey,
+        type: 'object',
+        required: true,
+        description: `Nested object ${fullKey}`,
+      });
+      result.push(...flattenObjectToParams(val as Record<string, unknown>, fullKey));
+    } else {
+      let valType: string = typeof val;
+      if (Array.isArray(val)) valType = 'array';
+      else if (val === null) valType = 'null';
+      result.push({
+        name: fullKey,
+        type: valType,
+        required: true,
+        description: `Parameter ${fullKey}`,
+        example: typeof val === 'string' ? val : JSON.stringify(val),
+      });
+    }
+  }
+  return result;
+}
+
+export function resolveRouteParameters(
+  parameters?: unknown,
+  sampleParams?: Record<string, unknown>
+): MarketplaceParameter[] {
+  if (Array.isArray(parameters) && parameters.length > 0) {
+    return parameters;
+  }
+  if (parameters && typeof parameters === 'object' && !Array.isArray(parameters) && Object.keys(parameters).length > 0) {
+    const flattened = flattenObjectToParams(parameters as Record<string, unknown>);
+    if (flattened.length > 0) return flattened;
+  }
+  if (sampleParams && typeof sampleParams === 'object' && Object.keys(sampleParams).length > 0) {
+    const flattened = flattenObjectToParams(sampleParams);
+    if (flattened.length > 0) return flattened;
+  }
+  return [];
+}
 
 interface RouteDetailViewProps {
   route: MarketplaceRouteItem;
@@ -47,6 +96,14 @@ export function RouteDetailView({ route, relatedRoutes }: RouteDetailViewProps) 
   const fullEndpoint = `${PUBLIC_GATEWAY_URL}${route.path_pattern}`;
   const isHealthy = route.sla.health_status === 'healthy';
   const categoryLabel = t.filter.categories[route.category] || route.category;
+
+  const effectiveParameters = resolveRouteParameters(route.parameters, route.sample_params);
+  const effectiveSampleParams =
+    route.sample_params && Object.keys(route.sample_params).length > 0
+      ? route.sample_params
+      : (route.parameters && typeof route.parameters === 'object' && !Array.isArray(route.parameters) && Object.keys(route.parameters).length > 0)
+      ? (route.parameters as Record<string, unknown>)
+      : null;
 
   const curlHandshakeSnippet = `# 1. Directly call gateway endpoint to trigger standard HTTP 402 challenge
 curl -i -X ${(route.methods || ['GET'])[0]} "${fullEndpoint}"
@@ -324,11 +381,18 @@ curl -H "Accept: text/markdown" "${PUBLIC_SITE_URL}/hub/${route.slug}"`;
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-slate-800 dark:divide-slate-800/70 dark:text-slate-200">
-                  {route.parameters && route.parameters.length > 0 ? (
-                    route.parameters.map((param) => (
+                  {effectiveParameters.length > 0 ? (
+                    effectiveParameters.map((param) => (
                       <tr key={param.name}>
                         <td className="px-4 py-3 font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-300">
-                          {param.name}
+                          {param.name.includes('.') ? (
+                            <div className="flex items-center gap-1.5" style={{ paddingLeft: `${(param.name.split('.').length - 1) * 12}px` }}>
+                              <span className="text-slate-400 dark:text-slate-500 font-sans">↳</span>
+                              <span>{param.name}</span>
+                            </div>
+                          ) : (
+                            param.name
+                          )}
                         </td>
                         <td className="px-4 py-3 font-mono text-xs text-cyan-700 dark:text-cyan-300">{param.type}</td>
                         <td className="px-4 py-3 text-xs">
@@ -343,7 +407,7 @@ curl -H "Accept: text/markdown" "${PUBLIC_SITE_URL}/hub/${route.slug}"`;
                           )}
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">
-                          <div>{param.description}</div>
+                          <div>{param.description || `Parameter ${param.name}`}</div>
                           {param.example && (
                             <div className="mt-1 font-mono text-[11px] text-slate-500">
                               e.g.: <code className="text-slate-700 dark:text-slate-300">{param.example}</code>
@@ -366,6 +430,22 @@ curl -H "Accept: text/markdown" "${PUBLIC_SITE_URL}/hub/${route.slug}"`;
               </table>
             </div>
 
+            {/* Calling input sample: Sample Request Payload */}
+            {effectiveSampleParams && (
+              <div className="mt-6">
+                <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-semibold text-slate-800 dark:text-slate-300">
+                    {t.detail.sampleInputTitle}
+                  </span>
+                  <span className="font-mono text-cyan-600 dark:text-cyan-400">application/json</span>
+                </div>
+                <pre className="overflow-x-auto rounded-xl border border-slate-800 bg-[#050811] p-4 font-mono text-xs leading-relaxed text-cyan-300">
+                  <code>{JSON.stringify(effectiveSampleParams, null, 2)}</code>
+                </pre>
+              </div>
+            )}
+
+            {/* 200 OK Sample Output */}
             {route.sample_response && (
               <div className="mt-6">
                 <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">

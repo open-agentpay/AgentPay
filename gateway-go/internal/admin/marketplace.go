@@ -146,8 +146,20 @@ func buildMarketplaceRouteItem(ctx context.Context, usageSvc usage.Service, r *R
 	if onchainAsset == "" {
 		onchainAsset = "USDC"
 	}
-	if providerName == "" {
+	if r.ProviderName != "" {
+		providerName = r.ProviderName
+	} else if providerName == "" {
 		providerName = "OpenAgentPay Verified Provider"
+	}
+
+	methods := r.Methods
+	if len(methods) == 0 {
+		methods = []string{"POST"}
+	}
+
+	params := r.Parameters
+	if params == nil {
+		params = []MarketplaceParameter{}
 	}
 
 	return &MarketplaceRouteItem{
@@ -156,12 +168,14 @@ func buildMarketplaceRouteItem(ctx context.Context, usageSvc usage.Service, r *R
 		ProviderName:          providerName,
 		Slug:                  slug,
 		Title:                 title,
+		Summary:               r.Summary,
 		Category:              cat,
 		Tags:                  tags,
 		DescriptionMD:         r.DescriptionMD,
 		Network:               netID,
+		NetworkLabel:          r.NetworkLabel,
 		PathPattern:           r.PathPattern,
-		Methods:               []string{"GET", "POST"},
+		Methods:               methods,
 		PriceBaseUnits:        r.PriceBaseUnits,
 		Asset:                 r.Asset,
 		OnchainPriceBaseUnits: onchainPrice,
@@ -172,6 +186,9 @@ func buildMarketplaceRouteItem(ctx context.Context, usageSvc usage.Service, r *R
 		TimeoutMs:             r.TimeoutMs,
 		Status:                r.Status,
 		SLA:                   computeRouteSLA(ctx, usageSvc, r),
+		Parameters:            params,
+		SampleParams:          r.SampleParams,
+		SampleResponse:        r.SampleResponse,
 		CreatedAt:             r.CreatedAt,
 		UpdatedAt:             r.UpdatedAt,
 	}
@@ -277,10 +294,15 @@ func (s *MemoryService) GetMarketplaceRouteBySlug(ctx context.Context, slug stri
 // ListMarketplaceRoutes returns all public marketplace routes matching the filter (PostgresService).
 func (p *PostgresService) ListMarketplaceRoutes(ctx context.Context, filter MarketplaceFilter) ([]*MarketplaceRouteItem, error) {
 	query := `
-		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''), r.is_public,
-		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''), COALESCE(r.network, 'eip155:421614'),
-		       r.path_pattern, r.upstream_url, r.price_base_units, r.asset,
-		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm, r.status,
+		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''),
+		       COALESCE(r.summary, ''), COALESCE(r.provider_name, ''), r.is_public,
+		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''),
+		       COALESCE(r.network, 'eip155:421614'), COALESCE(r.network_label, ''),
+		       r.path_pattern, COALESCE(r.methods, '["POST"]'::jsonb), r.upstream_url,
+		       r.price_base_units, r.asset, r.onchain_price_base_units, r.onchain_asset,
+		       r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm,
+		       COALESCE(r.parameters, '[]'::jsonb), COALESCE(r.sample_params, '{}'::jsonb), COALESCE(r.sample_response, '{}'::jsonb),
+		       r.status,
 		       EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
 		       COALESCE(t.name, 'OpenAgentPay Verified Provider')
 		FROM ap_route r
@@ -299,21 +321,42 @@ func (p *PostgresService) ListMarketplaceRoutes(ctx context.Context, filter Mark
 	for rows.Next() {
 		var r Route
 		var tagsBytes []byte
+		var methodsBytes []byte
+		var paramsBytes []byte
+		var sampleParamsBytes []byte
+		var sampleResponseBytes []byte
 		var onchainPrice sql.NullInt64
 		var onchainAsset sql.NullString
-		var providerName string
+		var tenantName string
 
 		if err := rows.Scan(
-			&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title, &r.IsPublic,
-			&r.Category, &tagsBytes, &r.DescriptionMD, &r.Network,
-			&r.PathPattern, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
-			&onchainPrice, &onchainAsset, &r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM, &r.Status,
-			&r.CreatedAt, &r.UpdatedAt, &providerName,
+			&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title,
+			&r.Summary, &r.ProviderName, &r.IsPublic,
+			&r.Category, &tagsBytes, &r.DescriptionMD,
+			&r.Network, &r.NetworkLabel,
+			&r.PathPattern, &methodsBytes, &r.UpstreamURL,
+			&r.PriceBaseUnits, &r.Asset, &onchainPrice, &onchainAsset,
+			&r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM,
+			&paramsBytes, &sampleParamsBytes, &sampleResponseBytes,
+			&r.Status,
+			&r.CreatedAt, &r.UpdatedAt, &tenantName,
 		); err != nil {
 			return nil, err
 		}
 		if len(tagsBytes) > 0 {
 			_ = json.Unmarshal(tagsBytes, &r.Tags)
+		}
+		if len(methodsBytes) > 0 {
+			_ = json.Unmarshal(methodsBytes, &r.Methods)
+		}
+		if len(paramsBytes) > 0 {
+			_ = json.Unmarshal(paramsBytes, &r.Parameters)
+		}
+		if len(sampleParamsBytes) > 0 {
+			_ = json.Unmarshal(sampleParamsBytes, &r.SampleParams)
+		}
+		if len(sampleResponseBytes) > 0 {
+			_ = json.Unmarshal(sampleResponseBytes, &r.SampleResponse)
 		}
 		if onchainPrice.Valid {
 			v := onchainPrice.Int64
@@ -323,7 +366,11 @@ func (p *PostgresService) ListMarketplaceRoutes(ctx context.Context, filter Mark
 			r.OnchainAsset = onchainAsset.String
 		}
 
-		item := buildMarketplaceRouteItem(ctx, usageSvc, &r, providerName)
+		provider := r.ProviderName
+		if provider == "" {
+			provider = tenantName
+		}
+		item := buildMarketplaceRouteItem(ctx, usageSvc, &r, provider)
 		if matchesMarketplaceFilter(item, filter) {
 			items = append(items, item)
 		}

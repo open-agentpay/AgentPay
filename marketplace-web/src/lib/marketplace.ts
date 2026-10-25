@@ -15,6 +15,15 @@ export const PUBLIC_SITE_URL =
 export const PUBLIC_CONSOLE_URL =
   process.env.NEXT_PUBLIC_CONSOLE_URL || 'https://console.openagentpay.dev';
 
+export const PUBLIC_GITHUB_URL =
+  process.env.NEXT_PUBLIC_GITHUB_URL || 'https://github.com/open-agentpay/AgentPay';
+
+export const PUBLIC_TWITTER_URL =
+  process.env.NEXT_PUBLIC_TWITTER_URL || 'https://x.com/OpenAgentPay';
+
+export const PUBLIC_DISCORD_URL =
+  process.env.NEXT_PUBLIC_DISCORD_URL || 'https://discord.gg/2SYyfx4UuQ';
+
 /**
  * Formats 6-decimal USDC base units into a clean human-readable string (e.g. "0.001" or "0.05").
  */
@@ -72,8 +81,14 @@ export function buildPythonSdkSnippet(
 ): string {
   const priceVal = (route.onchain_price_base_units || route.price_base_units) / 1_000_000;
   const suggestedBudget = Math.max(0.05, Number((priceVal * 10).toFixed(4)));
-  const sampleParams = route.sample_params || { timeframe: '24h' };
-  const paramsJson = JSON.stringify(sampleParams);
+  const sampleParams =
+    route.sample_params && Object.keys(route.sample_params).length > 0
+      ? route.sample_params
+      : (route.parameters && typeof route.parameters === 'object' && !Array.isArray(route.parameters) && Object.keys(route.parameters).length > 0)
+      ? (route.parameters as Record<string, unknown>)
+      : { timeframe: '24h' };
+
+  const paramsJson = JSON.stringify(sampleParams, null, 4);
   const isEn = locale === 'en';
 
   const commentInit = isEn
@@ -115,15 +130,50 @@ export function buildRouteMarkdownDoc(route: MarketplaceRouteItem): string {
   const tldr = buildAnswerFirstTldr(route);
   const sdkCode = buildPythonSdkSnippet(route);
 
+  const effectiveSampleParams =
+    route.sample_params && Object.keys(route.sample_params).length > 0
+      ? route.sample_params
+      : (route.parameters && typeof route.parameters === 'object' && !Array.isArray(route.parameters) && Object.keys(route.parameters).length > 0)
+      ? (route.parameters as Record<string, unknown>)
+      : null;
+
+  let effectiveParams = Array.isArray(route.parameters) ? route.parameters : [];
+  if (effectiveParams.length === 0 && effectiveSampleParams) {
+    const flatten = (obj: Record<string, unknown>, prefix = ''): typeof effectiveParams => {
+      const res: typeof effectiveParams = [];
+      for (const [k, v] of Object.entries(obj)) {
+        const fullKey = prefix ? `${prefix}.${k}` : k;
+        if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+          res.push({ name: fullKey, type: 'object', required: true, description: `Nested object ${fullKey}` });
+          res.push(...flatten(v as Record<string, unknown>, fullKey));
+        } else {
+          res.push({
+            name: fullKey,
+            type: Array.isArray(v) ? 'array' : typeof v,
+            required: true,
+            description: `Parameter ${fullKey}`,
+            example: typeof v === 'string' ? v : JSON.stringify(v)
+          });
+        }
+      }
+      return res;
+    };
+    effectiveParams = flatten(effectiveSampleParams);
+  }
+
   const paramRows =
-    route.parameters && route.parameters.length > 0
-      ? route.parameters
+    effectiveParams.length > 0
+      ? effectiveParams
           .map(
             (p) =>
-              `| \`${p.name}\` | \`${p.type}\` | ${p.required ? 'Yes' : 'No'} | ${p.description} |`
+              `| \`${p.name}\` | \`${p.type}\` | ${p.required ? 'Yes' : 'No'} | ${p.description || `Parameter ${p.name}`} |`
           )
           .join('\n')
       : `| \`params\` | \`object\` | No | Standard JSON query or body parameters forwarded to \`${route.path_pattern}\` |`;
+
+  const sampleParamsBlock = effectiveSampleParams
+    ? `\n### Request Payload Sample (application/json)\n\n\`\`\`json\n${JSON.stringify(effectiveSampleParams, null, 2)}\n\`\`\`\n`
+    : '';
 
   return `# ${route.title} (\`${route.slug}\`)
 
@@ -150,7 +200,7 @@ export function buildRouteMarkdownDoc(route: MarketplaceRouteItem): string {
 | Parameter | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 ${paramRows}
-
+${sampleParamsBlock}
 ## 3. Zero-Friction Python SDK Quickstart
 
 \`\`\`python
@@ -207,53 +257,63 @@ function applyLocalFilter(
 }
 
 /**
- * Fetches public marketplace routes from the Go gateway (`/api/v1/public/marketplace/routes`)
- * and merges with curated seed routes so the storefront always renders a rich catalog.
+ * Fetches public marketplace routes from the Go gateway (`/api/v1/public/marketplace/routes`).
+ * When live routes exist in the gateway/database, they are returned directly.
+ * Gracefully falls back to seed catalog only when zero live routes are published or gateway is offline.
  */
 export async function getMarketplaceRoutes(
   filter?: MarketplaceFilter
 ): Promise<MarketplaceRouteItem[]> {
   let liveRoutes: MarketplaceRouteItem[] = [];
 
-  try {
-    const url = new URL('/api/v1/public/marketplace/routes', INTERNAL_GATEWAY_URL);
-    if (filter?.q) url.searchParams.set('q', filter.q);
-    if (filter?.category && filter.category !== 'all') {
-      url.searchParams.set('category', filter.category);
-    }
-    if (filter?.network && filter.network !== 'all') {
-      url.searchParams.set('network', filter.network);
-    }
-    if (filter?.tag) url.searchParams.set('tag', filter.tag);
+  const candidateUrls = Array.from(
+    new Set(
+      [
+        process.env.GATEWAY_INTERNAL_URL,
+        process.env.NEXT_PUBLIC_GATEWAY_API_URL,
+        'http://127.0.0.1:8000',
+        'http://127.0.0.1:8080',
+      ].filter(Boolean) as string[]
+    )
+  );
 
-    const res = await fetch(url.toString(), {
-      next: { revalidate: 15 },
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(1800),
-    });
-
-    if (res.ok) {
-      const data = (await res.json()) as { routes?: MarketplaceRouteItem[] };
-      if (Array.isArray(data.routes)) {
-        liveRoutes = data.routes;
+  for (const base of candidateUrls) {
+    try {
+      const url = new URL('/api/v1/public/marketplace/routes', base);
+      if (filter?.q) url.searchParams.set('q', filter.q);
+      if (filter?.category && filter.category !== 'all') {
+        url.searchParams.set('category', filter.category);
       }
+      if (filter?.network && filter.network !== 'all') {
+        url.searchParams.set('network', filter.network);
+      }
+      if (filter?.tag) url.searchParams.set('tag', filter.tag);
+
+      const res = await fetch(url.toString(), {
+        next: { revalidate: 15 },
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(1800),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as { routes?: MarketplaceRouteItem[] };
+        if (Array.isArray(data.routes) && data.routes.length > 0) {
+          liveRoutes = data.routes;
+          break;
+        }
+      }
+    } catch {
+      // try next candidate base URL
     }
-  } catch {
-    // Fallback gracefully to seed catalog when local Go gateway is offline
   }
 
-  // Merge live routes from Go gateway with seed catalog (deduplicated by slug)
-  const bySlug = new Map<string, MarketplaceRouteItem>();
-  for (const r of liveRoutes) {
-    bySlug.set(r.slug, r);
-  }
-  for (const seed of SEED_MARKETPLACE_ROUTES) {
-    if (!bySlug.has(seed.slug)) {
-      bySlug.set(seed.slug, seed);
-    }
+  // If live routes exist from Go gateway, display live data without mock seed data
+  if (liveRoutes.length > 0) {
+    return applyLocalFilter(liveRoutes, filter);
   }
 
-  return applyLocalFilter(Array.from(bySlug.values()), filter);
+  // Fallback gracefully to seed catalog when no public routes exist yet
+  return applyLocalFilter(SEED_MARKETPLACE_ROUTES, filter);
 }
 
 /**
@@ -265,31 +325,41 @@ export async function getMarketplaceRouteBySlug(
   const cleanSlug = decodeURIComponent(slug || '').trim().toLowerCase();
   if (!cleanSlug) return null;
 
-  try {
-    const url = new URL(
-      `/api/v1/public/marketplace/routes/${encodeURIComponent(cleanSlug)}`,
-      INTERNAL_GATEWAY_URL
-    );
-    const res = await fetch(url.toString(), {
-      next: { revalidate: 15 },
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(1800),
-    });
+  const candidateUrls = Array.from(
+    new Set(
+      [
+        process.env.GATEWAY_INTERNAL_URL,
+        process.env.NEXT_PUBLIC_GATEWAY_API_URL,
+        'http://127.0.0.1:8000',
+        'http://127.0.0.1:8080',
+      ].filter(Boolean) as string[]
+    )
+  );
 
-    if (res.ok) {
-      const data = (await res.json()) as { route?: MarketplaceRouteItem };
-      if (data.route) {
-        // Enrich with seed parameters/sample if matching seed slug
-        const seedMatch = SEED_MARKETPLACE_ROUTES.find(
-          (s) => s.slug.toLowerCase() === cleanSlug
-        );
-        return seedMatch ? { ...seedMatch, ...data.route } : data.route;
+  for (const base of candidateUrls) {
+    try {
+      const url = new URL(
+        `/api/v1/public/marketplace/routes/${encodeURIComponent(cleanSlug)}`,
+        base
+      );
+      const res = await fetch(url.toString(), {
+        next: { revalidate: 15 },
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(1800),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as { route?: MarketplaceRouteItem };
+        if (data.route) {
+          return data.route;
+        }
       }
+    } catch {
+      // try next candidate
     }
-  } catch {
-    // Fallback to seed catalog
   }
 
+  // Fallback to seed catalog if not found in live routes
   const found = SEED_MARKETPLACE_ROUTES.find(
     (item) =>
       item.slug.toLowerCase() === cleanSlug || item.route_id.toLowerCase() === cleanSlug

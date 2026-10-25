@@ -189,6 +189,7 @@ export interface Translations {
     descCol: string;
     requiredBadge: string;
     optionalBadge: string;
+    sampleInputTitle: string;
     sampleOutputTitle: string;
     docsTitle: string;
     curlTitle: string;

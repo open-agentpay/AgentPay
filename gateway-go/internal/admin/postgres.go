@@ -1582,17 +1582,33 @@ func (p *PostgresService) CreateRoute(ctx context.Context, route *Route, actorMe
 	if onchainAsset == "" {
 		onchainAsset = "USDC"
 	}
+	if len(route.Methods) == 0 {
+		route.Methods = []string{"POST"}
+	}
+	if route.Parameters == nil {
+		route.Parameters = []MarketplaceParameter{}
+	}
+	if route.SampleParams == nil {
+		route.SampleParams = map[string]interface{}{}
+	}
+	if route.SampleResponse == nil {
+		route.SampleResponse = map[string]interface{}{}
+	}
 	tagsJSON, _ := json.Marshal(route.Tags)
+	methodsJSON, _ := json.Marshal(route.Methods)
+	paramsJSON, _ := json.Marshal(route.Parameters)
+	sampleParamsJSON, _ := json.Marshal(route.SampleParams)
+	sampleResponseJSON, _ := json.Marshal(route.SampleResponse)
 
 	_, err := p.db.ExecContext(ctx, `
 		INSERT INTO ap_route (
-			route_id, tenant_id, project_id, slug, title, is_public, category, tags, description_md, network,
-			path_pattern, upstream_url, price_base_units, asset, onchain_price_base_units, onchain_asset,
-			payee_address, allowed_payment_methods, timeout_ms, rate_limit_rpm, status, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $22);
-	`, route.RouteID, route.TenantID, route.ProjectID, route.Slug, route.Title, route.IsPublic, route.Category, tagsJSON, route.DescriptionMD, route.Network,
-		cleanPath, route.UpstreamURL, route.PriceBaseUnits, route.Asset, onchainPrice, onchainAsset,
-		route.PayeeAddress, route.AllowedPaymentMethods, route.TimeoutMs, route.RateLimitRPM, string(route.Status), now)
+			route_id, tenant_id, project_id, slug, title, summary, provider_name, is_public, category, tags, description_md, network, network_label,
+			path_pattern, methods, upstream_url, price_base_units, asset, onchain_price_base_units, onchain_asset,
+			payee_address, allowed_payment_methods, timeout_ms, rate_limit_rpm, parameters, sample_params, sample_response, status, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $29);
+	`, route.RouteID, route.TenantID, route.ProjectID, route.Slug, route.Title, route.Summary, route.ProviderName, route.IsPublic, route.Category, tagsJSON, route.DescriptionMD, route.Network, route.NetworkLabel,
+		cleanPath, methodsJSON, route.UpstreamURL, route.PriceBaseUnits, route.Asset, onchainPrice, onchainAsset,
+		route.PayeeAddress, route.AllowedPaymentMethods, route.TimeoutMs, route.RateLimitRPM, paramsJSON, sampleParamsJSON, sampleResponseJSON, string(route.Status), now)
 	if err != nil {
 		return nil, err
 	}
@@ -1641,18 +1657,21 @@ func (p *PostgresService) CreateRoute(ctx context.Context, route *Route, actorMe
 
 func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string) (*Route, error) {
 	query := `
-		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''), r.is_public,
-		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''), COALESCE(r.network, 'eip155:421614'),
-		       r.path_pattern, r.upstream_url, r.price_base_units, r.asset,
-		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm, r.status,
-		       EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
+		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''),
+		       COALESCE(r.summary, ''), COALESCE(r.provider_name, ''), r.is_public,
+		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''),
+		       COALESCE(r.network, 'eip155:421614'), COALESCE(r.network_label, ''),
+		       r.path_pattern, COALESCE(r.methods, '["POST"]'::jsonb), r.upstream_url, r.price_base_units, r.asset,
+		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm,
+		       COALESCE(r.parameters, '[]'::jsonb), COALESCE(r.sample_params, '{}'::jsonb), COALESCE(r.sample_response, '{}'::jsonb),
+		       r.status, EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
 		       c.type, c.params, c.secret_enc, c.key_version, EXTRACT(EPOCH FROM c.updated_at)::bigint
 		FROM ap_route r
 		LEFT JOIN api_auth_configs c ON c.api_id = r.route_id
 		WHERE r.route_id = $1;
 	`
 	var r Route
-	var tagsBytes []byte
+	var tagsBytes, methodsBytes, paramsBytes, sampleParamsBytes, sampleResponseBytes []byte
 	var onchainPrice sql.NullInt64
 	var onchainAsset sql.NullString
 	var cType sql.NullString
@@ -1660,10 +1679,14 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 	var cKeyVersion, cUpdatedAt sql.NullInt64
 
 	err := p.db.QueryRowContext(ctx, query, routeID).Scan(
-		&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title, &r.IsPublic,
-		&r.Category, &tagsBytes, &r.DescriptionMD, &r.Network,
-		&r.PathPattern, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
-		&onchainPrice, &onchainAsset, &r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM, &r.Status, &r.CreatedAt, &r.UpdatedAt,
+		&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title,
+		&r.Summary, &r.ProviderName, &r.IsPublic,
+		&r.Category, &tagsBytes, &r.DescriptionMD,
+		&r.Network, &r.NetworkLabel,
+		&r.PathPattern, &methodsBytes, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
+		&onchainPrice, &onchainAsset, &r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM,
+		&paramsBytes, &sampleParamsBytes, &sampleResponseBytes,
+		&r.Status, &r.CreatedAt, &r.UpdatedAt,
 		&cType, &cParamsBytes, &cSecretEnc, &cKeyVersion, &cUpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1680,6 +1703,30 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 	}
 	if r.Tags == nil {
 		r.Tags = []string{}
+	}
+	if len(methodsBytes) > 0 {
+		_ = json.Unmarshal(methodsBytes, &r.Methods)
+	}
+	if len(r.Methods) == 0 {
+		r.Methods = []string{"POST"}
+	}
+	if len(paramsBytes) > 0 {
+		_ = json.Unmarshal(paramsBytes, &r.Parameters)
+	}
+	if r.Parameters == nil {
+		r.Parameters = []MarketplaceParameter{}
+	}
+	if len(sampleParamsBytes) > 0 {
+		_ = json.Unmarshal(sampleParamsBytes, &r.SampleParams)
+	}
+	if r.SampleParams == nil {
+		r.SampleParams = map[string]interface{}{}
+	}
+	if len(sampleResponseBytes) > 0 {
+		_ = json.Unmarshal(sampleResponseBytes, &r.SampleResponse)
+	}
+	if r.SampleResponse == nil {
+		r.SampleResponse = map[string]interface{}{}
 	}
 	r.Slug = NormalizeSlug(r.Slug, r.PathPattern)
 	r.Title = DefaultTitleFromSlug(r.Title, r.Slug, r.PathPattern)
@@ -1710,11 +1757,14 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 
 func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*Route, error) {
 	query := `
-		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''), r.is_public,
-		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''), COALESCE(r.network, 'eip155:421614'),
-		       r.path_pattern, r.upstream_url, r.price_base_units, r.asset,
-		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm, r.status,
-		       EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
+		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''),
+		       COALESCE(r.summary, ''), COALESCE(r.provider_name, ''), r.is_public,
+		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''),
+		       COALESCE(r.network, 'eip155:421614'), COALESCE(r.network_label, ''),
+		       r.path_pattern, COALESCE(r.methods, '["POST"]'::jsonb), r.upstream_url, r.price_base_units, r.asset,
+		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm,
+		       COALESCE(r.parameters, '[]'::jsonb), COALESCE(r.sample_params, '{}'::jsonb), COALESCE(r.sample_response, '{}'::jsonb),
+		       r.status, EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
 		       c.type, c.params, c.secret_enc, c.key_version, EXTRACT(EPOCH FROM c.updated_at)::bigint
 		FROM ap_route r
 		LEFT JOIN api_auth_configs c ON c.api_id = r.route_id
@@ -1730,7 +1780,7 @@ func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*R
 	routes := make([]*Route, 0)
 	for rows.Next() {
 		var r Route
-		var tagsBytes []byte
+		var tagsBytes, methodsBytes, paramsBytes, sampleParamsBytes, sampleResponseBytes []byte
 		var onchainPrice sql.NullInt64
 		var onchainAsset sql.NullString
 		var cType sql.NullString
@@ -1738,10 +1788,14 @@ func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*R
 		var cKeyVersion, cUpdatedAt sql.NullInt64
 
 		if err := rows.Scan(
-			&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title, &r.IsPublic,
-			&r.Category, &tagsBytes, &r.DescriptionMD, &r.Network,
-			&r.PathPattern, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
-			&onchainPrice, &onchainAsset, &r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM, &r.Status, &r.CreatedAt, &r.UpdatedAt,
+			&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title,
+			&r.Summary, &r.ProviderName, &r.IsPublic,
+			&r.Category, &tagsBytes, &r.DescriptionMD,
+			&r.Network, &r.NetworkLabel,
+			&r.PathPattern, &methodsBytes, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
+			&onchainPrice, &onchainAsset, &r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM,
+			&paramsBytes, &sampleParamsBytes, &sampleResponseBytes,
+			&r.Status, &r.CreatedAt, &r.UpdatedAt,
 			&cType, &cParamsBytes, &cSecretEnc, &cKeyVersion, &cUpdatedAt,
 		); err != nil {
 			return nil, err
@@ -1751,6 +1805,30 @@ func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*R
 		}
 		if r.Tags == nil {
 			r.Tags = []string{}
+		}
+		if len(methodsBytes) > 0 {
+			_ = json.Unmarshal(methodsBytes, &r.Methods)
+		}
+		if len(r.Methods) == 0 {
+			r.Methods = []string{"POST"}
+		}
+		if len(paramsBytes) > 0 {
+			_ = json.Unmarshal(paramsBytes, &r.Parameters)
+		}
+		if r.Parameters == nil {
+			r.Parameters = []MarketplaceParameter{}
+		}
+		if len(sampleParamsBytes) > 0 {
+			_ = json.Unmarshal(sampleParamsBytes, &r.SampleParams)
+		}
+		if r.SampleParams == nil {
+			r.SampleParams = map[string]interface{}{}
+		}
+		if len(sampleResponseBytes) > 0 {
+			_ = json.Unmarshal(sampleResponseBytes, &r.SampleResponse)
+		}
+		if r.SampleResponse == nil {
+			r.SampleResponse = map[string]interface{}{}
 		}
 		r.Slug = NormalizeSlug(r.Slug, r.PathPattern)
 		r.Title = DefaultTitleFromSlug(r.Title, r.Slug, r.PathPattern)
@@ -1812,6 +1890,27 @@ func (p *PostgresService) UpdateRoute(ctx context.Context, input *UpdateRouteInp
 	if input.Title != nil {
 		r.Title = DefaultTitleFromSlug(*input.Title, r.Slug, r.PathPattern)
 	}
+	if input.Summary != nil {
+		r.Summary = strings.TrimSpace(*input.Summary)
+	}
+	if input.ProviderName != nil {
+		r.ProviderName = strings.TrimSpace(*input.ProviderName)
+	}
+	if input.Methods != nil {
+		r.Methods = input.Methods
+	}
+	if input.NetworkLabel != nil {
+		r.NetworkLabel = strings.TrimSpace(*input.NetworkLabel)
+	}
+	if input.Parameters != nil {
+		r.Parameters = input.Parameters
+	}
+	if input.SampleParams != nil {
+		r.SampleParams = input.SampleParams
+	}
+	if input.SampleResponse != nil {
+		r.SampleResponse = input.SampleResponse
+	}
 	if input.IsPublic != nil {
 		r.IsPublic = *input.IsPublic
 	}
@@ -1867,18 +1966,37 @@ func (p *PostgresService) UpdateRoute(ctx context.Context, input *UpdateRouteInp
 	if onchainAsset == "" {
 		onchainAsset = "USDC"
 	}
+	if len(r.Methods) == 0 {
+		r.Methods = []string{"POST"}
+	}
+	if r.Parameters == nil {
+		r.Parameters = []MarketplaceParameter{}
+	}
+	if r.SampleParams == nil {
+		r.SampleParams = map[string]interface{}{}
+	}
+	if r.SampleResponse == nil {
+		r.SampleResponse = map[string]interface{}{}
+	}
+
 	tagsJSON, _ := json.Marshal(r.Tags)
+	methodsJSON, _ := json.Marshal(r.Methods)
+	paramsJSON, _ := json.Marshal(r.Parameters)
+	sampleParamsJSON, _ := json.Marshal(r.SampleParams)
+	sampleResponseJSON, _ := json.Marshal(r.SampleResponse)
 
 	_, err = p.db.ExecContext(ctx, `
 		UPDATE ap_route
 		SET path_pattern = $1, upstream_url = $2, price_base_units = $3, asset = $4, onchain_price_base_units = $5, onchain_asset = $6,
 		    payee_address = $7, allowed_payment_methods = $8, timeout_ms = $9, rate_limit_rpm = $10, status = $11,
-		    slug = $12, title = $13, is_public = $14, category = $15, tags = $16, description_md = $17, network = $18,
+		    slug = $12, title = $13, summary = $14, provider_name = $15, is_public = $16, category = $17, tags = $18, description_md = $19, network = $20, network_label = $21,
+		    methods = $22, parameters = $23, sample_params = $24, sample_response = $25,
 		    updated_at = NOW()
-		WHERE route_id = $19;
+		WHERE route_id = $26;
 	`, r.PathPattern, r.UpstreamURL, r.PriceBaseUnits, r.Asset, onchainPrice, onchainAsset,
 		r.PayeeAddress, r.AllowedPaymentMethods, r.TimeoutMs, r.RateLimitRPM, string(r.Status),
-		r.Slug, r.Title, r.IsPublic, r.Category, tagsJSON, r.DescriptionMD, r.Network, input.RouteID)
+		r.Slug, r.Title, r.Summary, r.ProviderName, r.IsPublic, r.Category, tagsJSON, r.DescriptionMD, r.Network, r.NetworkLabel,
+		methodsJSON, paramsJSON, sampleParamsJSON, sampleResponseJSON, input.RouteID)
 	if err != nil {
 		return nil, err
 	}
