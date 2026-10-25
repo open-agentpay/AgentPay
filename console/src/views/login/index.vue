@@ -7,11 +7,13 @@ import type { UserRole } from '@/types/auth';
 import type { CurrencyCode } from '@/types/tenant';
 import { useI18n, type LocaleKey } from '@/i18n';
 import { updateDocumentTitle } from '@/router';
+import { useTheme, type ThemeMode } from '@/theme';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const { locale, setLocale, t } = useI18n();
+const { theme, setTheme } = useTheme();
 
 onMounted(() => {
   updateDocumentTitle();
@@ -19,6 +21,10 @@ onMounted(() => {
 
 function handleLanguageChange(lang: string | number | object) {
   setLocale(lang as LocaleKey);
+}
+
+function handleThemeChange(mode: string | number | object) {
+  setTheme(mode as ThemeMode);
 }
 
 const activeTab = ref<'login' | 'register'>('login');
@@ -186,6 +192,30 @@ async function handleQuickRoleLogin(role: UserRole) {
           <el-icon><Document /></el-icon>
           <span>{{ t('开发文档') }}</span>
         </a>
+
+        <!-- Theme Switcher: Light / Dark -->
+        <el-dropdown trigger="click" @command="handleThemeChange">
+          <el-button size="small" class="theme-dropdown-btn">
+            <el-icon class="mr-1">
+              <Sunny v-if="theme === 'light'" />
+              <Moon v-else />
+            </el-icon>
+            {{ theme === 'dark' ? t('暗黑模式') : t('明亮模式') }}
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="light" :disabled="theme === 'light'">
+                <el-icon><Sunny /></el-icon>
+                <span>{{ t('明亮模式') }} (Light)</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="dark" :disabled="theme === 'dark'">
+                <el-icon><Moon /></el-icon>
+                <span>{{ t('暗黑模式') }} (Dark)</span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
 
         <el-dropdown trigger="click" @command="handleLanguageChange">
           <el-button size="small" class="lang-dropdown-btn">
@@ -1093,5 +1123,68 @@ async function handleQuickRoleLogin(role: UserRole) {
     gap: 8px;
     text-align: center;
   }
+}
+
+/* Light Mode Overrides for Login Page */
+:global(html.light) .login-wrapper {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+:global(html.light) .bg-grid-overlay {
+  background-image: 
+    linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+}
+
+:global(html.light) .brand-name {
+  color: #0f172a;
+}
+
+:global(html.light) .hero-title {
+  background: linear-gradient(135deg, #0f172a 0%, #334155 60%, #4f46e5 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+:global(html.light) .hero-desc {
+  color: #475569;
+}
+
+:global(html.light) .feature-card {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+:global(html.light) .feature-heading {
+  color: #0f172a;
+}
+
+:global(html.light) .feature-sub {
+  color: #64748b;
+}
+
+:global(html.light) .hero-footer-status {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(226, 232, 240, 0.9);
+  color: #64748b;
+}
+
+:global(html.light) .status-text {
+  color: #334155;
+}
+
+:global(html.light) .nav-link-btn,
+:global(html.light) .lang-dropdown-btn,
+:global(html.light) .theme-dropdown-btn {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+:global(html.light) .bottom-footer {
+  background: rgba(255, 255, 255, 0.85);
+  border-top-color: #e2e8f0;
 }
 </style>

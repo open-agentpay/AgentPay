@@ -2,11 +2,17 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import ElementPlus from 'element-plus';
 import 'element-plus/dist/index.css';
+import 'element-plus/theme-chalk/dark/css-vars.css';
 import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 
+import './theme/theme.css';
+import { initTheme } from './theme';
 import App from './App.vue';
 import router from './router';
 import { i18nPlugin } from './i18n';
+
+// Initialize Theme (light / dark)
+initTheme();
 
 const app = createApp(App);
 

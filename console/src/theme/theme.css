@@ -1,0 +1,81 @@
+:root {
+  --app-bg-page: #f8fafc;
+  --app-bg-header: #ffffff;
+  --app-border-color: #e2e8f0;
+  --app-text-primary: #0f172a;
+  --app-text-secondary: #64748b;
+  --app-aside-bg: #ffffff;
+  --app-aside-logo-bg: #f8fafc;
+  --app-aside-border: #e2e8f0;
+  --app-aside-text: #475569;
+  --app-aside-active-bg: #eef2ff;
+  --app-aside-active-text: #4f46e5;
+  --app-card-bg: #ffffff;
+  --app-card-border: #e2e8f0;
+}
+
+html.dark {
+  --app-bg-page: #070b14;
+  --app-bg-header: #0d1322;
+  --app-border-color: #1e293b;
+  --app-text-primary: #f8fafc;
+  --app-text-secondary: #94a3b8;
+  --app-aside-bg: #090e1a;
+  --app-aside-logo-bg: #060912;
+  --app-aside-border: #1e293b;
+  --app-aside-text: #94a3b8;
+  --app-aside-active-bg: #1e293b;
+  --app-aside-active-text: #818cf8;
+  --app-card-bg: #0d1322;
+  --app-card-border: #1e293b;
+}
+
+html, body {
+  background-color: var(--app-bg-page);
+  color: var(--app-text-primary);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Refined Dark Mode Overrides for Element Plus */
+html.dark .el-card {
+  --el-card-bg-color: #0d1322;
+  border-color: #1e293b;
+}
+
+html.dark .el-table {
+  --el-table-bg-color: #0d1322;
+  --el-table-tr-bg-color: #0d1322;
+  --el-table-header-bg-color: #111827;
+  --el-table-border-color: #1e293b;
+  --el-table-text-color: #e2e8f0;
+  --el-table-header-text-color: #94a3b8;
+}
+
+html.dark .el-dialog {
+  --el-dialog-bg-color: #0d1322;
+  border: 1px solid #1e293b;
+}
+
+html.dark .el-descriptions__body {
+  background-color: #0d1322;
+  color: #e2e8f0;
+}
+
+html.dark .el-descriptions__label {
+  background-color: #111827;
+  color: #94a3b8;
+}
+
+html.dark .el-dropdown-menu {
+  background-color: #0d1322;
+  border-color: #1e293b;
+}
+
+html.dark .el-dropdown-menu__item {
+  color: #cbd5e1;
+}
+
+html.dark .el-dropdown-menu__item:hover {
+  background-color: #1e293b;
+  color: #ffffff;
+}

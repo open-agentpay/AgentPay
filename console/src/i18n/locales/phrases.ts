@@ -1360,5 +1360,10 @@ export const enPhrases: Record<string, string> = {
   "欢迎登录 AgentPay 控制台": "Welcome to AgentPay Console",
   "输入管理员账号以管理 AI Agent 财务安全与路由策略": "Enter your credentials to manage AI agent firewall & routing policies",
   "登录控制台": "Sign In to Console",
-  "创建新租户": "Create New Tenant"
+  "创建新租户": "Create New Tenant",
+  "明亮模式": "Light Mode",
+  "暗黑模式": "Dark Mode",
+  "切换为明亮模式": "Switch to Light Mode",
+  "切换为暗黑模式": "Switch to Dark Mode",
+  "主题切换": "Theme Switcher"
 };

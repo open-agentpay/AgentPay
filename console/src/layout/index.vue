@@ -9,15 +9,21 @@ import type { UserRole } from '@/types/auth';
 import { MOCK_USERS } from '@/api/mockData';
 import { authApi } from '@/api/client';
 import { useI18n, type LocaleKey } from '@/i18n';
+import { useTheme, type ThemeMode } from '@/theme';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const tenantStore = useTenantStore();
 const { locale, setLocale, t } = useI18n();
+const { theme, setTheme } = useTheme();
 
 function handleLanguageChange(lang: string | number | object) {
   setLocale(lang as LocaleKey);
+}
+
+function handleThemeChange(mode: string | number | object) {
+  setTheme(mode as ThemeMode);
 }
 
 // Password Change Dialog State
@@ -155,16 +161,21 @@ function switchRole(role: UserRole) {
     <!-- Sidebar -->
     <el-aside width="240px" class="aside-menu">
       <div class="logo-box">
-        <el-icon :size="24" class="logo-icon"><Coin /></el-icon>
-        <span class="logo-text">AgentPay Console</span>
+        <div class="logo-img-wrap">
+          <img src="/logo.png" alt="AgentPay Logo" class="logo-img" />
+        </div>
+        <div class="logo-brand-info">
+          <span class="logo-text">AgentPay</span>
+          <span class="logo-badge">Console</span>
+        </div>
       </div>
 
       <el-menu
         :default-active="activeMenu"
         class="sidebar-el-menu"
-        background-color="#141414"
-        text-color="#c0c4cc"
-        active-text-color="#409eff"
+        :background-color="theme === 'dark' ? '#090e1a' : '#ffffff'"
+        :text-color="theme === 'dark' ? '#94a3b8' : '#475569'"
+        :active-text-color="theme === 'dark' ? '#818cf8' : '#4f46e5'"
         router
       >
         <el-menu-item
@@ -231,6 +242,30 @@ function switchRole(role: UserRole) {
         </div>
 
         <div class="header-right">
+          <!-- Theme Switcher: Light / Dark -->
+          <el-dropdown trigger="click" style="margin-right: 14px" @command="handleThemeChange">
+            <el-button size="small" plain class="theme-select-btn">
+              <el-icon class="mr-1">
+                <Sunny v-if="theme === 'light'" />
+                <Moon v-else />
+              </el-icon>
+              <span>{{ theme === 'dark' ? t('暗黑模式') : t('明亮模式') }}</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="light" :disabled="theme === 'light'">
+                  <el-icon><Sunny /></el-icon>
+                  <span>{{ t('明亮模式') }} (Light)</span>
+                </el-dropdown-item>
+                <el-dropdown-item command="dark" :disabled="theme === 'dark'">
+                  <el-icon><Moon /></el-icon>
+                  <span>{{ t('暗黑模式') }} (Dark)</span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
           <!-- Language Switcher -->
           <el-dropdown trigger="click" style="margin-right: 14px" @command="handleLanguageChange">
             <el-button size="small" plain>
@@ -355,35 +390,71 @@ function switchRole(role: UserRole) {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  background-color: #f5f7fa;
+  background-color: var(--app-bg-page);
 }
 
 .aside-menu {
-  background-color: #141414;
+  background-color: var(--app-aside-bg);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #2b2b2b;
+  border-right: 1px solid var(--app-aside-border);
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 .logo-box {
   height: 60px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  background-color: #0d0d0d;
-  color: #fff;
-  border-bottom: 1px solid #222;
+  gap: 10px;
+  padding: 0 16px;
+  background-color: var(--app-aside-logo-bg);
+  border-bottom: 1px solid var(--app-aside-border);
+  box-sizing: border-box;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
-.logo-icon {
-  color: #409eff;
-  margin-right: 10px;
+.logo-img-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+}
+
+.logo-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.logo-brand-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .logo-text {
-  font-weight: 700;
+  font-weight: 800;
   font-size: 16px;
-  letter-spacing: 0.5px;
+  letter-spacing: -0.4px;
+  color: var(--app-text-primary);
+}
+
+.logo-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
 .sidebar-el-menu {
@@ -393,24 +464,27 @@ function switchRole(role: UserRole) {
 
 .aside-footer {
   padding: 16px 20px;
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--app-aside-border);
   font-size: 12px;
-  color: #606266;
+  color: var(--app-text-secondary);
+  transition: border-color 0.25s ease, color 0.25s ease;
 }
 
 .sub-label {
   font-size: 11px;
-  color: #909399;
+  color: var(--app-text-secondary);
   margin-top: 4px;
+  opacity: 0.8;
 }
 
 .top-header {
-  background-color: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  background-color: var(--app-bg-header);
+  border-bottom: 1px solid var(--app-border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 .header-left {
@@ -421,7 +495,7 @@ function switchRole(role: UserRole) {
 .selector-label {
   font-size: 13px;
   font-weight: 500;
-  color: #606266;
+  color: var(--app-text-secondary);
   margin-right: 8px;
 }
 
@@ -435,6 +509,10 @@ function switchRole(role: UserRole) {
 .header-right {
   display: flex;
   align-items: center;
+}
+
+.theme-select-btn {
+  border-radius: 8px;
 }
 
 .role-badge {
@@ -452,13 +530,15 @@ function switchRole(role: UserRole) {
 
 .user-email {
   font-size: 13px;
-  color: #303133;
+  color: var(--app-text-primary);
 }
 
 .main-body {
   padding: 24px;
   overflow-y: auto;
   height: calc(100vh - 60px);
+  background-color: var(--app-bg-page);
+  transition: background-color 0.25s ease;
 }
 
 .fade-enter-active,
