@@ -146,7 +146,7 @@ export const en: Translations = {
       'Natively implements the HTTP 402 Payment Required handshake standard with Circle USDC on Base and Arbitrum via EIP-3009, enabling zero gas overhead, sub-second latency, and virtual ledger dual-path channels.',
     pillar3Title: 'Zero-Friction 1-Line SDK Integration',
     pillar3Desc:
-      'Just install open-agentpay and call client.call(route="..."). The SDK automatically orchestrates 402 challenges, local budget evaluations, offline signing, and gateway routing under the hood.',
+      'Just install open-agentpay and use client.get() or client.post() directly on the gateway endpoint. The SDK automatically orchestrates 402 challenges, local budget evaluations, and offline signing under the hood.',
     codeSnippetTitle: 'Experience AgentPay SDK Automated Payment with 1 Line of Code',
     codeSnippetDesc:
       'The Python code below invokes any live API in this marketplace with automated 402 handshake and local budget firewall protection:',
@@ -178,7 +178,7 @@ export const en: Translations = {
   },
   preview: {
     sdkTitle: 'Zero-Friction Python SDK Integration',
-    sdkSubtitle: 'Copy the snippet below to invoke route="{slug}", automatically completing HTTP 402 handshake and EIP-3009 signature.',
+    sdkSubtitle: 'Copy the snippet below to invoke this service via the gateway forwarding endpoint, automatically completing HTTP 402 handshake and EIP-3009 offline signing.',
     copyCode: 'Copy Python Snippet',
     viewDetails: 'View Full GEO Details',
     close: 'Close',
@@ -241,7 +241,7 @@ export const en: Translations = {
     valueCol: 'Specification Value',
     notesCol: 'Notes',
     slugParam: 'Route Slug',
-    slugNote: 'Passed in SDK client.call(route=...)',
+    slugNote: 'Semantic catalog identifier for Marketplace discovery and documentation',
     endpointParam: 'Gateway Forwarding Endpoint',
     endpointNote: 'Supports {methods} requests',
     priceParam: 'X402 Price Per Call',

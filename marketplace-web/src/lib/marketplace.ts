@@ -82,8 +82,10 @@ export function buildPythonSdkSnippet(
   route: MarketplaceRouteItem,
   locale: string = 'zh'
 ): string {
-  const priceVal = (route.onchain_price_base_units || route.price_base_units) / 1_000_000;
-  const suggestedBudget = Math.max(0.05, Number((priceVal * 10).toFixed(4)));
+  const suggestedBudgetUnits = Math.max(
+    50_000,
+    (route.onchain_price_base_units || route.price_base_units) * 5
+  );
   const sampleParams =
     route.sample_params && Object.keys(route.sample_params).length > 0
       ? route.sample_params
@@ -94,32 +96,52 @@ export function buildPythonSdkSnippet(
   const paramsJson = JSON.stringify(sampleParams, null, 4);
   const isEn = locale === 'en';
 
-  const commentInit = isEn
-    ? '# Initialize client, connects to OpenAgentPay Gateway by default'
-    : '# 初始化客户端，默认连接 OpenAgentPay 开放网关';
+  const primaryMethod = (route.methods?.[0] || 'GET').toUpperCase();
+  const isPost =
+    primaryMethod === 'POST' ||
+    (!route.methods?.includes('GET') && route.methods?.includes('POST'));
+  const httpMethod = isPost ? 'post' : 'get';
+  const paramArg = isPost ? 'json' : 'params';
+  const endpointUrl = `${PUBLIC_GATEWAY_URL}${route.path_pattern}`;
+
+  const commentImports = isEn
+    ? '# 1. Import AgentPay SDK and buyer local financial firewall'
+    : '# 1. 导入 AgentPay SDK 买方本地非托管财务防火墙组件';
+  const commentSigner = isEn
+    ? '# Buyer local signer (signs offline EIP-712/EIP-3009 payload, 0 gas charged to buyer)'
+    : '# 买方本地签名器（签署离线 EIP-712 / EIP-3009 授权，买方无需承担任何 Gas）';
   const commentBudget = isEn
-    ? '# Per-request max budget protection'
-    : '# 单次调用最高预算保护';
+    ? `# Max spend per transaction (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`
+    : `# 单次调用最高预算保护 (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`;
+  const commentClient = isEn
+    ? '# 2. AgentPayClient inherits from standard httpx.Client'
+    : '# 2. 初始化 AgentPayClient（继承自标准 httpx.Client，自动处理 402 握手与签名支付）';
   const commentCall = isEn
-    ? '# Automatically handles HTTP 402 handshake, EIP-3009 signing, and routing'
-    : '# 自动处理 HTTP 402 握手、EIP-3009 签名支付与路由转发';
-  const commentRoute = isEn
-    ? '# Discovered route slug on openagentpay.dev/hub'
-    : '# 在 openagentpay.dev/hub 发现的路由';
+    ? `# 3. Call gateway forwarding endpoint directly (${primaryMethod})`
+    : `# 3. 直接调用网关转发端点（${primaryMethod} 请求）`;
 
-  return `from agentpay import AgentPayClient
+  return `import os
+from agentpay import AgentPayClient, LocalSigner
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-${commentInit}
-client = AgentPayClient(
-    gateway_url="${PUBLIC_GATEWAY_URL}",
-    wallet_private_key="0x...",
-    max_budget_usdc=${suggestedBudget}  ${commentBudget}
+${commentImports}
+signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))  ${commentSigner}
+
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="agent_firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=${suggestedBudgetUnits},  ${commentBudget}
+    )
 )
 
+${commentClient}
+client = AgentPayClient(signer=signer, policy=policy)
+
 ${commentCall}
-response = client.call(
-    route="${route.slug}",  ${commentRoute}
-    params=${paramsJson}
+response = client.${httpMethod}(
+    "${endpointUrl}",
+    ${paramArg}=${paramsJson}
 )
 print(response.json())`;
 }

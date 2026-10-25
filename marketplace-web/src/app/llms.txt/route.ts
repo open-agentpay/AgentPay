@@ -20,7 +20,7 @@ export async function GET() {
         r.summary ||
         r.description_md.split('\n').find((line) => line.trim() && !line.trim().startsWith('#')) ||
         r.title;
-      return `- **[${r.title}](${PUBLIC_SITE_URL}/hub/${r.slug})** (\`route="${r.slug}"\`)
+      return `- **[${r.title}](${PUBLIC_SITE_URL}/hub/${r.slug})** (Slug: \`${r.slug}\`)
   - **Summary:** ${summary}
   - **Endpoint:** \`${PUBLIC_GATEWAY_URL}${r.path_pattern}\` (\`${(r.methods || ['GET', 'POST']).join('/')}\`)
   - **X402 Price:** \`${priceStr} USDC / req\` on ${netLabel} (\`${r.network}\`)
@@ -101,22 +101,26 @@ pip install open-agentpay
 
 \`\`\`python
 import os
-from agentpay import AgentPayClient
+from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 # 1. Initialize client with non-custodial local financial firewall
-client = AgentPayClient(
-    gateway_url="${PUBLIC_GATEWAY_URL}",
-    wallet_private_key=os.getenv("AGENT_WALLET_KEY", "0x..."),
-    max_budget_usdc=0.05,       # Maximum allowed spend per individual request ($0.05 USDC)
-    daily_budget_usdc=1.00,     # 24-hour rolling budget ceiling ($1.00 USDC)
-    circuit_max_rpm=10          # Trip circuit breaker if tool exceeds 10 calls/minute
+signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="agent_firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=50000,           # Maximum allowed spend per request ($0.05 USDC)
+        rolling_budget_24h_base_units=1000000, # 24-hour rolling budget ceiling ($1.00 USDC)
+        circuit_max_rpm=10                     # Trip circuit breaker if tool exceeds 10 calls/minute
+    )
 )
+client = AgentPayClient(signer=signer, policy=policy)
 
-# 2. Invoke any paid X402 service discovered in the marketplace
+# 2. Invoke any paid X402 service discovered in the marketplace using standard HTTP requests
 # The SDK automatically handles HTTP 402 handshake, local budget validation, and EIP-3009 signing
-response = client.call(
-    route="solana-smart-money-tracker-x402-api",
+response = client.get(
+    "${PUBLIC_GATEWAY_URL}/v1/solana/smart-money",
     params={"timeframe": "24h"}
 )
 print("Observation from paid tool:", response.json())

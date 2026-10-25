@@ -97,26 +97,41 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
   const sampleQuickVerifySnippet = useMemo(() => {
     const isEn = locale === 'en';
     const comment1 = isEn
-      ? '# 1. Initialize client & configure local financial firewall (private key never leaves local machine)'
-      : '# 1. 初始化客户端并配置本地财务防火墙（私钥永不离机）';
+      ? '# 1. Import SDK and setup non-custodial local firewall (private key never leaves machine)'
+      : '# 1. 导入 SDK 并配置买方本地非托管财务防火墙（私钥永不离机）';
     const comment2 = isEn
-      ? '# Per-request cap, local policy engine blocks execution if budget exceeded'
-      : '# 单次最高预算，超额直接由本地策略引擎拦截';
+      ? '# Per-request cap (0.05 USDC), local policy engine blocks execution outside prompt context'
+      : '# 单次最高预算保护 (0.05 USDC)，超额直接由本地策略引擎在 prompt 之外拦截';
     const comment3 = isEn
-      ? '# 2. Test & validate calling any API from this storefront (e.g. Solana Smart Money, DeepSeek, etc.)'
-      : '# 2. 验证调用本功能商店中的任意 API（如 Solana 聪明钱、DeepSeek 推理等）';
+      ? '# 2. Initialize AgentPayClient (extends standard httpx.Client)'
+      : '# 2. 初始化 AgentPayClient（继承自标准 httpx.Client）';
+    const comment4 = isEn
+      ? '# 3. Send standard GET/POST request to gateway forwarding endpoint with automatic 402 negotiation'
+      : '# 3. 直接向网关转发端点发起标准 HTTP 请求，自动完成 402 握手与 EIP-3009 离线签名';
 
-    return `from agentpay import AgentPayClient
+    return `import os
+from agentpay import AgentPayClient, LocalSigner
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 ${comment1}
-client = AgentPayClient(
-    gateway_url="${PUBLIC_GATEWAY_URL}",
-    wallet_private_key="0x...",
-    max_budget_usdc=0.05  ${comment2}
+signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))
+
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=50000,  ${comment2}
+    )
 )
 
 ${comment3}
-response = client.call(route="solana-smart-money-tracker-x402-api")
+client = AgentPayClient(signer=signer, policy=policy)
+
+${comment4}
+response = client.get(
+    "${PUBLIC_GATEWAY_URL}/v1/solana/smart-money",
+    params={"timeframe": "24h"}
+)
 print(response.json())`;
   }, [locale]);
 
@@ -454,7 +469,9 @@ print(response.json())`;
                 <h3 className="text-base font-bold text-white">{previewRoute.title}</h3>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                {t.preview.sdkSubtitle.replace('{slug}', previewRoute.slug)}
+                {t.preview.sdkSubtitle
+                  .replace('{endpoint}', previewRoute.path_pattern)
+                  .replace('{slug}', previewRoute.slug)}
               </p>
             </div>
             <div className="flex items-center gap-2">

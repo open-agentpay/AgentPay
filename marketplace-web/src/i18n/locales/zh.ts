@@ -146,7 +146,7 @@ export const zh: Translations = {
       '原生实现 HTTP 402 Payment Required 握手协议，支持 Base / Arbitrum 链上 Circle USDC 结合 EIP-3009 授权，做到零 Gas 磨损、毫秒级确认；同时支持虚拟钱包混合通道与双向结算。',
     pillar3Title: '极简 1 行代码集成 (AgentPay SDK)',
     pillar3Desc:
-      '只需 pip install open-agentpay 并调用 client.call(route="...")，SDK 自动在底层完成 402 挑战拦截、本地预算检查、离线签名与路由转发，开发者只需专注 Agent 核心业务逻辑。',
+      '只需 pip install open-agentpay 并像普通 httpx/requests 一样直接调用网关端点，SDK 自动在底层完成 402 握手拦截、本地预算检查与零 Gas 离线签名，开发者只需专注 Agent 业务逻辑。',
     codeSnippetTitle: '一行代码体验 AgentPay SDK 自动支付闭环',
     codeSnippetDesc:
       '以下代码即可在本地调用本商店中任意上架 API，亲身体验财务防火墙与零 Gas 微支付：',
@@ -178,7 +178,7 @@ export const zh: Translations = {
   },
   preview: {
     sdkTitle: 'Python SDK 零摩擦集成',
-    sdkSubtitle: '复制下方代码即可直接调用 route="{slug}"，自动完成 HTTP 402 握手与 EIP-3009 签名。',
+    sdkSubtitle: '复制下方代码即可直接向网关转发端点发起调用，自动完成 HTTP 402 握手与 EIP-3009 签名。',
     copyCode: '复制 Python 调用代码',
     viewDetails: '查看完整 GEO 详情页',
     close: '关闭',
@@ -241,7 +241,7 @@ export const zh: Translations = {
     valueCol: '配置值 (Specification Value)',
     notesCol: '协议说明 (Notes)',
     slugParam: '路由唯一别名 (Slug)',
-    slugNote: 'SDK client.call(route=...) 传入标识',
+    slugNote: 'Marketplace 语义化目录索引标识（用于商店检索与文档定位）',
     endpointParam: '网关转发端点 (Endpoint)',
     endpointNote: '支持 {methods} 请求',
     priceParam: 'X402 单次调用价格 (Price)',

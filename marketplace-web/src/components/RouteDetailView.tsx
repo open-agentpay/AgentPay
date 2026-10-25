@@ -132,7 +132,7 @@ curl -H "Accept: text/markdown" "${PUBLIC_SITE_URL}/hub/${route.slug}"`;
               {categoryLabel}
             </span>
             <span className="rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 font-mono text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
-              route=&quot;{route.slug}&quot;
+              {(route.methods || ['GET'])[0]} {route.path_pattern}
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
               {t.detail.provider} <strong className="text-slate-900 dark:text-slate-200">{route.provider_name}</strong>
