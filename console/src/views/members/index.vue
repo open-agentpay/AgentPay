@@ -299,7 +299,7 @@ function getRoleTagType(role: UserRole) {
     </el-card>
 
     <!-- Dialog: Add Member -->
-    <el-dialog v-model="addDialogVisible" :title="$t('添加团队成员')" width="500px">
+    <el-dialog v-model="addDialogVisible" :title="$t('添加团队成员')" width="580px">
       <el-form ref="addFormRef" :model="addForm" :rules="addRules" label-position="top">
         <el-form-item :label="$t('成员邮箱')" prop="email">
           <el-input v-model="addForm.email" placeholder="colleague@company.com" prefix-icon="Message" />
@@ -333,7 +333,7 @@ function getRoleTagType(role: UserRole) {
     </el-dialog>
 
     <!-- Dialog: Edit Role -->
-    <el-dialog v-model="editDialogVisible" :title="$t('修改成员角色')" width="460px">
+    <el-dialog v-model="editDialogVisible" :title="$t('修改成员角色')" width="540px">
       <div v-if="currentEditingMember" style="margin-bottom: 16px">
         <span>{{ $t('当前成员:') }} <b>{{ currentEditingMember.email }}</b></span>
       </div>

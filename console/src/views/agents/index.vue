@@ -624,7 +624,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
         </el-table-column>
 
         <!-- KYA (Know Your Agent) Summary Pill -->
-        <el-table-column :label="$t('KYA 认证与自治等级')" min-width="260">
+        <el-table-column :label="$t('KYA 认证与自治等级')" min-width="340">
           <template #default="{ row }">
             <div class="kya-cell" v-if="row.kya_profile">
               <div class="kya-tags">
@@ -741,7 +741,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
     <el-drawer
       v-model="kyaDrawerVisible"
       :title="$t('Agent KYA (Know Your Agent) 信用与安全档案')"
-      size="560px"
+      size="640px"
       direction="rtl"
     >
       <div v-if="activeKyaAgent" class="kya-drawer-content">
@@ -968,6 +968,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
     <el-dialog
       v-model="auditModalVisible"
       :title="t('agents.auditEventDetailTitle')"
+      width="740px"
     >
       <div v-if="activeAuditEvent">
         <el-descriptions :column="2" border size="small">
@@ -1040,7 +1041,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
     <el-dialog
       v-model="killDialogVisible"
       :title="$t('⚠️ 触发 Agent 一键熔断停用 (Kill Switch)')"
-      width="500px"
+      width="580px"
       :close-on-click-modal="false"
     >
       <div v-if="targetKillAgent">
@@ -1052,7 +1053,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
           style="margin-bottom: 16px"
         />
 
-        <el-form ref="killFormRef" :model="killForm" :rules="killRules" label-width="100px">
+        <el-form ref="killFormRef" :model="killForm" :rules="killRules" label-width="110px">
           <el-form-item :label="$t('目标 Agent')">
             <strong>{{ targetKillAgent.name }}</strong>
             <div class="code-id">{{ targetKillAgent.agent_id }}</div>
@@ -1087,10 +1088,10 @@ async function handleRevokeKey(key: AgentAPIKey) {
     <el-dialog
       v-model="agentDialogVisible"
       :title="isEditing ? $t('编辑 Agent 配置与 KYA 档案') : $t('新建 Agent 实体并完成 KYA 登记')"
-      width="640px"
+      width="760px"
       :close-on-click-modal="false"
     >
-      <el-form ref="agentFormRef" :model="agentForm" :rules="agentRules" label-width="110px">
+      <el-form ref="agentFormRef" :model="agentForm" :rules="agentRules" label-width="130px">
         <el-tabs v-model="agentActiveTab">
           <!-- Tab 1: Basic -->
           <el-tab-pane :label="$t('基础信息')" name="basic">
@@ -1215,7 +1216,7 @@ async function handleRevokeKey(key: AgentAPIKey) {
     <el-dialog
       v-model="keysDialogVisible"
       :title="`${$t('Agent API Key 凭证管理')}: ${activeKeysAgent?.name || ''}`"
-      width="640px"
+      width="780px"
     >
       <div v-loading="keysLoading">
         <div class="new-key-box">

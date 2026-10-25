@@ -980,10 +980,10 @@ function getTopupStatusType(status: TopUpStatus) {
     <el-dialog
       v-model="grantDialogVisible"
       :title="$t('管理员发放测试与运营额度 (Admin Grant)')"
-      width="540px"
+      width="620px"
       :close-on-click-modal="false"
     >
-      <el-form ref="grantFormRef" :model="grantForm" :rules="grantRules" label-width="110px">
+      <el-form ref="grantFormRef" :model="grantForm" :rules="grantRules" label-width="120px">
         <el-form-item :label="$t('归属租户')">
           <el-input :value="`${tenantStore.currentTenant?.name} (${tenantStore.currentTenantId})`" disabled />
         </el-form-item>
@@ -999,7 +999,7 @@ function getTopupStatusType(status: TopUpStatus) {
           />
           <span style="margin-left: 10px; font-weight: 500">{{ currencyUnit }}</span>
           <div class="form-tip">
-            换算为{{ $t('基础最小单位:') }} <code>{{ formatBaseUnits(Math.round(grantForm.amountUsdc * 1000000)) }}</code>
+            {{ $t('换算为基础最小单位:') }} <code>{{ formatBaseUnits(Math.round(grantForm.amountUsdc * 1000000)) }}</code>
           </div>
         </el-form-item>
 
@@ -1030,10 +1030,10 @@ function getTopupStatusType(status: TopUpStatus) {
     <el-dialog
       v-model="adjustDialogVisible"
       :title="$t('人工调账与差错更正 (Manual Adjustment)')"
-      width="560px"
+      width="650px"
       :close-on-click-modal="false"
     >
-      <el-form ref="adjustFormRef" :model="adjustForm" :rules="adjustRules" label-width="110px">
+      <el-form ref="adjustFormRef" :model="adjustForm" :rules="adjustRules" label-width="120px">
         <el-alert
           v-if="adjustForm.amountUsdc >= 1000"
           :title="`${$t('⚠️ 大额调账警示')} (>= 1,000 ${currencyUnit})`"
@@ -1064,6 +1064,9 @@ function getTopupStatusType(status: TopUpStatus) {
             style="width: 200px"
           />
           <span style="margin-left: 10px; font-weight: 500">{{ currencyUnit }}</span>
+          <div class="form-tip">
+            {{ $t('换算为基础最小单位:') }} <code>{{ formatBaseUnits(Math.round(adjustForm.amountUsdc * 1000000)) }}</code>
+          </div>
         </el-form-item>
 
         <el-form-item :label="$t('调账原因')" prop="reason">
@@ -1099,10 +1102,10 @@ function getTopupStatusType(status: TopUpStatus) {
     <el-dialog
       v-model="freezeDialogVisible"
       :title="freezeForm.action === 'freeze' ? $t('冻结租户虚拟钱包') : $t('解冻租户虚拟钱包')"
-      width="500px"
+      width="580px"
       :close-on-click-modal="false"
     >
-      <el-form ref="freezeFormRef" :model="freezeForm" :rules="freezeRules" label-width="90px">
+      <el-form ref="freezeFormRef" :model="freezeForm" :rules="freezeRules" label-width="110px">
         <div v-if="freezeForm.action === 'freeze'">
           <el-alert
             :title="$t('冻结后将暂停所有扣费、支付意图创建与配额申请，请谨慎操作。')"

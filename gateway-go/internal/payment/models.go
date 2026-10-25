@@ -269,6 +269,22 @@ func DeriveCompositeDisplayStatus(intentStatus, settlementStatus, fulfillmentSta
 		return DisplayRecoveryRequired, "上游出现异常或超时，钱包冻结严格锁定中，等待幂等重试或人工对账", true
 	}
 
+	// 10. Early stages before settlement dispatch
+	if settlementStatus == SettlementStatusNotStarted && fulfillmentStatus == FulfillmentStatusNotStarted {
+		switch intentStatus {
+		case IntentStatusChallenged:
+			return "HTTP_402_CHALLENGED", "已下发 HTTP 402 签名质询，等待买方签名付款", false
+		case IntentStatusAuthorized:
+			return "PAYMENT_AUTHORIZED", "支付授权与配额已验证通过，待执行资金划转", false
+		case IntentStatusCreated:
+			return "INTENT_CREATED", "支付意图已创建，正在匹配路由与执行策略拦截", false
+		case IntentStatusCompleted:
+			return DisplayCompleted, "扣费确权且上游交付成功，交易顺利完成", false
+		case IntentStatusFailed:
+			return DisplayPaymentFailed, "资金划转失败或余额不足，未发起履约交付", false
+		}
+	}
+
 	return "UNKNOWN_COMPOSITE", fmt.Sprintf("未定义的复合状态: intent=%s, stl=%s, ful=%s", intentStatus, settlementStatus, fulfillmentStatus), false
 }
 

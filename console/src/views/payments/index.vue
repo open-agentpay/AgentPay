@@ -91,7 +91,7 @@ function formatDate(dateStr: string): string {
 }
 
 // Tag types for composite status
-function getCompositeTagType(status: DisplayStatus): 'success' | 'warning' | 'danger' | 'info' {
+function getCompositeTagType(status: DisplayStatus | string): 'success' | 'warning' | 'danger' | 'info' {
   switch (status) {
     case 'COMPLETED':
       return 'success';
@@ -106,6 +106,25 @@ function getCompositeTagType(status: DisplayStatus): 'success' | 'warning' | 'da
     default:
       return 'info';
   }
+}
+
+// Format display status
+function formatDisplayStatus(status: DisplayStatus | string | undefined): string {
+  if (!status) return '';
+  if (status === 'UNKNOWN_COMPOSITE') {
+    return t('UNKNOWN_COMPOSITE (未定义复合状态)');
+  }
+  return status;
+}
+
+// Format display note with i18n
+function formatDisplayNote(note: string | undefined): string {
+  if (!note) return '';
+  if (note.includes('未定义的复合状态')) {
+    const details = note.replace(/未定义的复合状态[:：]?\s*/g, '').trim();
+    return `${t('未定义的复合状态')}: ${details}`;
+  }
+  return t(note);
 }
 
 // Subsystem badge classes
@@ -332,7 +351,7 @@ watch(
         </el-form-item>
 
         <el-form-item :label="$t('复合审计状态')">
-          <el-select v-model="selectedDisplayStatus" :placeholder="$t('全部状态')" style="width: 220px">
+          <el-select v-model="selectedDisplayStatus" :placeholder="$t('全部状态')" style="width: 250px">
             <el-option :label="$t('全部状态')" value="all" />
             <el-option :label="$t('COMPLETED (交易顺利完成)')" value="COMPLETED" />
             <el-option :label="$t('RELEASED_UNBILLED (无损解冻未计费)')" value="RELEASED_UNBILLED" />
@@ -340,6 +359,7 @@ watch(
             <el-option :label="$t('PAYMENT_FAILED (支付前失败/超额)')" value="PAYMENT_FAILED" />
             <el-option :label="$t('SETTLEMENT_IN_PROGRESS (链上广播确认中)')" value="SETTLEMENT_IN_PROGRESS" />
             <el-option :label="$t('WALLET_HOLD_PROCESSING (钱包锁定调用中)')" value="WALLET_HOLD_PROCESSING" />
+            <el-option :label="$t('UNKNOWN_COMPOSITE (未定义复合状态)')" value="UNKNOWN_COMPOSITE" />
           </el-select>
         </el-form-item>
 
@@ -461,13 +481,13 @@ watch(
         </el-table-column>
 
         <!-- Canonical Composite Display Status -->
-        <el-table-column :label="$t('复合审计状态')" min-width="180">
+        <el-table-column :label="$t('复合审计状态')" min-width="210">
           <template #default="{ row }">
             <div class="composite-status-cell">
               <el-tag :type="getCompositeTagType(row.display_status)" effect="dark" class="status-tag">
-                {{ row.display_status }}
+                {{ formatDisplayStatus(row.display_status) }}
               </el-tag>
-              <div class="status-desc">{{ row.display_note }}</div>
+              <div class="status-desc" :title="formatDisplayNote(row.display_note)">{{ formatDisplayNote(row.display_note) }}</div>
             </div>
           </template>
         </el-table-column>
@@ -507,7 +527,7 @@ watch(
     <el-drawer
       v-model="detailDrawerVisible"
       :title="$t('全生命周期证据链审计')"
-      size="680px"
+      size="740px"
       direction="rtl"
       destroy-on-close
     >
@@ -515,8 +535,8 @@ watch(
         <div class="drawer-content" v-if="activeRecord">
           <!-- Banner Alert for Status -->
           <el-alert
-            :title="`${$t('复合判定状态：')}${activeRecord.display_status}`"
-            :description="activeRecord.display_note"
+            :title="`${$t('复合判定状态：')}${formatDisplayStatus(activeRecord.display_status)}`"
+            :description="formatDisplayNote(activeRecord.display_note)"
             :type="getCompositeTagType(activeRecord.display_status)"
             show-icon
             :closable="false"

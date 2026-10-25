@@ -297,14 +297,14 @@ function handleSetCurrentProject(projectId: string) {
     <el-dialog
       v-model="createDialogVisible"
       :title="$t('新建业务项目')"
-      width="520px"
+      width="600px"
       :close-on-click-modal="false"
     >
       <el-form
         ref="createFormRef"
         :model="createForm"
         :rules="projectRules"
-        label-width="110px"
+        label-width="130px"
         status-icon
       >
         <el-form-item :label="$t('项目名称')" prop="name">
@@ -342,14 +342,14 @@ function handleSetCurrentProject(projectId: string) {
     <el-dialog
       v-model="editDialogVisible"
       :title="$t('编辑业务项目')"
-      width="520px"
+      width="600px"
       :close-on-click-modal="false"
     >
       <el-form
         ref="editFormRef"
         :model="editForm"
         :rules="projectRules"
-        label-width="110px"
+        label-width="130px"
         status-icon
       >
         <el-form-item :label="$t('项目名称')" prop="name">
