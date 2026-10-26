@@ -64,7 +64,7 @@ pip install -e python/packages/agentpay -e python/packages/agentpay-gateway
 ```python
 import os
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import SQLitePolicyEngine, PolicyConfig
+from agentpay.policy import SQLitePolicyEngine, PolicyConfig, WhitelistMode
 
 # 1. Initialize local signer (non-custodial private key)
 # ⚠️ TESTNET DEVELOPMENT ONLY: This fallback key is Hardhat's publicly known default test key.
@@ -73,12 +73,16 @@ private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff94
 signer = LocalSigner(private_key)
 
 # 2. Configure local financial firewall
+# whitelist_mode defaults to WhitelistMode.SIMPLE (empty whitelists allow by default).
+# Set whitelist_mode=WhitelistMode.STRICT in production to require explicit whitelists.
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="agent_firewall",
+        name="Agent Firewall",
         wallet_address=signer.address,
         max_per_tx_base_units=100_000,  # Max $0.10 per call
         rolling_budget_24h_base_units=1_000_000,  # Daily cap $1.00
+        whitelist_mode=WhitelistMode.SIMPLE,
         circuit_max_rpm=5,  # Trip circuit breaker if > 5 calls/min
     )
 )

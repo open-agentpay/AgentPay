@@ -112,6 +112,13 @@ class BreakerState(enum.Enum):
     HALF_OPEN = "HALF_OPEN"
 
 
+class WhitelistMode(enum.Enum):
+    """Whitelist enforcement modes for on-chain (EVM) payment evaluation."""
+
+    STRICT = "strict"
+    SIMPLE = "simple"
+
+
 class LedgerEntryState(enum.Enum):
     """Budget ledger reservation lifecycle states (domain-model §2.1)."""
 
@@ -138,13 +145,16 @@ class PolicyConfig(BaseModel):
     model_config = {"frozen": True}
 
     id: str
-    name: str
+    name: str = ""
     wallet_address: str
 
     # Budget limits (integer base units, e.g. USDC 6 decimals)
     max_per_tx_base_units: int
     rolling_budget_24h_base_units: int
     lifetime_budget_base_units: int | None = None
+
+    # Whitelist enforcement mode (SIMPLE allows empty whitelists; STRICT requires explicit entries)
+    whitelist_mode: WhitelistMode = WhitelistMode.SIMPLE
 
     # Whitelists — stored as frozenset for immutability & O(1) membership checks
     whitelist_payees: frozenset[str] = frozenset()
@@ -167,6 +177,13 @@ class PolicyConfig(BaseModel):
     # Timestamps (Unix seconds)
     created_at: int = 0
     updated_at: int = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_name_to_id(cls, data: object) -> object:
+        if isinstance(data, dict) and not data.get("name") and isinstance(data.get("id"), str):
+            return {**data, "name": data["id"]}
+        return data
 
     # --- Field validators ---
 
@@ -222,7 +239,9 @@ class PolicyConfig(BaseModel):
                 raise TypeError(f"whitelist_assets elements must be strings, got {type(addr).__name__}")
         normalized: list[str] = []
         for addr in v:
-            normalized.append(addr if addr in _WALLET_FIAT_CURRENCIES else _validate_evm_address(addr, "whitelist_assets"))
+            normalized.append(
+                addr if addr in _WALLET_FIAT_CURRENCIES else _validate_evm_address(addr, "whitelist_assets")
+            )
         return frozenset(normalized)
 
     @field_validator("whitelist_networks", mode="before")
@@ -307,7 +326,9 @@ class PaymentRequest(BaseModel):
             bool(_AGENTPAY_ROUTE_RE.fullmatch(self.payee)),
         )
         if any(wallet_fields) and not all(wallet_fields):
-            raise ValueError("AgentPay wallet requests require internal-ledger, a supported fiat currency (CNY/USD/EUR), and an agentpay:route payee")
+            raise ValueError(
+                "AgentPay wallet requests require internal-ledger, a supported fiat currency (CNY/USD/EUR), and an agentpay:route payee"
+            )
         return self
 
     @property

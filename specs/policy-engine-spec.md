@@ -65,10 +65,14 @@ When a payment challenge arrives, the evaluation pipeline **MUST** evaluate rule
 3. **Format & Precision Validation:**
    * Validate `amount > 0` and `amount` is an integer base unit. If invalid, abort with `INVALID_AMOUNT_FORMAT`.
 4. **Whitelist Matrix (Order: Network $\to$ Asset $\to$ Payee $\to$ Domain):**
-   * If `network` not in whitelist $\to$ `NETWORK_NOT_WHITELISTED`.
-   * If `asset` not in whitelist $\to$ `ASSET_NOT_WHITELISTED`.
-   * If `payee` not in whitelist $\to$ `PAYEE_NOT_WHITELISTED`.
-   * If `domain` provided and not in whitelist $\to$ `DOMAIN_NOT_WHITELISTED`.
+   * Supports two enforcement modes via `whitelist_mode`:
+     * **`WhitelistMode.SIMPLE` (`"simple"`, default):** Empty whitelist sets (`frozenset()`) allow all entities in that dimension by default. If a whitelist dimension is non-empty, only listed entities are allowed.
+     * **`WhitelistMode.STRICT` (`"strict"`):** Every on-chain whitelist dimension (`whitelist_networks`, `whitelist_assets`, `whitelist_payees`, and `whitelist_domains` when a request domain is present) MUST be explicitly populated and matched; an empty whitelist rejects all entities in that dimension.
+   * Note: AgentPay internal wallet requests (`agentpay:internal-ledger`) always require a whitelisted gateway domain regardless of `whitelist_mode`.
+   * If `network` fails check $\to$ `NETWORK_NOT_WHITELISTED`.
+   * If `asset` fails check $\to$ `ASSET_NOT_WHITELISTED`.
+   * If `payee` fails check $\to$ `PAYEE_NOT_WHITELISTED`.
+   * If `domain` provided and fails check $\to$ `DOMAIN_NOT_WHITELISTED`.
 5. **Single-Transaction Cap:** If `amount > max_per_tx_base_units` $\to$ `SINGLE_TX_CAP_EXCEEDED`.
 6. **Lifetime Budget Ceiling (if configured):** If $\text{TotalCommitted}_{\text{lifetime}} + \text{amount} > \text{lifetime\_budget\_base\_units}$ $\to$ `LIFETIME_BUDGET_EXCEEDED`.
 7. **24-Hour Rolling Budget Ledger:** Execute atomic reservation in `ap_budget_ledger`. If available quota $< \text{amount}$ $\to$ `DAILY_BUDGET_EXCEEDED`.

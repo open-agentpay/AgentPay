@@ -113,6 +113,10 @@ export function buildPythonSdkSnippet(
   const commentBudget = isEn
     ? `# Max spend per transaction (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`
     : `# 单次调用最高预算保护 (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`;
+  const suggestedDailyUnits = Math.max(1_000_000, suggestedBudgetUnits * 20);
+  const commentDaily = isEn
+    ? `# 24h rolling budget ceiling (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)`
+    : `# 24h 滚动预算上限 (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)`;
   const commentClient = isEn
     ? '# 2. AgentPayClient inherits from standard httpx.Client'
     : '# 2. 初始化 AgentPayClient（继承自标准 httpx.Client，自动处理 402 握手与签名支付）';
@@ -130,8 +134,10 @@ signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))  ${commentSigner}
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="agent_firewall",
+        name="Agent Firewall",
         wallet_address=signer.address,
         max_per_tx_base_units=${suggestedBudgetUnits},  ${commentBudget}
+        rolling_budget_24h_base_units=${suggestedDailyUnits},  ${commentDaily}
     )
 )
 

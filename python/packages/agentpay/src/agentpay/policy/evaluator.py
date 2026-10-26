@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agentpay.policy.errors import PolicyErrorCode
-from agentpay.policy.models import PaymentRequest, PolicyConfig, _normalize_domain_host
+from agentpay.policy.models import PaymentRequest, PolicyConfig, WhitelistMode, _normalize_domain_host
 
 
 @dataclass(frozen=True)
@@ -29,9 +29,9 @@ class StaticEvaluationResult:
 
 
 def evaluate_static_rules(
-        config: PolicyConfig,
-        request: PaymentRequest,
-        lifetime_spent: int = 0,
+    config: PolicyConfig,
+    request: PaymentRequest,
+    lifetime_spent: int = 0,
 ) -> StaticEvaluationResult:
     """
     Evaluate deterministic static guardrails in strict short-circuit precedence order.
@@ -62,22 +62,25 @@ def evaluate_static_rules(
 
     # 3. Whitelist Matrix (EVM only). AgentPay's internal wallet ledger uses
     # non-EVM identifiers; its trust boundary is the required gateway domain.
+    # SECURITY-REVIEW: WhitelistMode.SIMPLE allows empty whitelists on EVM path;
+    # WhitelistMode.STRICT requires every whitelist dimension to be populated and matched.
+    is_strict = config.whitelist_mode == WhitelistMode.STRICT
     if not request.is_agentpay_wallet:
-        if request.network not in config.whitelist_networks:
+        if (is_strict or config.whitelist_networks) and request.network not in config.whitelist_networks:
             return StaticEvaluationResult(
                 passed=False,
                 error_code=PolicyErrorCode.NETWORK_NOT_WHITELISTED,
                 reason=f"Network {request.network} is not in whitelisted networks",
             )
 
-        if request.asset not in config.whitelist_assets:
+        if (is_strict or config.whitelist_assets) and request.asset not in config.whitelist_assets:
             return StaticEvaluationResult(
                 passed=False,
                 error_code=PolicyErrorCode.ASSET_NOT_WHITELISTED,
                 reason=f"Asset {request.asset} is not in whitelisted assets",
             )
 
-        if request.payee not in config.whitelist_payees:
+        if (is_strict or config.whitelist_payees) and request.payee not in config.whitelist_payees:
             return StaticEvaluationResult(
                 passed=False,
                 error_code=PolicyErrorCode.PAYEE_NOT_WHITELISTED,
@@ -91,12 +94,14 @@ def evaluate_static_rules(
             reason="AgentPay wallet requests require a whitelisted gateway domain",
         )
 
-    if request.domain is not None and request.domain.lower() not in config.whitelist_domains:
-        return StaticEvaluationResult(
-            passed=False,
-            error_code=PolicyErrorCode.DOMAIN_NOT_WHITELISTED,
-            reason=f"Domain {request.domain} is not in whitelisted domains",
-        )
+    if request.domain is not None:
+        enforce_domain = request.is_agentpay_wallet or is_strict or bool(config.whitelist_domains)
+        if enforce_domain and request.domain.lower() not in config.whitelist_domains:
+            return StaticEvaluationResult(
+                passed=False,
+                error_code=PolicyErrorCode.DOMAIN_NOT_WHITELISTED,
+                reason=f"Domain {request.domain} is not in whitelisted domains",
+            )
 
     # 4. Single-Transaction Cap
     if request.amount > config.max_per_tx_base_units:
@@ -108,8 +113,8 @@ def evaluate_static_rules(
 
     # 5. Lifetime Budget Ceiling (if configured)
     if (
-            config.lifetime_budget_base_units is not None
-            and lifetime_spent + request.amount > config.lifetime_budget_base_units
+        config.lifetime_budget_base_units is not None
+        and lifetime_spent + request.amount > config.lifetime_budget_base_units
     ):
         return StaticEvaluationResult(
             passed=False,
@@ -124,10 +129,10 @@ def evaluate_static_rules(
 
 
 def evaluate_metered_rules(
-        config: PolicyConfig,
-        amount: int,
-        domain: str | None,
-        lifetime_spent: int = 0,
+    config: PolicyConfig,
+    amount: int,
+    domain: str | None,
+    lifetime_spent: int = 0,
 ) -> StaticEvaluationResult:
     """
     Static guardrails for credential-mode (non-402) calls  [agentpay-metering-patch].
@@ -166,16 +171,12 @@ def evaluate_metered_rules(
             reason=f"Amount {amount} exceeds single transaction cap of {config.max_per_tx_base_units}",
         )
 
-    if (
-            config.lifetime_budget_base_units is not None
-            and lifetime_spent + amount > config.lifetime_budget_base_units
-    ):
+    if config.lifetime_budget_base_units is not None and lifetime_spent + amount > config.lifetime_budget_base_units:
         return StaticEvaluationResult(
             passed=False,
             error_code=PolicyErrorCode.LIFETIME_BUDGET_EXCEEDED,
             reason=(
-                f"Lifetime spend ({lifetime_spent} + {amount}) "
-                f"exceeds limit of {config.lifetime_budget_base_units}"
+                f"Lifetime spend ({lifetime_spent} + {amount}) exceeds limit of {config.lifetime_budget_base_units}"
             ),
         )
 

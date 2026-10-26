@@ -243,6 +243,65 @@
           "expectedAvailableAfter": "9000000"
         }
       ]
+    },
+    {
+      "id": "TC_POLICY_12_SIMPLE_MODE_EMPTY_WHITELIST_ALLOWS",
+      "description": "In simple whitelist mode (default), empty whitelists allow any payee/asset/network/domain",
+      "clock": 1729000000,
+      "policyOverrides": {
+        "whitelistMode": "simple",
+        "whitelist": {
+          "payees": [],
+          "assets": [],
+          "networks": [],
+          "domains": []
+        }
+      },
+      "actions": [
+        {
+          "step": 1,
+          "action": "reserve",
+          "intentId": "intent_12",
+          "amount": "100000",
+          "payee": "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+          "asset": "0x1111111111111111111111111111111111111111",
+          "network": "eip155:1",
+          "domain": "api.any-provider.com",
+          "expectedResult": "APPROVED",
+          "expectedAvailableAfter": "9900000"
+        }
+      ]
+    },
+    {
+      "id": "TC_POLICY_13_STRICT_MODE_EMPTY_WHITELIST_REJECTS",
+      "description": "In strict whitelist mode, empty whitelists reject unlisted entities",
+      "clock": 1729000000,
+      "policyOverrides": {
+        "whitelistMode": "strict",
+        "whitelist": {
+          "payees": [],
+          "assets": [
+            "0x036cbd53842c5426634e7929541ec2318f3dcf7e"
+          ],
+          "networks": [
+            "eip155:84532"
+          ],
+          "domains": []
+        }
+      },
+      "actions": [
+        {
+          "step": 1,
+          "action": "reserve",
+          "intentId": "intent_13",
+          "amount": "100000",
+          "payee": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "asset": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+          "network": "eip155:84532",
+          "expectedResult": "REJECTED",
+          "expectedError": "PAYEE_NOT_WHITELISTED"
+        }
+      ]
     }
   ]
 }

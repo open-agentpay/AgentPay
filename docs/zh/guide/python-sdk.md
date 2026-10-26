@@ -41,11 +41,11 @@ pip install -e python/packages/agentpay
 
 ```python
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 client = AgentPayClient(
     signer=LocalSigner(...),          # 为链上授权签名
-    policy=MemoryPolicyEngine(...),   # 本地金融防火墙
+    policy=SQLitePolicyEngine.create_in_memory(PolicyConfig(...)), # 本地金融防火墙
     headers={...},                    # 默认请求头，例如 Authorization
     wallet_challenge_mode=True,        # API Key 钱包调用先报价、后重试
 )
@@ -90,17 +90,23 @@ client = AgentPayClient(
 import os
 
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
-
-policy = MemoryPolicyEngine(
-    max_per_tx=100_000,         # 单笔 0.10 USD（钱包最小单位）
-    daily_budget=5_000_000,     # 滚动 24 小时 5.00 USD
-)
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 # 钱包模式不产生链上签名，因此 signer 只是占位。
 # ⚠️ 仅限测试网开发：此公钥对应 Hardhat/Anvil 默认公开测试密钥，切勿转入任何主网真实资产！
 dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 signer = LocalSigner(dev_key)
+
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="wallet_firewall",
+        name="Wallet Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=100_000,         # 单笔 0.10 USD（钱包最小单位）
+        rolling_budget_24h_base_units=5_000_000, # 滚动 24 小时 5.00 USD
+        whitelist_domains=frozenset(["gateway.example.com"]),
+    )
+)
 
 client = AgentPayClient(
     signer=signer,
@@ -125,13 +131,18 @@ print(resp.status_code, resp.json())
 import os
 
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 signer = LocalSigner(private_key=os.environ["AGENT_PRIVATE_KEY"])
-policy = MemoryPolicyEngine(
-    max_per_tx=1_000_000,                    # 1 USDC
-    daily_budget=10_000_000,                 # 10 USDC
-    whitelist_payees=["0xSellerAddress..."],
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="onchain_firewall",
+        name="On-Chain Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=1_000_000,         # 1 USDC
+        rolling_budget_24h_base_units=10_000_000, # 10 USDC
+        whitelist_payees=frozenset(["0x70997970C51812dc3A010C7d01b50e0d17dc79C8"]),
+    )
 )
 
 client = AgentPayClient(signer=signer, policy=policy)   # 无需 API Key
@@ -179,24 +190,32 @@ asyncio.run(main())
 
 ## 本地金融防火墙
 
-`policy` 参数接收一个策略引擎，目前提供两种：
+`policy` 参数接收 `SQLitePolicyEngine`，支持两种存储模式：
 
-| 引擎 | 状态 | 适用场景 |
+| 模式 | 状态 | 适用场景 |
 | --- | --- | --- |
-| `MemoryPolicyEngine` | 内存（重启后丢失） | 测试、演示、短生命周期的 Agent |
-| 基于 SQLite 的引擎 | 持久化，在独占事务中原子预留 | 长期运行的 Agent，以及预算必须在重启后保留的场景 |
+| `SQLitePolicyEngine.create_in_memory(...)` | 内存（`:memory:`，重启后丢失） | 测试、演示、短生命周期的 Agent |
+| `SQLitePolicyEngine(conn, config)` | 持久化 SQLite 文件，在独占事务中原子预留 | 长期运行的 Agent，以及预算必须在重启后保留的场景 |
 
 ```python
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine, WhitelistMode
 
-policy = MemoryPolicyEngine(
-    max_per_tx=500_000,
-    daily_budget=5_000_000,
-    whitelist_payees=["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"],
+# WhitelistMode.SIMPLE（默认）：未配置的空列表维度默认放行；
+# WhitelistMode.STRICT（严格模式）：要求必须显式配置并命中网络、资产、收款方（及域名）白名单。
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="agent_firewall",
+        name="Agent Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=500_000,
+        rolling_budget_24h_base_units=5_000_000,
+        whitelist_mode=WhitelistMode.SIMPLE,
+        whitelist_payees=frozenset(["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"]),
+    )
 )
 ```
 
-所有金额均为**最小单位整数**（USDC 为 6 位小数，`500_000` 即 0.5 USDC）。引擎采用默认拒绝：任何错误都意味着支付被拒绝。全部规则见[策略配置](/zh/guide/policy)。
+所有金额均为**最小单位整数**（USDC 为 6 位小数，`500_000` 即 0.5 USDC）。链上路径下，`PolicyConfig` 通过 `whitelist_mode` 支持两种白名单模式：**简单模式（`WhitelistMode.SIMPLE`，默认）**下白名单为空时默认放行；**严格模式（`WhitelistMode.STRICT`）**下必须配置白名单且命中才放行。引擎采用默认拒绝：任何错误都意味着支付被拒绝。全部规则见[策略配置](/zh/guide/policy)。
 
 ::: warning 一个密钥，一个账本
 一个私钥必须只对应一个 SQLite 账本。多个进程使用同一密钥却各用独立账本，会使有效预算成倍放大。

@@ -9,6 +9,7 @@ from agentpay.policy.errors import PolicyErrorCode
 from agentpay.policy.models import (
     PaymentRequest,
     PolicyConfig,
+    WhitelistMode,
 )
 
 
@@ -108,15 +109,90 @@ class TestPolicyEvaluatorT22:
         result = evaluate_static_rules(config, req, lifetime_spent=0)
         assert result.passed is True
 
-    def test_whitelist_empty_means_deny_all_whitelisted_entities(self) -> None:
+    def test_simple_mode_empty_whitelist_allows_all_by_default(self) -> None:
         from agentpay.policy.evaluator import evaluate_static_rules
 
-        # When whitelist_payees is empty, no payee should be allowed
-        config = _make_policy_config(whitelist_payees=[])
-        req = _make_payment_request()
+        # In default SIMPLE mode, empty whitelists allow any network/asset/payee/domain
+        config = _make_policy_config(
+            whitelist_mode=WhitelistMode.SIMPLE,
+            whitelist_payees=[],
+            whitelist_assets=[],
+            whitelist_networks=[],
+            whitelist_domains=[],
+        )
+        req = _make_payment_request(
+            network="eip155:1",
+            asset="0x1111111111111111111111111111111111111111",
+            payee="0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+            domain="any.domain.example.com",
+        )
+        result = evaluate_static_rules(config, req, lifetime_spent=0)
+        assert result.passed is True
+        assert result.error_code is None
+
+    def test_simple_mode_partial_whitelist_enforces_populated_dimensions(self) -> None:
+        from agentpay.policy.evaluator import evaluate_static_rules
+
+        # When only whitelist_payees is populated in SIMPLE mode, network/asset/domain pass when empty,
+        # but unlisted payee is still rejected
+        config = _make_policy_config(
+            whitelist_mode=WhitelistMode.SIMPLE,
+            whitelist_payees=["0x70997970c51812dc3a010c7d01b50e0d17dc79c8"],
+            whitelist_assets=[],
+            whitelist_networks=[],
+            whitelist_domains=[],
+        )
+        req_ok = _make_payment_request(
+            network="eip155:1",
+            asset="0x1111111111111111111111111111111111111111",
+            payee="0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            domain="any.domain.example.com",
+        )
+        assert evaluate_static_rules(config, req_ok, lifetime_spent=0).passed is True
+
+        req_bad_payee = _make_payment_request(
+            network="eip155:1",
+            asset="0x1111111111111111111111111111111111111111",
+            payee="0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+        )
+        res_bad = evaluate_static_rules(config, req_bad_payee, lifetime_spent=0)
+        assert res_bad.passed is False
+        assert res_bad.error_code == PolicyErrorCode.PAYEE_NOT_WHITELISTED
+
+    def test_strict_mode_whitelist_empty_means_deny_all_whitelisted_entities(self) -> None:
+        from agentpay.policy.evaluator import evaluate_static_rules
+
+        # In STRICT mode, when a whitelist is empty, no entity in that dimension is allowed
+        for field, expected_err in [
+            ("whitelist_networks", PolicyErrorCode.NETWORK_NOT_WHITELISTED),
+            ("whitelist_assets", PolicyErrorCode.ASSET_NOT_WHITELISTED),
+            ("whitelist_payees", PolicyErrorCode.PAYEE_NOT_WHITELISTED),
+            ("whitelist_domains", PolicyErrorCode.DOMAIN_NOT_WHITELISTED),
+        ]:
+            config = _make_policy_config(whitelist_mode=WhitelistMode.STRICT, **{field: []})
+            req = _make_payment_request()
+            result = evaluate_static_rules(config, req, lifetime_spent=0)
+            assert result.passed is False
+            assert result.error_code == expected_err
+
+    def test_wallet_mode_still_requires_domain_whitelist_in_simple_mode(self) -> None:
+        from agentpay.policy.evaluator import evaluate_static_rules
+
+        config = _make_policy_config(
+            whitelist_mode=WhitelistMode.SIMPLE,
+            whitelist_domains=[],
+        )
+        req = PaymentRequest(
+            intent_id="0x" + "11" * 32,
+            amount=100_000,
+            payee="agentpay:route:rt_demo",
+            asset="USD",
+            network="agentpay:internal-ledger",
+            domain="gateway.example.com",
+        )
         result = evaluate_static_rules(config, req, lifetime_spent=0)
         assert result.passed is False
-        assert result.error_code == PolicyErrorCode.PAYEE_NOT_WHITELISTED
+        assert result.error_code == PolicyErrorCode.DOMAIN_NOT_WHITELISTED
 
     def test_single_tx_cap_exceeded(self) -> None:
         from agentpay.policy.evaluator import evaluate_static_rules

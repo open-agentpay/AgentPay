@@ -36,16 +36,24 @@ export function HomePageView() {
 
   const buyerCodeSnippet = useMemo(() => {
     if (locale === 'en') {
-      return `from agentpay import AgentPayClient
+      return `import os
+from agentpay import AgentPayClient, LocalSigner
 from agentpay.integrations.langchain import paid_tool
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 # 1. Initialize client & configure local financial firewall (private key never leaves local machine)
-client = AgentPayClient(
-    wallet_private_key="0x...",
-    max_budget_usdc=0.05,        # Per-call maximum budget protection
-    daily_budget_usdc=1.00,      # 24h rolling budget protection
-    circuit_max_rpm=5            # Abnormal frequency auto-trips circuit breaker
+signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="agent_firewall",
+        name="Agent Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=50_000,          # Per-call maximum budget protection ($0.05 USDC)
+        rolling_budget_24h_base_units=1_000_000, # 24h rolling budget protection ($1.00 USDC)
+        circuit_max_rpm=5,                     # Abnormal frequency auto-trips circuit breaker
+    )
 )
+client = AgentPayClient(signer=signer, policy=policy)
 
 # 2. Decorate any LangChain tool or Python function: automatic 402 handshake & EIP-3009 zero-gas signing
 @paid_tool(name="fetch_crypto_intel", client=client)
@@ -56,16 +64,24 @@ def fetch_crypto_intel(token: str) -> dict:
 result = fetch_crypto_intel.invoke({"token": "SOL"})
 print(result)`;
     }
-    return `from agentpay import AgentPayClient
+    return `import os
+from agentpay import AgentPayClient, LocalSigner
 from agentpay.integrations.langchain import paid_tool
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 # 1. 初始化客户端，配置本地财务防火墙（私钥永不离机）
-client = AgentPayClient(
-    wallet_private_key="0x...",
-    max_budget_usdc=0.05,        # 单次调用最高预算保护
-    daily_budget_usdc=1.00,      # 24h 滚动预算保护
-    circuit_max_rpm=5            # 异常频次自动触发熔断器
+signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="agent_firewall",
+        name="Agent Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=50_000,          # 单次调用最高预算保护 ($0.05 USDC)
+        rolling_budget_24h_base_units=1_000_000, # 24h 滚动预算保护 ($1.00 USDC)
+        circuit_max_rpm=5,                     # 异常频次自动触发熔断器
+    )
 )
+client = AgentPayClient(signer=signer, policy=policy)
 
 # 2. 装饰任何 LangChain 工具或 Python 函数，自动完成 402 握手与 EIP-3009 零 Gas 签名
 @paid_tool(name="fetch_crypto_intel", client=client)

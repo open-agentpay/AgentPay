@@ -1,52 +1,52 @@
-# AgentPay 多租户逻辑数据模型规范 (T1.2 Specification)
+# AgentPay Multi-Tenant Logical Data Model Specification (T1.2 Specification)
 
-> **版本**：v1.0.0 (T1.2 统一数据模型)  
-> **状态**：**已定稿 (Approved Specification)**  
-> **前置决策**：[ADR-002: 数据库选型全面升级至 PostgreSQL](./adr-002-postgresql-database-selection.md)  
-> **配套规范**：  
-> - [specs/payment-state-machine-v2.md](./payment-state-machine-v2.md) (T1.1 统一支付状态机)  
-> - [specs/wallet-ledger-spec.md](./wallet-ledger-spec.md) (T1.7 内部虚拟钱包与账本规范)  
-> **DDL 脚本**：[`infra/postgres/schema.sql`](../infra/postgres/schema.sql)  
+> **Version**: v1.0.0 (T1.2 Unified Data Model)  
+> **Status**: **Approved Specification**  
+> **Prerequisite Decision**: [ADR-002: Database Selection Upgrade to PostgreSQL](./adr-002-postgresql-database-selection.md)  
+> **Companion Specifications**:  
+> - [specs/payment-state-machine-v2.md](./payment-state-machine-v2.md) (T1.1 Unified Payment State Machine)  
+> - [specs/wallet-ledger-spec.md](./wallet-ledger-spec.md) (T1.7 Internal Virtual Wallet & Ledger Specification)  
+> **DDL Script**: [`infra/postgres/schema.sql`](../infra/postgres/schema.sql)  
 
 ---
 
-## 1. 实体架构全景图 (Entity Relationship Overview)
+## 1. Entity Relationship Overview
 
-AgentPay 逻辑数据模型以 **租户（Tenant）** 为绝对隔离边界，划分为五大功能域：
+The AgentPay logical data model treats the **Tenant** as a strict isolation boundary and is organized into five functional domains:
 
 ```mermaid
 erDiagram
-    TENANT ||--o{ PROJECT : "拥有多个"
-    TENANT ||--o{ MEMBER : "包含多个成员"
-    TENANT ||--|| WALLET : "拥有唯一主钱包 (W1)"
-    TENANT ||--o{ AUDIT_EVENT : "产生管理审计"
+    TENANT ||--o{ PROJECT : "owns multiple"
+    TENANT ||--o{ MEMBER : "contains multiple members"
+    TENANT ||--|| WALLET : "owns single primary wallet (W1)"
+    TENANT ||--o{ AUDIT_EVENT : "emits admin audit logs"
     
-    PROJECT ||--o{ API_KEY : "签发访问凭证"
-    PROJECT ||--o{ ROUTE : "配置代理路由"
-    PROJECT ||--o{ POLICY : "绑定风控策略"
+    PROJECT ||--o{ API_KEY : "issues access credentials"
+    PROJECT ||--o{ ROUTE : "configures proxy routes"
+    PROJECT ||--o{ POLICY : "binds risk policies"
     
-    WALLET ||--o{ HOLD : "锁定额度"
-    WALLET ||--o{ LEDGER_ENTRY : "只追加流水记账"
-    WALLET ||--o{ TOPUP_ORDER : "多渠道充值"
+    WALLET ||--o{ HOLD : "reserves funds"
+    WALLET ||--o{ LEDGER_ENTRY : "appends immutable ledger entries"
+    WALLET ||--o{ TOPUP_ORDER : "receives multi-channel top-ups"
     
-    ROUTE ||--o{ CONFIG_VERSION : "生成不可变快照"
+    ROUTE ||--o{ CONFIG_VERSION : "generates immutable snapshots"
     
-    API_KEY ||--o{ REQUEST_RECORD : "发起入站请求"
-    REQUEST_RECORD ||--|| PAYMENT_INTENT : "实例化支付意图"
+    API_KEY ||--o{ REQUEST_RECORD : "initiates inbound requests"
+    REQUEST_RECORD ||--|| PAYMENT_INTENT : "instantiates payment intent"
     
-    PAYMENT_INTENT ||--o| HOLD : "绑定钱包冻结"
-    PAYMENT_INTENT ||--o| SETTLEMENT_RECORD : "关联链上结算"
-    PAYMENT_INTENT ||--|| FULFILLMENT_RECORD : "跟踪业务履约"
-    PAYMENT_INTENT ||--o{ USAGE_EVENT : "生成用量计量"
+    PAYMENT_INTENT ||--o| HOLD : "binds wallet hold"
+    PAYMENT_INTENT ||--o| SETTLEMENT_RECORD : "links on-chain settlement"
+    PAYMENT_INTENT ||--|| FULFILLMENT_RECORD : "tracks upstream fulfillment"
+    PAYMENT_INTENT ||--o{ USAGE_EVENT : "generates usage metering"
 ```
 
 ---
 
-## 2. 标识符命名规范 (Identifier Prefix Conventions)
+## 2. Identifier Prefix Conventions
 
-为实现跨系统日志排查、零歧义调试与数据对账，所有业务主键统一采用 **`前缀_随机UUID/CUID`** 格式：
+To streamline cross-system log correlation, unambiguous debugging, and financial reconciliation, all primary keys use a standardized **`prefix_randomUUID/CUID`** format:
 
-| 实体名称 | 标识符字段 | 前缀样例 | 典型值 |
+| Entity Name | Identifier Column | Prefix | Typical Value |
 |---|---|---|---|
 | `Tenant` | `tenant_id` | `ten_` | `ten_9a8b7c6d5e` |
 | `Project` | `project_id` | `prj_` | `prj_1a2b3c4d5e` |
@@ -68,11 +68,11 @@ erDiagram
 
 ---
 
-## 3. 五大功能域实体与表结构设计
+## 3. Five Functional Domains & Table Schemas
 
-### 3.1 租户、身份与权限域 (Identity & RBAC Domain)
+### 3.1 Identity & RBAC Domain
 
-#### 1. 租户表 (`ap_tenant`)
+#### 1. Tenant Table (`ap_tenant`)
 ```sql
 CREATE TABLE ap_tenant (
     tenant_id VARCHAR(64) PRIMARY KEY,
@@ -84,14 +84,14 @@ CREATE TABLE ap_tenant (
 );
 ```
 
-#### 2. 项目表 (`ap_project`)
-租户下的业务单元，用于按 Agent、部门或业务线划分配额。
+#### 2. Project Table (`ap_project`)
+Business unit within a tenant used to allocate quotas by Agent, department, or business line.
 ```sql
 CREATE TABLE ap_project (
     project_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE CASCADE,
     name VARCHAR(128) NOT NULL,
-    budget_cap_base_units BIGINT NOT NULL DEFAULT 0, -- 0 表示继承租户/无单独硬顶
+    budget_cap_base_units BIGINT NOT NULL DEFAULT 0, -- 0 means inherits tenant cap / no separate hard cap
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -100,7 +100,7 @@ CREATE TABLE ap_project (
 CREATE INDEX idx_project_tenant ON ap_project(tenant_id);
 ```
 
-#### 3. 成员表 (`ap_member`) 与 角色权限
+#### 3. Member Table (`ap_member`) & RBAC Roles
 ```sql
 CREATE TABLE ap_member (
     member_id VARCHAR(64) PRIMARY KEY,
@@ -115,16 +115,16 @@ CREATE TABLE ap_member (
 CREATE INDEX idx_member_tenant ON ap_member(tenant_id);
 ```
 
-#### 4. API 密钥表 (`ap_api_key`)
-Agent 或买方向网关发起请求时的身份凭证。
+#### 4. API Key Table (`ap_api_key`)
+Identity credentials presented by an Agent or buyer when calling the gateway.
 ```sql
 CREATE TABLE ap_api_key (
     key_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE CASCADE,
     project_id VARCHAR(64) NOT NULL REFERENCES ap_project(project_id) ON DELETE CASCADE,
     name VARCHAR(128) NOT NULL,
-    key_hash VARCHAR(128) NOT NULL UNIQUE,       -- SHA-256 哈希，绝不存明文
-    key_prefix VARCHAR(16) NOT NULL,             -- 展示给前端识别的前 8 位（如 `apk_live_`）
+    key_hash VARCHAR(128) NOT NULL UNIQUE,       -- SHA-256 hash; plaintext is never stored
+    key_prefix VARCHAR(16) NOT NULL,             -- First 8 chars displayed in UI (e.g., `apk_live_`)
     scopes JSONB NOT NULL DEFAULT '["gateway:call"]'::jsonb,
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
     expires_at TIMESTAMPTZ NULL,
@@ -136,22 +136,22 @@ CREATE INDEX idx_api_key_lookup ON ap_api_key(key_hash) WHERE status = 'active';
 
 ---
 
-### 3.2 网关路由与策略域 (Routing & Policy Domain)
+### 3.2 Routing & Policy Domain
 
-#### 5. 网关路由表 (`ap_route`)
-定义对外暴露的 HTTP 路径与上游后端映射。
+#### 5. Gateway Route Table (`ap_route`)
+Defines externally exposed HTTP paths and their upstream backend mappings.
 ```sql
 CREATE TABLE ap_route (
     route_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE CASCADE,
     project_id VARCHAR(64) NOT NULL REFERENCES ap_project(project_id) ON DELETE CASCADE,
-    path_pattern VARCHAR(256) NOT NULL,          -- 如 /api/v1/llm/chat
-    upstream_url VARCHAR(512) NOT NULL,          -- 如 https://api.openai.com/v1/chat/completions
+    path_pattern VARCHAR(256) NOT NULL,          -- e.g., /api/v1/llm/chat
+    upstream_url VARCHAR(512) NOT NULL,          -- e.g., https://api.openai.com/v1/chat/completions
     price_base_units BIGINT NOT NULL CHECK (price_base_units >= 0),
-    asset VARCHAR(16) NOT NULL DEFAULT 'USD',    -- 与租户本位币一致（CNY / USD / EUR / USDC）
-    onchain_price_base_units BIGINT NULL CHECK (onchain_price_base_units >= 0), -- 链上结算价格（6位精度 USDC）
+    asset VARCHAR(16) NOT NULL DEFAULT 'USD',    -- Matches tenant base currency (CNY / USD / EUR / USDC)
+    onchain_price_base_units BIGINT NULL CHECK (onchain_price_base_units >= 0), -- On-chain settlement price (6-decimal USDC)
     onchain_asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
-    payee_address VARCHAR(128) NOT NULL,         -- 收款钱包地址 (EVM 0x...)
+    payee_address VARCHAR(128) NOT NULL,         -- Payee wallet address (EVM 0x...)
     allowed_payment_methods VARCHAR(32) NOT NULL DEFAULT 'both' CHECK (allowed_payment_methods IN ('wallet', 'onchain', 'both')),
     timeout_ms INT NOT NULL DEFAULT 30000,
     rate_limit_rpm INT NOT NULL DEFAULT 600,
@@ -162,8 +162,8 @@ CREATE TABLE ap_route (
 );
 ```
 
-#### 6. 安全策略表 (`ap_policy`)
-财务防火墙规则（单笔上限、滚动窗口预算、白名单与熔断器）。
+#### 6. Security Policy Table (`ap_policy`)
+Financial firewall rules (per-request cap, rolling window budget, allowlists, and circuit breaker).
 ```sql
 CREATE TABLE ap_policy (
     policy_id VARCHAR(64) PRIMARY KEY,
@@ -181,14 +181,14 @@ CREATE TABLE ap_policy (
 );
 ```
 
-#### 7. 配置版本快照表 (`ap_config_version`)
-记录配置草稿发布后的不可变快照，支持无缝秒级回滚。
+#### 7. Configuration Version Snapshot Table (`ap_config_version`)
+Stores immutable snapshots published from configuration drafts, enabling sub-second rollbacks.
 ```sql
 CREATE TABLE ap_config_version (
     version_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE CASCADE,
     version_number INT NOT NULL,
-    snapshot_json JSONB NOT NULL,                -- 包含全量 routes 与 policies 的不可变快照
+    snapshot_json JSONB NOT NULL,                -- Immutable snapshot containing all routes and policies
     published_by VARCHAR(64) NOT NULL REFERENCES ap_member(member_id),
     change_summary TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT FALSE,
@@ -200,16 +200,16 @@ CREATE INDEX idx_config_active ON ap_config_version(tenant_id, is_active);
 
 ---
 
-### 3.3 平台虚拟钱包与账本域 (Virtual Wallet & Ledger Domain)
+### 3.3 Virtual Wallet & Ledger Domain
 
-#### 8. 钱包主账户表 (`ap_wallet`)
+#### 8. Primary Wallet Table (`ap_wallet`)
 ```sql
 CREATE TABLE ap_wallet (
     wallet_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL UNIQUE REFERENCES ap_tenant(tenant_id) ON DELETE RESTRICT,
-    asset VARCHAR(16) NOT NULL DEFAULT 'USD',    -- 继承自所属租户的本位币 (ap_tenant.currency)
+    asset VARCHAR(16) NOT NULL DEFAULT 'USD',    -- Inherited from owning tenant base currency (ap_tenant.currency)
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'frozen', 'frozen_arrears', 'closed')),
-    version BIGINT NOT NULL DEFAULT 1,           -- 乐观锁版本号
+    version BIGINT NOT NULL DEFAULT 1,           -- Optimistic lock version number
     available_cache BIGINT NOT NULL DEFAULT 0 CHECK (available_cache >= 0 OR status = 'frozen_arrears'),
     held_cache BIGINT NOT NULL DEFAULT 0 CHECK (held_cache >= 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -217,31 +217,31 @@ CREATE TABLE ap_wallet (
 );
 ```
 
-#### 9. 只追加记账流水表 (`ap_ledger_entry`)
+#### 9. Append-Only Ledger Entry Table (`ap_ledger_entry`)
 ```sql
 CREATE TABLE ap_ledger_entry (
     entry_id VARCHAR(64) PRIMARY KEY,
     wallet_id VARCHAR(64) NOT NULL REFERENCES ap_wallet(wallet_id) ON DELETE RESTRICT,
     tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE RESTRICT,
     type VARCHAR(32) NOT NULL CHECK (type IN ('topup_credit', 'capture', 'hold_release', 'adjustment', 'reversal')),
-    amount BIGINT NOT NULL,                      -- 正数为增，负数为减
+    amount BIGINT NOT NULL,                      -- Positive for credits, negative for debits
     idempotency_key VARCHAR(128) NOT NULL,
     ref_type VARCHAR(32) NOT NULL CHECK (ref_type IN ('TopUpOrder', 'PaymentIntent', 'Hold', 'ManualAdjustment')),
     ref_id VARCHAR(64) NOT NULL,
-    operator_id VARCHAR(64) NULL,                -- 人工调账必填
-    reason TEXT NULL,                            -- 人工调账必填
+    operator_id VARCHAR(64) NULL,                -- Required for manual adjustments
+    reason TEXT NULL,                            -- Required for manual adjustments
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_wallet_ledger_idempotency UNIQUE (wallet_id, idempotency_key)
 );
 CREATE INDEX idx_ledger_wallet_created ON ap_ledger_entry(wallet_id, created_at DESC);
 ```
 
-#### 10. 资金冻结表 (`ap_hold`)
+#### 10. Fund Hold Table (`ap_hold`)
 ```sql
 CREATE TABLE ap_hold (
     hold_id VARCHAR(64) PRIMARY KEY,
     wallet_id VARCHAR(64) NOT NULL REFERENCES ap_wallet(wallet_id) ON DELETE RESTRICT,
-    payment_intent_id VARCHAR(64) NOT NULL UNIQUE, -- 一个 intent 唯一对应一个 hold
+    payment_intent_id VARCHAR(64) NOT NULL UNIQUE, -- One intent maps to at most one hold
     amount BIGINT NOT NULL CHECK (amount > 0),
     status VARCHAR(32) NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'captured', 'released', 'expired')),
     expires_at TIMESTAMPTZ NOT NULL,
@@ -250,7 +250,7 @@ CREATE TABLE ap_hold (
 CREATE INDEX idx_hold_active_expires ON ap_hold(wallet_id, expires_at) WHERE status = 'held';
 ```
 
-#### 11. 统一充值单表 (`ap_topup_order`)
+#### 11. Unified Top-Up Order Table (`ap_topup_order`)
 ```sql
 CREATE TABLE ap_topup_order (
     topup_id VARCHAR(64) PRIMARY KEY,
@@ -260,7 +260,7 @@ CREATE TABLE ap_topup_order (
     amount BIGINT NOT NULL CHECK (amount > 0),
     asset VARCHAR(16) NOT NULL DEFAULT 'USDC',
     status VARCHAR(32) NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'pending', 'confirmed', 'failed', 'expired', 'reversed')),
-    external_ref VARCHAR(128) NULL,              -- tx_hash 或第三方网关流水
+    external_ref VARCHAR(128) NULL,              -- tx_hash or third-party payment gateway reference
     operator_id VARCHAR(64) NULL,
     reason TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -271,9 +271,9 @@ CREATE INDEX idx_topup_status ON ap_topup_order(wallet_id, status);
 
 ---
 
-### 3.4 支付、结算与履约域 (Payment & Settlement Domain)
+### 3.4 Payment, Settlement & Fulfillment Domain
 
-#### 12. 支付意图表 (`ap_payment_intent`)
+#### 12. Payment Intent Table (`ap_payment_intent`)
 ```sql
 CREATE TABLE ap_payment_intent (
     intent_id VARCHAR(64) PRIMARY KEY,
@@ -298,12 +298,12 @@ CREATE INDEX idx_intent_tenant_created ON ap_payment_intent(tenant_id, created_a
 CREATE INDEX idx_intent_status ON ap_payment_intent(status) WHERE status NOT IN ('completed', 'failed', 'rejected', 'expired');
 ```
 
-#### 13. 链上结算明细表 (`ap_settlement_record`)
+#### 13. On-Chain Settlement Record Table (`ap_settlement_record`)
 ```sql
 CREATE TABLE ap_settlement_record (
-    settlement_id VARCHAR(64) PRIMARY KEY,
+    settlement_id VARCHAR(128) PRIMARY KEY,
     intent_id VARCHAR(64) NOT NULL UNIQUE REFERENCES ap_payment_intent(intent_id) ON DELETE CASCADE,
-    network_id VARCHAR(64) NOT NULL,             -- CAIP-2 如 eip155:42161
+    network_id VARCHAR(64) NOT NULL,             -- CAIP-2, e.g., eip155:42161
     asset_address VARCHAR(128) NOT NULL,
     payer_address VARCHAR(128) NOT NULL,
     payee_address VARCHAR(128) NOT NULL,
@@ -322,15 +322,15 @@ CREATE TABLE ap_settlement_record (
 CREATE INDEX idx_settlement_query ON ap_settlement_record(status) WHERE status IN ('submitted', 'pending', 'unknown');
 ```
 
-#### 14. 上游业务履约表 (`ap_fulfillment_record`)
+#### 14. Upstream Fulfillment Record Table (`ap_fulfillment_record`)
 ```sql
 CREATE TABLE ap_fulfillment_record (
     fulfillment_id VARCHAR(64) PRIMARY KEY,
     intent_id VARCHAR(64) NOT NULL UNIQUE REFERENCES ap_payment_intent(intent_id) ON DELETE CASCADE,
     upstream_url VARCHAR(512) NOT NULL,
-    upstream_status INT NULL,                    -- HTTP 状态码如 200, 502
+    upstream_status INT NULL,                    -- HTTP status code, e.g., 200, 502
     latency_ms INT NULL,
-    response_body_hash VARCHAR(128) NULL,        -- 响应体 SHA-256，用于幂等校验
+    response_body_hash VARCHAR(128) NULL,        -- SHA-256 of response body for idempotency verification
     status VARCHAR(32) NOT NULL CHECK (status IN (
         'not_started', 'in_progress', 'succeeded', 'failed', 'unknown'
     )),
@@ -341,9 +341,9 @@ CREATE TABLE ap_fulfillment_record (
 
 ---
 
-### 3.5 链路追踪与审计分析域 (Tracing & Audit Domain)
+### 3.5 Tracing & Audit Domain
 
-#### 15. 入站请求记录表 (`ap_request_record`)
+#### 15. Inbound Request Record Table (`ap_request_record`)
 ```sql
 CREATE TABLE ap_request_record (
     request_id VARCHAR(64) PRIMARY KEY,
@@ -368,8 +368,8 @@ CREATE INDEX idx_request_agent_time ON ap_request_record(agent_id, created_at DE
 CREATE INDEX idx_request_intent ON ap_request_record(intent_id) WHERE intent_id IS NOT NULL;
 ```
 
-#### 16. 用量计量事件表 (`ap_usage_event`)
-高频聚合统计的数据源。
+#### 16. Usage Metering Event Table (`ap_usage_event`)
+Data source for high-frequency aggregation and billing analytics.
 ```sql
 CREATE TABLE ap_usage_event (
     event_id VARCHAR(64) PRIMARY KEY,
@@ -389,15 +389,15 @@ CREATE INDEX idx_usage_agent ON ap_usage_event(agent_id, created_at);
 CREATE INDEX idx_usage_intent ON ap_usage_event(intent_id);
 ```
 
-#### 17. 管理审计事件表 (`ap_audit_event`)
-用于记录谁在什么时间修改了配置、调账或变更了权限。
+#### 17. Admin Audit Event Table (`ap_audit_event`)
+Records who modified configurations, adjusted balances, or changed permissions and when.
 ```sql
 CREATE TABLE ap_audit_event (
     audit_id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL REFERENCES ap_tenant(tenant_id) ON DELETE CASCADE,
-    operator_id VARCHAR(64) NOT NULL,            -- 操作者 member_id
-    action VARCHAR(64) NOT NULL,                 -- 如 route:create, wallet:adjust, key:revoke
-    target_type VARCHAR(32) NOT NULL,            -- 如 Route, Policy, Wallet, ApiKey
+    operator_id VARCHAR(64) NOT NULL,            -- Operator member_id
+    action VARCHAR(64) NOT NULL,                 -- e.g., route:create, wallet:adjust, key:revoke
+    target_type VARCHAR(32) NOT NULL,            -- e.g., Route, Policy, Wallet, ApiKey
     target_id VARCHAR(64) NOT NULL,
     before_state JSONB NULL,
     after_state JSONB NULL,
@@ -407,8 +407,8 @@ CREATE TABLE ap_audit_event (
 CREATE INDEX idx_audit_tenant_time ON ap_audit_event(tenant_id, created_at DESC);
 ```
 
-#### 18. Agent 行为时间线与事件流表 (`ap_agent_audit_event`) (T1.8 & T5.8)
-记录 Agent 运行时的全生命周期行为事件流（包括 `agent.request`、`agent.policy_decision`、`agent.spend`、`agent.control`、`agent.anomaly`），支持按会话（`session_id`）与任务（`task_id`）进行准实时聚合检索。
+#### 18. Agent Behavior Timeline & Event Stream Table (`ap_agent_audit_event`) (T1.8 & T5.8)
+Records the full runtime lifecycle event stream of Agents (`agent.request`, `agent.policy_decision`, `agent.spend`, `agent.control`, `agent.anomaly`), supporting near-real-time aggregation and querying by session (`session_id`) and task (`task_id`).
 ```sql
 CREATE TABLE ap_agent_audit_event (
     event_id VARCHAR(64) PRIMARY KEY,
@@ -422,7 +422,7 @@ CREATE TABLE ap_agent_audit_event (
     idempotency_key VARCHAR(128) NULL,
     intent_id VARCHAR(64) NULL,
     hold_id VARCHAR(64) NULL,
-    settlement_id VARCHAR(64) NULL,
+    settlement_id VARCHAR(128) NULL,
     fulfillment_id VARCHAR(64) NULL,
     actor_type VARCHAR(32) NOT NULL,
     actor_id VARCHAR(64) NOT NULL,
@@ -440,4 +440,3 @@ CREATE INDEX idx_agent_audit_tenant_time ON ap_agent_audit_event(tenant_id, occu
 CREATE INDEX idx_agent_audit_session ON ap_agent_audit_event(session_id) WHERE session_id IS NOT NULL;
 CREATE INDEX idx_agent_audit_request ON ap_agent_audit_event(request_id);
 ```
-

@@ -61,6 +61,7 @@ def init_buyer_database(conn: sqlite3.Connection) -> None:
             max_per_tx_base_units INTEGER NOT NULL CHECK (max_per_tx_base_units > 0),
             rolling_budget_24h_base_units INTEGER NOT NULL CHECK (rolling_budget_24h_base_units > 0),
             lifetime_budget_base_units INTEGER CHECK (lifetime_budget_base_units > 0),
+            whitelist_mode TEXT NOT NULL DEFAULT 'simple' CHECK (whitelist_mode IN ('strict', 'simple')),
             whitelist_payees_json TEXT NOT NULL DEFAULT '[]',
             whitelist_assets_json TEXT NOT NULL DEFAULT '[]',
             whitelist_networks_json TEXT NOT NULL DEFAULT '[]',

@@ -109,6 +109,7 @@ signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="agent_firewall",
+        name="Agent Firewall",
         wallet_address=signer.address,
         max_per_tx_base_units=50000,           # Maximum allowed spend per request ($0.05 USDC)
         rolling_budget_24h_base_units=1000000, # 24-hour rolling budget ceiling ($1.00 USDC)

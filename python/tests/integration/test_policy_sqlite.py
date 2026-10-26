@@ -296,9 +296,55 @@ class TestSQLitePolicyEngine:
         clock.advance(61)
         assert engine.get_available_rolling_budget() == 10_000_000
 
+    def test_sqlite_engine_simple_vs_strict_whitelist_mode(self, db_conn: sqlite3.Connection, clock: MockClock) -> None:
+        """Verify SQLitePolicyEngine enforces WhitelistMode.SIMPLE (empty allows) vs STRICT (empty rejects)."""
+        from agentpay.policy.models import WhitelistMode
+        from agentpay.policy.sqlite_engine import SQLitePolicyEngine
+
+        # 1. SIMPLE mode with empty whitelists allows any on-chain payee/asset/network/domain
+        simple_cfg = PolicyConfig(
+            id="pol_simple",
+            name="Simple Mode Policy",
+            wallet_address="0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            max_per_tx_base_units=1_000_000,
+            rolling_budget_24h_base_units=10_000_000,
+            whitelist_mode=WhitelistMode.SIMPLE,
+        )
+        simple_engine = SQLitePolicyEngine(conn=db_conn, config=simple_cfg, clock=clock)
+        dec_simple = simple_engine.reserve(
+            intent_id="intent_simple_01",
+            amount=100_000,
+            payee="0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+            asset="0x1111111111111111111111111111111111111111",
+            network="eip155:1",
+            domain="any.seller.example.com",
+        )
+        assert dec_simple.approved is True
+
+        # 2. STRICT mode with empty whitelists rejects on first missing dimension (network)
+        strict_cfg = PolicyConfig(
+            id="pol_strict",
+            name="Strict Mode Policy",
+            wallet_address="0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            max_per_tx_base_units=1_000_000,
+            rolling_budget_24h_base_units=10_000_000,
+            whitelist_mode=WhitelistMode.STRICT,
+        )
+        strict_engine = SQLitePolicyEngine(conn=db_conn, config=strict_cfg, clock=clock)
+        dec_strict = strict_engine.reserve(
+            intent_id="intent_strict_01",
+            amount=100_000,
+            payee="0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+            asset="0x1111111111111111111111111111111111111111",
+            network="eip155:1",
+            domain="any.seller.example.com",
+        )
+        assert dec_strict.approved is False
+        assert dec_strict.error_code == PolicyErrorCode.NETWORK_NOT_WHITELISTED
+
 
 class TestConformanceVectorsT23:
-    """Executes all 11 test cases in policy-budget.json against SQLitePolicyEngine."""
+    """Executes all test cases in policy-budget.json against SQLitePolicyEngine."""
 
     @pytest.fixture
     def test_vector_suite(self) -> dict:
@@ -326,8 +372,10 @@ class TestConformanceVectorsT23:
             conn = sqlite3.connect(":memory:", check_same_thread=False)
             _init_test_db(conn)
 
-            # Check if case overrides initial state (e.g. is_frozen)
+            # Check if case overrides initial state (e.g. is_frozen) or policy fields
             cfg_dict = dict(policy_dict)
+            if "policyOverrides" in case:
+                cfg_dict.update(case["policyOverrides"])
             if "initialState" in case:
                 for k, v in case["initialState"].items():
                     if k == "is_frozen":

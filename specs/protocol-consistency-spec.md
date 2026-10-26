@@ -1,37 +1,37 @@
-# AgentPay Python/Go 协议一致性契约规范 (T1.3 Specification)
+# AgentPay Python/Go Protocol Consistency Specification (T1.3 Specification)
 
-> **版本**：v2.0.0 (T1.3 统一协议契约)  
-> **状态**：**已定稿 (Approved Specification)**  
-> **适用范围**：Python Client/Buyer SDK、Go Gateway 数据面、控制面 API 与对账系统  
-> **跨语言测试向量**：  
-> - [`specs/conformance/protocol-errors.json`](./conformance/protocol-errors.json) (统一错误码表与 Schema)  
-> - [`specs/test-vectors/dual-path-protocol.json`](./test-vectors/dual-path-protocol.json) (双轨协议一致性测试向量)  
-> - [`specs/conformance/state-machine.json`](./conformance/state-machine.json) (状态机迁移向量)  
+> **Version**: v2.0.0 (T1.3 Unified Protocol Contract)  
+> **Status**: **Approved Specification**  
+> **Scope**: Python Client/Buyer SDK, Go Gateway Data Plane, Control Plane API & Reconciliation System  
+> **Cross-Language Test Vectors**:  
+> - [`specs/conformance/protocol-errors.json`](./conformance/protocol-errors.json) (Canonical Error Taxonomy & Schema)  
+> - [`specs/test-vectors/dual-path-protocol.json`](./test-vectors/dual-path-protocol.json) (Dual-Path Protocol Conformance Test Vectors)  
+> - [`specs/conformance/state-machine.json`](./conformance/state-machine.json) (State Machine Transition Vectors)  
 
-> **钱包通道扩展**：虚拟钱包通过 x402 V2 风格的 `PAYMENT-REQUIRED` / `PAYMENT-SIGNATURE` 往返执行，但使用 AgentPay 自有的 `agentpay-wallet` scheme，不属于 EIP-3009 标准支付授权。字段、校验和持久化防重放要求以 [`agentpay-wallet-x402-extension.md`](./agentpay-wallet-x402-extension.md) 为准。本文原先“API Key 到达后直接扣款”的虚拟钱包流程由该扩展取代。
-
----
-
-## 1. 目标与设计原则
-
-为确保 **Python 买方客户端（Buyer SDK）** 与 **Go 云原生网关（Go Gateway）** 在网络交互、错误处理与状态裁定时行为 100% 同构，T1.3 规范制定统一的协议层通信契约：
-
-1. **单点事实（Single Source of Truth）**：所有协议头、错误码、状态枚举与测试向量均以机器可读的 JSON 存储在 `specs/` 中，Python 与 Go 共同读取运行相同的测试套件；
-2. **严密格式化（Case-Insensitive & Schema-Strict）**：HTTP 头部字段名称遵循大小写不敏感解析，载荷格式遵循严格 JSON Schema 验证，未知或非法字段一律安全拦截；
-3. **确定性支付方式裁定**：明确区分链上 x402 签名支付与内部虚拟钱包扣费，**严禁在余额不足时静默或自动降级为链上扣费**；
-4. **统一错误响应模型**：全系统遵循一致的 JSON 错误响应格式，避免客户端对不同后端的错误进行分支适配。
+> **Wallet Channel Extension**: The virtual wallet executes over an x402 V2-style `PAYMENT-REQUIRED` / `PAYMENT-SIGNATURE` round-trip using AgentPay's native `agentpay-wallet` scheme rather than an EIP-3009 on-chain authorization. Field definitions, validation rules, and persistent replay-protection requirements are specified in [`agentpay-wallet-x402-extension.md`](./agentpay-wallet-x402-extension.md), which supersedes the earlier "direct deduction upon API Key arrival" flow.
 
 ---
 
-## 2. HTTP 协议头契约 (Headers Specification)
+## 1. Goals & Design Principles
 
-### 2.1 链上 x402 支付通道
-| Header 名称 | 作用方 | 语法与编码 | 规范定义 |
+To guarantee 100% behavioral parity between the **Python Buyer SDK** and the **Cloud-Native Go Gateway** across network interactions, error handling, and state arbitration, the T1.3 specification establishes a unified wire-level protocol contract:
+
+1. **Single Source of Truth**: All protocol headers, error codes, state enums, and test vectors are maintained as machine-readable JSON under `specs/`, and both Python and Go execute against the exact same test suites.
+2. **Case-Insensitive & Schema-Strict Formatting**: HTTP header names are parsed case-insensitively, while payloads are validated against strict JSON Schemas; unknown or malformed fields are rejected safely.
+3. **Deterministic Payment Method Arbitration**: Explicitly separates on-chain x402 signed payments from internal virtual wallet deductions, **strictly prohibiting silent or automatic fallback to on-chain billing when wallet balance is insufficient**.
+4. **Unified Error Response Model**: Every service returns a canonical JSON error envelope, eliminating backend-specific error branching in client SDKs.
+
+---
+
+## 2. HTTP Protocol Headers Specification
+
+### 2.1 On-Chain x402 Payment Channel
+| Header Name | Direction | Syntax & Encoding | Specification |
 |---|---|---|---|
-| `PAYMENT-REQUIRED` | Gateway → Client (402) | `PAYMENT-REQUIRED: <Base64URL(JSON_Payload)>` | RFC 6648 兼容，携带出题方挑战明细 |
-| `PAYMENT-SIGNATURE`| Client → Gateway (重发) | `PAYMENT-SIGNATURE: <Base64URL(JSON_Payload)>` | 包含买方钱包针对 EIP-3009 的签名凭证 |
+| `PAYMENT-REQUIRED` | Gateway → Client (402) | `PAYMENT-REQUIRED: <Base64URL(JSON_Payload)>` | RFC 6648 compliant; carries challenge parameters issued by the gateway |
+| `PAYMENT-SIGNATURE`| Client → Gateway (Retry) | `PAYMENT-SIGNATURE: <Base64URL(JSON_Payload)>` | Carries the buyer wallet's EIP-3009 cryptographic authorization |
 
-#### Challenge Payload 结构 (`PAYMENT-REQUIRED`)
+#### Challenge Payload Schema (`PAYMENT-REQUIRED`)
 ```json
 {
   "version": "2.0",
@@ -50,7 +50,7 @@
 }
 ```
 
-#### Authorization Payload 结构 (`PAYMENT-SIGNATURE`)
+#### Authorization Payload Schema (`PAYMENT-SIGNATURE`)
 ```json
 {
   "version": "2.0",
@@ -71,53 +71,53 @@
 
 ---
 
-### 2.2 虚拟钱包支付通道
-| Header 名称 | 作用方 | 语法与格式 | 规范定义 |
+### 2.2 Virtual Wallet Payment Channel
+| Header Name | Direction | Syntax & Format | Specification |
 |---|---|---|---|
-| `Authorization` | Client → Gateway | `Authorization: Bearer apk_live_...` | 传递租户签发的 API Key |
-| `PAYMENT-REQUIRED` | Gateway → Client (402) | `PAYMENT-REQUIRED: <Base64URL(JSON_Payload)>` | 返回 `scheme=agentpay-wallet` 的报价 challenge；首个请求不得冻结或扣款 |
-| `PAYMENT-SIGNATURE` | Client → Gateway (重发) | `PAYMENT-SIGNATURE: <Base64URL(JSON_Payload)>` | 返回绑定 challenge 的 AgentPay 钱包授权；不含 EIP-712 签名，API Key 仍用于鉴权 |
-| `Idempotency-Key` | Client → Gateway | `Idempotency-Key: <string>` | 客户端业务级唯一键（最大 128 字符） |
+| `Authorization` | Client → Gateway | `Authorization: Bearer apk_live_...` | Passes the tenant-issued API Key |
+| `PAYMENT-REQUIRED` | Gateway → Client (402) | `PAYMENT-REQUIRED: <Base64URL(JSON_Payload)>` | Returns a quote challenge with `scheme=agentpay-wallet`; the initial request must never freeze or deduct funds |
+| `PAYMENT-SIGNATURE` | Client → Gateway (Retry) | `PAYMENT-SIGNATURE: <Base64URL(JSON_Payload)>` | Returns the challenge-bound AgentPay wallet authorization (no EIP-712 signature; API Key still authenticates the caller) |
+| `Idempotency-Key` | Client → Gateway | `Idempotency-Key: <string>` | Client business-level unique key (max 128 characters) |
 
-虚拟钱包请求的完整载荷、一次性 challenge 状态和跨实例防重放要求见扩展规范。网关必须在授权通过后才执行 Hold；API Key 单独出现只能取得报价 challenge，不能触发扣款。
+Full payload schemas, single-use challenge state transitions, and cross-instance anti-replay rules for virtual wallet requests are defined in the wallet extension specification. The gateway must execute a Hold only after validating the authorization retry; presenting an API Key alone only retrieves a quote challenge and never triggers a deduction.
 
 ---
 
-## 3. 双轨支付方式裁定与选择规则 (Payment Method Arbitration)
+## 3. Dual-Path Payment Method Arbitration
 
-当 Gateway 收到请求时，遵循以下确定性状态机裁定流：
+When the Gateway receives an inbound request, it evaluates the following deterministic arbitration flow:
 
 ```mermaid
 flowchart TD
-    Req["网关收到 HTTP 请求"] --> CheckAuth{"请求头包含有效 API Key?"}
+    Req["Gateway receives HTTP request"] --> CheckAuth{"Contains valid API Key?"}
     
-    CheckAuth -- 是 --> CheckWalletAuth{"含有效 agentpay-wallet PAYMENT-SIGNATURE?"}
-    CheckWalletAuth -- 否 --> IssueWallet402["创建持久化钱包 challenge<br>返回 402，不冻结资金"]
-    CheckWalletAuth -- 是 --> CheckRouteWallet{"路由策略允许 wallet?"}
-    CheckRouteWallet -- 否 --> ErrMethod["403 ERR_PAYMENT_METHOD_NOT_ALLOWED"]
-    CheckRouteWallet -- 是 --> CheckWalletBal{"检查租户钱包状态与可用余额"}
+    CheckAuth -- Yes --> CheckWalletAuth{"Contains valid agentpay-wallet PAYMENT-SIGNATURE?"}
+    CheckWalletAuth -- No --> IssueWallet402["Create persistent wallet challenge<br>Return 402 without freezing funds"]
+    CheckWalletAuth -- Yes --> CheckRouteWallet{"Route policy allows wallet?"}
+    CheckRouteWallet -- No --> ErrMethod["403 ERR_PAYMENT_METHOD_NOT_ALLOWED"]
+    CheckRouteWallet -- Yes --> CheckWalletBal{"Check tenant wallet status & available balance"}
     
-    CheckWalletBal -- 状态为 frozen_arrears --> ErrFrozen["403 ERR_WALLET_FROZEN"]
-    CheckWalletBal -- 可用余额不足 --> ErrBal["402 ERR_WALLET_INSUFFICIENT_BALANCE<br>(严格禁止自动降级链上!)"]
-    CheckWalletBal -- 充足 --> ExecHold["原子消费 challenge 并 Hold<br>调用上游服务"]
+    CheckWalletBal -- Status is frozen_arrears --> ErrFrozen["403 ERR_WALLET_FROZEN"]
+    CheckWalletBal -- Insufficient balance --> ErrBal["402 ERR_WALLET_INSUFFICIENT_BALANCE<br>(Auto-downgrade to on-chain strictly prohibited!)"]
+    CheckWalletBal -- Sufficient --> ExecHold["Atomically consume challenge & Hold<br>Dispatch to upstream service"]
     
-    CheckAuth -- 否 --> CheckSig{"包含 EIP-3009 PAYMENT-SIGNATURE?"}
-    CheckSig -- 是 --> CheckRouteOnchain{"路由策略允许 onchain?"}
-    CheckRouteOnchain -- 否 --> ErrMethod
-    CheckRouteOnchain -- 是 --> VerifySig["校验 EIP-712 签名与策略<br>走链上结算通道"]
+    CheckAuth -- No --> CheckSig{"Contains EIP-3009 PAYMENT-SIGNATURE?"}
+    CheckSig -- Yes --> CheckRouteOnchain{"Route policy allows onchain?"}
+    CheckRouteOnchain -- No --> ErrMethod
+    CheckRouteOnchain -- Yes --> VerifySig["Verify EIP-712 signature & policy<br>Proceed via on-chain settlement path"]
     
-    CheckSig -- 否 --> Issue402["签发 402 PAYMENT-REQUIRED 挑战<br>等待客户端签名重试"]
+    CheckSig -- No --> Issue402["Issue 402 PAYMENT-REQUIRED challenge<br>Await client signed retry"]
 ```
 
 > [!CAUTION]
-> **绝对禁止自动降级原则 (No Auto-Downgrade Invariant)**  
-> 钱包模式必须先返回 `agentpay-wallet` challenge，待客户端策略批准并重试后才能扣款。若钱包余额不足，网关必须返回 `402 ERR_WALLET_INSUFFICIENT_BALANCE` 并中断流程。**绝对禁止**擅自改向客户端下发 EIP-3009 链上挑战；禁止未经用户授权产生链上私钥签名与 Gas 消耗！
+> **No Auto-Downgrade Invariant**  
+> Wallet mode must first return an `agentpay-wallet` challenge and may deduct funds only after the client's local policy approves and retries the request. If the wallet balance is insufficient, the gateway must return `402 ERR_WALLET_INSUFFICIENT_BALANCE` and terminate the flow. **It is strictly prohibited** to silently issue an EIP-3009 on-chain challenge instead or trigger unauthorized on-chain private key signing and gas consumption.
 
 ---
 
-## 4. 全量标准错误码表 (Canonical Error Taxonomy)
+## 4. Canonical Error Taxonomy
 
-所有服务返回非 2xx 响应时，必须返回标准 JSON 结构：
+Whenever any service returns a non-2xx response, it must emit the canonical JSON error envelope:
 
 ```json
 {
@@ -135,40 +135,40 @@ flowchart TD
 }
 ```
 
-| 错误码 (Code) | HTTP Status | 领域 (Domain) | 触发条件与含义 |
+| Error Code | HTTP Status | Domain | Trigger Condition & Meaning |
 |---|---|---|---|
-| `ERR_PAYMENT_REQUIRED` | 402 | PROTOCOL | 访问资源需要链上支付，下发 challenge |
-| `ERR_WALLET_INSUFFICIENT_BALANCE` | 402 | WALLET | 内部虚拟钱包可用余额不足，禁止透支 |
-| `ERR_WALLET_FROZEN` | 403 | WALLET | 钱包已被冻结或处于欠费冻结（`frozen_arrears`）状态 |
-| `ERR_PAYMENT_METHOD_NOT_ALLOWED` | 403 | ROUTING | 提交的支付手段与当前路由允许的方式（wallet/onchain）冲突 |
-| `ERR_POLICY_BUDGET_EXCEEDED` | 403 | POLICY | 24 小时滚动窗口或终身预算上限超额 |
-| `ERR_POLICY_MAX_PER_TX` | 403 | POLICY | 单笔交易金额超过安全上限 |
-| `ERR_POLICY_CIRCUIT_BROKEN` | 429 | POLICY | 检测到 Agent 循环调用或高频激增，熔断器生效 |
-| `ERR_API_KEY_INVALID` | 401 | AUTH | API Key 不存在、已被撤销或已过有效期 |
-| `ERR_API_KEY_SCOPE_DENIED` | 403 | AUTH | API Key 缺少访问目标路由所需的权限 Scope |
-| `ERR_TENANT_SUSPENDED` | 403 | TENANT | 租户组织已被管理员禁用 |
-| `ERR_SIGNATURE_INVALID` | 401 | CRYPTOGRAPHY | EIP-712 签名验签不通过或载荷被篡改 |
-| `ERR_NONCE_REPLAY` | 409 | SETTLEMENT | 链上 Nonce 已被使用或重放 |
-| `ERR_IDEMPOTENCY_CONFLICT` | 409 | IDEMPOTENCY | 同一幂等键伴随不同的请求参数或并发冲突 |
-| `ERR_HOLD_EXPIRED` | 408 | WALLET | 钱包 Hold 锁定期在履约前超时失效 |
-| `ERR_UPSTREAM_TIMEOUT` | 504 | GATEWAY | 调用上游真实业务服务发生连接或读超时 |
-| `ERR_UPSTREAM_FAILED` | 502 | GATEWAY | 上游真实业务服务返回 5xx 服务端错误 |
-| `ERR_CONFIG_VERSION_EXPIRED` | 409 | CONFIG | 请求关联的配置版本已被回滚或失效 |
+| `ERR_PAYMENT_REQUIRED` | 402 | PROTOCOL | Resource requires on-chain payment; challenge issued |
+| `ERR_WALLET_INSUFFICIENT_BALANCE` | 402 | WALLET | Internal virtual wallet available balance is insufficient; overdraft prohibited |
+| `ERR_WALLET_FROZEN` | 403 | WALLET | Wallet is administratively frozen or in `frozen_arrears` status |
+| `ERR_PAYMENT_METHOD_NOT_ALLOWED` | 403 | ROUTING | Submitted payment method conflicts with the route's allowed methods (`wallet`/`onchain`) |
+| `ERR_POLICY_BUDGET_EXCEEDED` | 403 | POLICY | 24-hour rolling window or lifetime budget cap exceeded |
+| `ERR_POLICY_MAX_PER_TX` | 403 | POLICY | Single-transaction amount exceeds the configured safety cap |
+| `ERR_POLICY_CIRCUIT_BROKEN` | 429 | POLICY | Runaway Agent loop or high-frequency burst detected; circuit breaker open |
+| `ERR_API_KEY_INVALID` | 401 | AUTH | API Key does not exist, has been revoked, or has expired |
+| `ERR_API_KEY_SCOPE_DENIED` | 403 | AUTH | API Key lacks the required permission scope for the target route |
+| `ERR_TENANT_SUSPENDED` | 403 | TENANT | Tenant organization has been suspended by an administrator |
+| `ERR_SIGNATURE_INVALID` | 401 | CRYPTOGRAPHY | EIP-712 signature verification failed or payload was tampered with |
+| `ERR_NONCE_REPLAY` | 409 | SETTLEMENT | On-chain nonce has already been used or replayed |
+| `ERR_IDEMPOTENCY_CONFLICT` | 409 | IDEMPOTENCY | Same idempotency key reused with different request parameters or concurrent conflict |
+| `ERR_HOLD_EXPIRED` | 408 | WALLET | Wallet Hold reservation expired before fulfillment completed |
+| `ERR_UPSTREAM_TIMEOUT` | 504 | GATEWAY | Connection or read timeout occurred while calling the upstream service |
+| `ERR_UPSTREAM_FAILED` | 502 | GATEWAY | Upstream business service returned a 5xx server error |
+| `ERR_CONFIG_VERSION_EXPIRED` | 409 | CONFIG | Configuration version associated with the request was rolled back or expired |
 
 ---
 
-## 5. 标识符规则与幂等一致性
+## 5. Identifier Rules & Idempotency Consistency
 
-1. **唯一性生成标准**：
-   - `request_id`：必须以 `req_` 为前缀或符合 UUIDv4 标准，在收到入站连接的第一时间生成；
-   - `idempotency_key`：由调用方显式在 Header 提供（最大 128 字符）。网关以 `(tenant_id, idempotency_key)` 为联合租户唯一键；
-   - `payment_intent_id`：必须以 `pi_` 为前缀；
-   - `settlement_id`：必须以 `stl_` 为前缀；
-   - `fulfillment_id`：必须以 `ful_` 为前缀；
-   - `hold_id`：必须以 `hld_` 为前缀。
-2. **幂等命中处理**：
-   - 收到相同 `idempotency_key` 且请求体哈希完全相符：
-     - 若意图已完成，直接返回首次请求的缓存响应（含原始 HTTP 状态码、响应头与响应体）；
-     - 若意图尚在执行中（`in_progress`），返回 `409 ERR_IDEMPOTENCY_CONFLICT` 或按租户配置轮询等待。
-   - 收到相同 `idempotency_key` 但请求体哈希不一致：
-     - 立即返回 `409 ERR_IDEMPOTENCY_CONFLICT`，禁止篡改重试。
+1. **Uniqueness & Formatting Standards**:
+   - `request_id`: Must be prefixed with `req_` or conform to UUIDv4, generated immediately upon accepting an inbound connection.
+   - `idempotency_key`: Explicitly supplied by the caller via header (max 128 characters). The gateway enforces uniqueness scoped to `(tenant_id, idempotency_key)`.
+   - `payment_intent_id`: Must be prefixed with `pi_`.
+   - `settlement_id`: Must be prefixed with `stl_`.
+   - `fulfillment_id`: Must be prefixed with `ful_`.
+   - `hold_id`: Must be prefixed with `hld_`.
+2. **Idempotency Hit Handling**:
+   - When an identical `idempotency_key` arrives with an identical request body hash:
+     - If the intent is already completed, immediately replay the cached response from the original request (including original HTTP status code, headers, and body).
+     - If the intent is still executing (`in_progress`), return `409 ERR_IDEMPOTENCY_CONFLICT` or poll according to tenant configuration.
+   - When an identical `idempotency_key` arrives with a mismatched request body hash:
+     - Immediately return `409 ERR_IDEMPOTENCY_CONFLICT` and reject tampered retries.

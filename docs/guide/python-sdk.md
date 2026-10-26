@@ -41,11 +41,11 @@ pip install -e python/packages/agentpay
 
 ```python
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 client = AgentPayClient(
     signer=LocalSigner(...),          # signs on-chain authorizations
-    policy=MemoryPolicyEngine(...),   # local financial firewall
+    policy=SQLitePolicyEngine.create_in_memory(PolicyConfig(...)), # local financial firewall
     headers={...},                    # default headers, e.g. Authorization
     wallet_challenge_mode=True,        # price-check API-key wallet calls before retry
 )
@@ -90,17 +90,23 @@ This is an AgentPay-specific x402 scheme (`agentpay-wallet`), not EIP-3009. It d
 import os
 
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
-
-policy = MemoryPolicyEngine(
-    max_per_tx=100_000,         # 0.10 USD per request (wallet minor units)
-    daily_budget=5_000_000,     # 5.00 USD per rolling 24h
-)
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 # Wallet mode makes no on-chain signature, so the signer is a placeholder.
 # ⚠️ TESTNET DEVELOPMENT ONLY: This is a well-known public Hardhat key. NEVER deposit real funds!
 dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 signer = LocalSigner(dev_key)
+
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="wallet_firewall",
+        name="Wallet Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=100_000,         # 0.10 USD per request (wallet minor units)
+        rolling_budget_24h_base_units=5_000_000, # 5.00 USD per rolling 24h
+        whitelist_domains=frozenset(["gateway.example.com"]),
+    )
+)
 
 client = AgentPayClient(
     signer=signer,
@@ -123,13 +129,18 @@ An alternative to the `Authorization` header is `X-API-Key`. Wallet challenge mo
 import os
 
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 signer = LocalSigner(private_key=os.environ["AGENT_PRIVATE_KEY"])
-policy = MemoryPolicyEngine(
-    max_per_tx=1_000_000,                    # 1 USDC
-    daily_budget=10_000_000,                 # 10 USDC
-    whitelist_payees=["0xSellerAddress..."],
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="onchain_firewall",
+        name="On-Chain Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=1_000_000,         # 1 USDC
+        rolling_budget_24h_base_units=10_000_000, # 10 USDC
+        whitelist_payees=frozenset(["0x70997970C51812dc3A010C7d01b50e0d17dc79C8"]),
+    )
 )
 
 client = AgentPayClient(signer=signer, policy=policy)   # no API key needed
@@ -177,24 +188,32 @@ Use `async with` so connections are closed properly.
 
 ## Local financial firewall
 
-The `policy` argument accepts a policy engine. Two are provided:
+The `policy` argument accepts `SQLitePolicyEngine`, which supports two storage modes:
 
-| Engine | State | Use for |
+| Mode | State | Use for |
 | --- | --- | --- |
-| `MemoryPolicyEngine` | In memory (lost on restart) | Tests, demos, short-lived agents |
-| SQLite-backed engine | Durable, atomic reservation in an exclusive transaction | Long-running agents, anything where budget must survive restarts |
+| `SQLitePolicyEngine.create_in_memory(...)` | In memory (`:memory:`, lost on restart) | Tests, demos, short-lived agents |
+| `SQLitePolicyEngine(conn, config)` | Durable SQLite file, atomic reservation in an exclusive transaction | Long-running agents, anything where budget must survive restarts |
 
 ```python
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine, WhitelistMode
 
-policy = MemoryPolicyEngine(
-    max_per_tx=500_000,
-    daily_budget=5_000_000,
-    whitelist_payees=["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"],
+# WhitelistMode.SIMPLE (default): empty whitelists allow all by default;
+# WhitelistMode.STRICT: requires explicit network, asset, payee (and domain) whitelists.
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="agent_firewall",
+        name="Agent Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=500_000,
+        rolling_budget_24h_base_units=5_000_000,
+        whitelist_mode=WhitelistMode.SIMPLE,
+        whitelist_payees=frozenset(["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"]),
+    )
 )
 ```
 
-All amounts are **integers in the smallest unit** (USDC has 6 decimals, so `500_000` is 0.5 USDC). The engine is fail-closed: any error means the payment is rejected. See [Policy Configuration](/guide/policy) for every rule.
+All amounts are **integers in the smallest unit** (USDC has 6 decimals, so `500_000` is 0.5 USDC). On the on-chain path, `PolicyConfig` supports two whitelist modes via `whitelist_mode`: **`WhitelistMode.SIMPLE`** (default, where empty whitelist dimensions allow requests through) and **`WhitelistMode.STRICT`** (where every whitelist dimension must be populated and matched). The engine is fail-closed: any error means the payment is rejected. See [Policy Configuration](/guide/policy) for every rule.
 
 ::: warning One key, one ledger
 A private key must map to exactly one SQLite ledger. Running several processes with the same key but separate ledgers multiplies your effective budget.

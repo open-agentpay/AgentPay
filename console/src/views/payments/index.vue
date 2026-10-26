@@ -625,7 +625,7 @@ watch(
                     <span class="mono">{{ activeRecord.settlement?.network_id || 'eip155:84532' }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item :label="$t('交易哈希 / Nonce')" :span="2">
-                    <span class="mono">{{ activeRecord.settlement?.tx_hash || activeRecord.settlement?.nonce }}</span>
+                    <span class="mono hash-text">{{ activeRecord.settlement?.tx_hash || activeRecord.settlement?.nonce }}</span>
                   </el-descriptions-item>
                 </template>
               </el-descriptions>

@@ -1,143 +1,143 @@
-# Agent 身份与行为审计规范 (T1.8 Specification)
+# Agent Identity & Behavior Audit Specification (T1.8 Specification)
 
-> **版本**：v1.0.0 (T1.8 规范：Agent 身份与行为审计)  
-> **状态**：**已定稿 (Approved Specification)**  
-> **适用范围**：AgentPay Go Gateway 数据面、控制面、审计流与控制台  
-> **前置规范**：[specs/multitenant-data-model.md](./multitenant-data-model.md), [specs/audit-events-spec.md](./audit-events-spec.md)
+> **Version**: v1.0.0 (T1.8 Specification: Agent Identity & Behavior Audit)  
+> **Status**: **Approved Specification**  
+> **Scope**: AgentPay Go Gateway Data Plane, Control Plane, Audit Stream & Management Console  
+> **Prerequisites**: [specs/multitenant-data-model.md](./multitenant-data-model.md), [specs/audit-events-spec.md](./audit-events-spec.md)
 
 ---
 
-## 1. 目标与边界
+## 1. Goals & Boundaries
 
-三类需求，对应三种不同的能力，不可混为一谈：
+Three distinct requirements map to three distinct system capabilities and must not be conflated:
 
-| 需求 | 本质 | 时效要求 |
+| Requirement | Nature | Latency Requirement |
 |---|---|---|
-| 可见性与排查：租户查看自己的 Agent 做了什么 | 查询与时间线 | 准实时，允许短暂延迟 |
-| 风险控制：发现并拦截失控的 Agent | **执行（enforcement）**，不是事后审计 | **同步，在请求路径内** |
-| 合规留痕：事后可追溯、可导出 | 完整性、保留、导出 | 持久、可验证 |
+| Visibility & Troubleshooting: Tenants inspect what their Agents did | Querying & timeline reconstruction | Near real-time (short delay acceptable) |
+| Risk Control: Detect and block runaway Agents | **Enforcement**, not post-hoc auditing | **Synchronous, in the request path** |
+| Compliance & Retention: Post-incident traceability and export | Integrity, retention, and export | Durable and verifiable |
 
 > [!IMPORTANT]
-> **边界声明（写入公开文档）**  
-> 网关只能审计 Agent 的**可观测行为**（调用、支付、策略决策），无法得知 Agent 的内部推理过程，也不能证明其主观意图。
+> **Boundary Statement (Published in Public Documentation)**  
+> The gateway can only audit an Agent's **observable behaviors** (requests, payments, policy decisions). It cannot inspect the Agent's internal reasoning chain or prove its subjective intent.
 
 ---
 
-## 2. 核心设计原则
+## 2. Core Design Principles
 
-1. **一条事件流，三个消费者**：所有行为都统一写成标准审计事件；可见性读取、风险检测、合规导出都消费同一份事件，不各自另记。
-2. **执行不依赖审计管道**：预算、频率、白名单、停用等拦截在请求路径内**同步判断**，使用本地及实时计数，绝不能等异步日志分析出结果再拦截。
-3. **观测与声明严格分开**：
-   - 网关自己看到的（`observed`）是客观事实（例如 API Key 绑定的 `agent_id`、实际耗时、上游状态码、扣费金额）；
-   - Agent 通过请求头自报的（`declared`，如 `session_id`、`task_id`、`tool_name`）不可信，只用于关联和展示，**严禁用于授权或计费判定**。
-4. **默认只存元数据**：请求体、响应体不入审计；内容样本只能显式开启、脱敏、单独设保留期、限制访问。
-5. **只追加（Append-Only）**：审计事件不可修改、不可删除；更正通过追加审计事件完成。
+1. **One Event Stream, Three Consumers**: All behaviors are emitted as canonical audit events. Visibility queries, anomaly detection, and compliance exports consume the same event stream rather than maintaining separate logs.
+2. **Enforcement Never Depends on the Audit Pipeline**: Budget limits, rate limits, allowlists, and kill-switch checks are evaluated **synchronously in the request path** using local and real-time counters—never waiting for asynchronous log analysis before blocking.
+3. **Strict Separation of Observed vs. Declared Fields**:
+   - What the gateway directly observes (`observed`) is objective fact (e.g., `agent_id` bound to the API Key, actual latency, upstream status code, deducted amount).
+   - What the Agent self-reports via request headers (`declared`, such as `session_id`, `task_id`, `tool_name`) is untrusted, used solely for correlation and display, and **strictly prohibited from authorization or billing decisions**.
+4. **Metadata Only by Default**: Request and response bodies are excluded from audit logs by default. Payload sampling must be explicitly enabled, redacted, assigned a separate retention period, and access-restricted.
+5. **Append-Only**: Audit events cannot be modified or deleted. Corrections are recorded by appending new audit events.
 
 ---
 
-## 3. Agent 实体模型
+## 3. Agent Entity Model
 
-| 字段 | 类型 | 说明与安全约束 |
+| Field | Type | Description & Security Constraints |
 |---|---|---|
-| `agent_id` | string (PK) | 格式：`agt_...`，主键 |
-| `tenant_id` | string (FK) | 租户归属，强隔离边界 |
-| `project_id` | string (FK) | 项目归属 |
-| `name` | string | 展示名 |
-| `status` | string | 枚举：`active` / `suspended` / `revoked` |
-| 绑定关系 | 关联表 | 一个 Agent 可有多个 API Key；一个 API Key 必须唯一属于一个 Agent |
-| 策略引用 | JSONB / 关联 | 预算、频率、路由白名单、风险规则（可继承项目默认） |
+| `agent_id` | string (PK) | Format: `agt_...`, primary key |
+| `tenant_id` | string (FK) | Tenant ownership; strict isolation boundary |
+| `project_id` | string (FK) | Project ownership |
+| `name` | string | Display name |
+| `status` | string | Enum: `active` / `suspended` / `revoked` |
+| Key Binding | Association Table | One Agent may hold multiple API Keys; each API Key must belong to exactly one Agent |
+| Policy Reference | JSONB / Association | Budget, rate limits, route allowlist, and risk rules (can inherit project defaults) |
 
-### 核心运行时约束
-- **身份单一事实来源**：所有入站请求必须能解析到 `agent_id`，且必须由凭据（API Key / 签名）确定，**绝对不能由客户端请求头自报决定**。
-- **一键停用（Kill Switch）**：当 Agent 状态为 `suspended` 或 Key 被 `revoked` 时，网关必须在数秒内（通过即时失效通道或 RCU 刷新）拒绝后续新请求；进行中的请求按已有状态机规则完成或释放冻结。
+### Core Runtime Constraints
+- **Single Source of Truth for Identity**: Every inbound request must resolve to an `agent_id` determined strictly by its cryptographic credential (API Key / signature)—**never from client-supplied request headers**.
+- **One-Click Kill Switch**: When an Agent's status is set to `suspended` or its API Key is `revoked`, the gateway must reject subsequent requests within seconds (via instant invalidation notifications or RCU refresh); in-flight requests complete or release their holds according to existing state machine rules.
 
 ---
 
-## 4. 审计事件结构规范
+## 4. Audit Event Schema Specification
 
-### 4.1 通用字段来源规范
+### 4.1 Common Field Provenance Specification
 
-| 字段 | 来源 | 类型与说明 |
+| Field | Provenance | Type & Description |
 |---|---|---|
-| `event_id` | 观测 (`observed`) | 全局唯一 UUID/CUID，作为写入幂等键 |
-| `event_type` | 观测 (`observed`) | 事件枚举（见 4.2） |
-| `occurred_at` | 观测 (`observed`) | 网关高精度时间戳（UTC） |
-| `tenant_id`, `project_id`, `agent_id` | 观测 (`observed`) | 由 API Key 解析所得，防伪造 |
-| `request_id` | 观测 (`observed`) | 网关入站统一链路 ID |
-| `route_id`, `config_version` | 观测 (`observed`) | 命中的路由与生效配置指纹 |
-| `actor` | 观测 (`observed`) | `agent` / `admin` / `system` |
-| `session_id`, `task_id`, `parent_request_id`, `tool_name` | **声明 (`declared`)** | Agent 自报字段；长度严格受限（最大 128 字符），字符集过滤防注入；**完全可选** |
-| 关联 ID | 观测 (`observed`) | `payment_intent_id`, `settlement_id`, `fulfillment_id`, `hold_id` |
-| `prev_hash`, `hash` | 观测 (`observed`) | 可选哈希链防篡改指纹（接口预留） |
+| `event_id` | Observed (`observed`) | Globally unique UUID/CUID serving as the write idempotency key |
+| `event_type` | Observed (`observed`) | Event enum (see Section 4.2) |
+| `occurred_at` | Observed (`observed`) | High-precision gateway timestamp (UTC) |
+| `tenant_id`, `project_id`, `agent_id` | Observed (`observed`) | Resolved from the API Key; tamper-proof |
+| `request_id` | Observed (`observed`) | Unified inbound trace ID assigned by the gateway |
+| `route_id`, `config_version` | Observed (`observed`) | Matched route ID and active configuration fingerprint |
+| `actor` | Observed (`observed`) | `agent` / `admin` / `system` |
+| `session_id`, `task_id`, `parent_request_id`, `tool_name` | **Declared (`declared`)** | Self-reported by the Agent; strictly length-bounded (max 128 chars) and character-filtered against injection; **completely optional** |
+| Correlation IDs | Observed (`observed`) | `payment_intent_id`, `settlement_id`, `fulfillment_id`, `hold_id` |
+| `prev_hash`, `hash` | Observed (`observed`) | Optional hash-chain tamper-evidence fingerprint (reserved interface) |
 
-### 4.1.1 声明字段（Declared）缺省处理与安全不变量
+### 4.1.1 Declared Fields Default Handling & Security Invariants
 
-声明字段由客户端通过 `X-Session-ID`、`X-Task-ID`、`X-Tool-Name` 等请求头自报，属于**完全可选**字段。
+Declared fields are self-reported by clients via optional headers such as `X-Session-ID`, `X-Task-ID`, and `X-Tool-Name`.
 
-| 处理维度 | 客户端传入自报 Header | 客户端未传自报 Header (缺省) |
+| Processing Dimension | Client Supplies Declared Header | Client Omits Declared Header (Default) |
 |---|---|---|
-| **网关数据面** | 白名单过滤并截断至 128 字符后存入事件 | 字段提取为 `""`，**正常放行并处理业务，不报错** |
-| **计费与扣款** | **严禁参与**任何授权或计费判定逻辑 | **完全不受影响**，按 API Key 关联的钱包原子划转 |
-| **风控与熔断** | 同步执行单笔上限、24h 预算、Kill Switch | **完全不受影响**，网关内部计数严格执行 |
-| **控制台展示** | 可按 `session_id` 进行多调用折叠聚合与会话审计 | 归入“全部会话”，按独立原子请求时序展现 |
-| **时间线徽标** | 展示绿色 `[网关观测]` + 黄色 `[自报声明]` 徽标 | 仅展示绿色 `[网关观测]` 徽标，信息不失真 |
+| **Gateway Data Plane** | Whitelist-filtered and truncated to 128 characters before storing in the event | Extracted as `""`; **request proceeds normally without error** |
+| **Billing & Deductions** | **Strictly excluded** from all authorization or billing decisions | **Completely unaffected**; atomic transfer executes against the API Key's bound wallet |
+| **Risk Control & Circuit Breaking** | Synchronously enforces per-tx cap, 24h budget, and Kill Switch | **Completely unaffected**; internal gateway counters enforce limits strictly |
+| **Console Presentation** | Supports multi-call folding, aggregation, and session auditing by `session_id` | Grouped under "All Sessions" and displayed as independent atomic requests in chronological order |
+| **Timeline Badges** | Displays green `[Gateway Observed]` + yellow `[Self-Reported]` badges | Displays only the green `[Gateway Observed]` badge with zero loss of fidelity |
 
-### 4.2 事件类型 (Canonical Event Types)
+### 4.2 Canonical Event Types
 
-| 类型 (Type) | 领域 | 含义与包含内容 |
+| Type | Domain | Meaning & Included Payload |
 |---|---|---|
-| `agent.request` | 请求 | 请求到达与结果（HTTP 状态码、耗时毫秒、上游大小、请求指纹哈希） |
-| `agent.policy_decision` | 策略 | 策略判定：`allow` / `deny`，命中的规则 ID、拒绝原因码、版本 |
-| `agent.spend` | 支付 | 资金操作：冻结、确认扣款、解冻释放、链上结算（金额、币种、支付方式） |
-| `agent.anomaly` | 风控 | 风险规则命中：规则 ID、安全阈值、观测指标值 |
-| `agent.control` | 控制 | 管理动作：停用、恢复、Key 撤销/轮换、预算调整（操作人与原因） |
-| `agent.export` | 合规 | 审计数据导出操作（导出人、筛选条件、导出记录行数） |
+| `agent.request` | Request | Request arrival and outcome (HTTP status code, latency in ms, upstream payload size, request fingerprint hash) |
+| `agent.policy_decision` | Policy | Policy verdict: `allow` / `deny`, matched rule ID, rejection reason code, config version |
+| `agent.spend` | Payment | Fund operations: hold, capture, release, on-chain settlement (amount, asset, payment method) |
+| `agent.anomaly` | Risk | Risk rule triggered: rule ID, safety threshold, observed metric value |
+| `agent.control` | Control | Administrative action: suspend, resume, key revoke/rotate, budget adjustment (operator and reason) |
+| `agent.export` | Compliance | Audit data export operation (exporter, filter criteria, exported row count) |
 
 ---
 
-## 5. 风险控制（执行层）
+## 5. Risk Control (Enforcement Layer)
 
-### 5.1 v1 同步策略执行
-- **Agent 级独立预算**：按 Agent 设置 24 小时滚动窗口与月度总额度，直接与虚拟钱包 Hold 联动。
-- **Agent 级限频（Rate Limiting）**：针对单 Agent 细粒度控制 QPS/RPM，防止 Agent 逻辑死循环或高频刷量。
-- **路由白名单（Route Allowlist）**：严格限制 Agent 仅能访问授权的目标上游 API。
-- **单笔上限（Max Per Tx）**：限制单次交互的最大代币消耗额度。
-- **秒级一键停用（Kill Switch）**：管理员停用 Agent 或撤销 Key 后，网关即时失效缓存，毫秒级阻断入站请求。
+### 5.1 v1 Synchronous Policy Enforcement
+- **Per-Agent Independent Budgets**: Configurable 24-hour rolling window and monthly total spending caps per Agent, directly integrated with virtual wallet Holds.
+- **Per-Agent Rate Limiting**: Fine-grained QPS/RPM limits per Agent to prevent infinite loops or high-frequency request storms.
+- **Route Allowlist**: Strictly restricts an Agent to calling only authorized upstream APIs.
+- **Max Per Transaction (`Max Per Tx`)**: Caps the maximum token expenditure for any single interaction.
+- **Sub-Second Kill Switch**: When an administrator suspends an Agent or revokes an API Key, the gateway invalidates its cache immediately and blocks inbound requests within milliseconds.
 
-### 5.2 v1.x 规则检测与告警
-- **行为异常规则**：调用量激增、花费速率骤增、高频连续被拒绝、首次访问冷门路由、非工作时段异常活跃。
-- **默认只告警不自动阻断**：避免因误判导致业务工作流中断；自动阻断须管理员显式开启并设置冷却期。
-- **通知渠道**：Web 控制台通知、Webhook 回调推送。
-
----
-
-## 6. 可见性（读取层）
-
-1. **Agent 总览与列表**：状态、近期调用量、花费总额、策略拒绝率。
-2. **行为时间线（Timeline）**：按时间顺序展示事件流；支持按 `session_id` / `task_id`（自报声明）聚合工作流会话。
-3. **多维筛选**：时间范围、目标路由、HTTP 状态码、策略决策结果、支付方式、事件类型。
-4. **穿透详情**：单次请求一键穿透关联的 `payment_intent`、`settlement`、`hold`、`fulfillment` 以及命中的具体策略版本。
-5. **多租户权限边界**：跨租户 100% 不可见；管理员跨租户操作必须记录独立的高危审计事件。
+### 5.2 v1.x Anomaly Detection & Alerting
+- **Behavioral Anomaly Rules**: Traffic spikes, spend-rate surges, high-frequency consecutive denials, first-time access to rare routes, and unusual off-hours activity.
+- **Alert-Only by Default**: Prevents false positives from interrupting production workflows; automatic blocking requires explicit administrator opt-in and a configured cooldown period.
+- **Notification Channels**: Web Console notifications and Webhook callback pushes.
 
 ---
 
-## 7. 合规留痕与导出
+## 6. Visibility (Query Layer)
 
-1. **只追加完整性**：审计表仅允许 `INSERT`，数据库层面剥离 `UPDATE` 与 `DELETE` 权限。
-2. **事务性发件箱（Transactional Outbox）**：涉及资金划转（Hold/Capture/Release）的事件，必须在数据库强事务中与账本流水原子写入，确保“扣款必有审计”。
-3. **分层保留期**：
-   - 元数据事件：长期保留（默认 1 年以上）；
-   - 内容样本（若租户显式开启）：短期保留（默认 7-30 天），受独立脱敏策略与权限管控。
-4. **安全导出**：仅租户管理员权限可导出（CSV / JSONL 格式）；导出前自动脱敏敏感字段；每次导出本身强行记入 `agent.export` 事件。
+1. **Agent Overview & Directory**: Status, recent call volume, total spend, and policy denial rate.
+2. **Behavior Timeline**: Displays the event stream chronologically and supports grouping workflow sessions by declared `session_id` / `task_id`.
+3. **Multi-Dimensional Filtering**: Time range, target route, HTTP status code, policy decision outcome, payment method, and event type.
+4. **Drill-Down Inspection**: One-click drill-down from a single request to its associated `payment_intent`, `settlement`, `hold`, `fulfillment`, and exact policy version evaluated.
+5. **Multi-Tenant Permission Boundary**: 100% invisible across tenants; any cross-tenant administrative operation must emit an independent high-severity audit event.
 
 ---
 
-## 8. 威胁与风险缓解
+## 7. Compliance Retention & Export
 
-| 威胁场景 | 风险级别 | 网关缓解机制 |
+1. **Append-Only Integrity**: Audit tables permit only `INSERT` operations, with `UPDATE` and `DELETE` privileges revoked at the database level.
+2. **Transactional Outbox**: Events involving fund movements (`Hold`/`Capture`/`Release`) must be written atomically within the same database transaction as the ledger entry, guaranteeing that every deduction produces an audit record.
+3. **Tiered Retention**:
+   - Metadata events: Long-term retention (1+ year by default).
+   - Payload samples (if explicitly enabled by the tenant): Short-term retention (7–30 days by default), governed by independent redaction policies and access controls.
+4. **Secure Export**: Restricted to tenant administrators (CSV / JSONL formats); sensitive fields are automatically redacted prior to export, and every export operation is mandatorily recorded as an `agent.export` event.
+
+---
+
+## 8. Threats & Risk Mitigations
+
+| Threat Scenario | Risk Level | Gateway Mitigation Mechanism |
 |---|---|---|
-| 请求头自报伪造 `agent_id` | **严重 (Critical)** | 网关强制剥离客户端请求头传入的 `X-Agent-ID`，仅以 API Key 解析作为唯一事实 |
-| 声明字段日志注入攻击 | **高 (High)** | 声明字段限制白名单字符与最大 128 字符长度，违规内容截断或无害化转义 |
-| 凭据泄漏冒充 Agent | **高 (High)** | 配合 IP 白名单、单笔上限、秒级一键停用阻断 |
-| 停用生效延迟窗口期 | **高 (High)** | 停用/撤销走内存 RCU 即时通知，避免长时间依赖本地缓存过期 |
-| 跨租户越权查询审计 | **严重 (Critical)** | 数据访问层强制注入 `tenant_id` 参数与行级安全策略（RLS） |
+| Spoofing `agent_id` via request headers | **Critical** | Gateway forcibly strips client-supplied `X-Agent-ID` headers and resolves identity solely from the API Key |
+| Log injection via declared fields | **High** | Declared fields enforce character whitelisting and a 128-character limit, truncating or neutralizing malformed input |
+| Credential leakage / Agent impersonation | **High** | Mitigated via IP allowlists, per-tx caps, and instant one-click Kill Switch |
+| Propagation delay after suspension | **High** | Suspension and revocation propagate via in-memory RCU instant notifications rather than waiting for local TTL expiry |
+| Cross-tenant unauthorized audit queries | **Critical** | Data access layer forcibly injects `tenant_id` predicates backed by Row-Level Security (RLS) |

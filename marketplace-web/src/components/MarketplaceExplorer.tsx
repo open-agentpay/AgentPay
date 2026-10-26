@@ -102,6 +102,9 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
     const comment2 = isEn
       ? '# Per-request cap (0.05 USDC), local policy engine blocks execution outside prompt context'
       : '# 单次最高预算保护 (0.05 USDC)，超额直接由本地策略引擎在 prompt 之外拦截';
+    const commentDaily = isEn
+      ? '# 24h rolling budget ceiling (1.00 USDC)'
+      : '# 24h 滚动预算上限 (1.00 USDC)';
     const comment3 = isEn
       ? '# 2. Initialize AgentPayClient (extends standard httpx.Client)'
       : '# 2. 初始化 AgentPayClient（继承自标准 httpx.Client）';
@@ -119,8 +122,10 @@ signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="firewall",
+        name="Agent Firewall",
         wallet_address=signer.address,
         max_per_tx_base_units=50000,  ${comment2}
+        rolling_budget_24h_base_units=1000000,  ${commentDaily}
     )
 )
 

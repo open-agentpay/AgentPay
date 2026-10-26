@@ -26,6 +26,9 @@ func NewPostgresService(db *sql.DB) *PostgresService {
 		// Auto-migrate idempotency_key to allow NULL in legacy initialized databases (non-idempotent requests)
 		_, _ = db.Exec("ALTER TABLE ap_payment_intent ALTER COLUMN idempotency_key DROP NOT NULL;")
 		_, _ = db.Exec("ALTER TABLE ap_wallet_challenge ALTER COLUMN idempotency_key DROP NOT NULL;")
+		// Auto-migrate settlement_id column width to VARCHAR(128)
+		_, _ = db.Exec("ALTER TABLE ap_settlement_record ALTER COLUMN settlement_id TYPE VARCHAR(128);")
+		_, _ = db.Exec("ALTER TABLE ap_agent_audit_event ALTER COLUMN settlement_id TYPE VARCHAR(128);")
 	}
 	return &PostgresService{db: db}
 }
@@ -122,6 +125,9 @@ func (p *PostgresService) CreateIntent(ctx context.Context, intent *PaymentInten
 			$10, $11, $12, $13, $14
 		)
 		ON CONFLICT (intent_id) DO UPDATE SET
+			agent_id = COALESCE(EXCLUDED.agent_id, ap_payment_intent.agent_id),
+			idempotency_key = COALESCE(EXCLUDED.idempotency_key, ap_payment_intent.idempotency_key),
+			request_id = CASE WHEN EXCLUDED.request_id <> '' THEN EXCLUDED.request_id ELSE ap_payment_intent.request_id END,
 			status = EXCLUDED.status,
 			updated_at = EXCLUDED.updated_at
 	`

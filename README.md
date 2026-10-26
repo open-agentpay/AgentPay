@@ -137,11 +137,9 @@ make demo-live
 
 ```python
 import os
-from agentpay.client.client import AgentPayClient
-from agentpay.client.signer import LocalSigner
+from agentpay import AgentPayClient, LocalSigner
 from agentpay.integrations.langchain import paid_tool
-from agentpay.policy.config import PolicyConfig
-from agentpay.policy.sqlite_engine import SQLitePolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 # 1. Setup buyer signer and local financial firewall policy
 # ⚠️ TESTNET DEVELOPMENT ONLY: This key is Hardhat's publicly known default test key.
@@ -151,6 +149,7 @@ signer = LocalSigner(private_key)
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="agent_firewall",
+        name="Agent Firewall",
         wallet_address=signer.address,
         max_per_tx_base_units=100_000,       # Max $0.10 per call
         rolling_budget_24h_base_units=1_000_000, # Daily cap $1.00
@@ -207,7 +206,7 @@ Any incoming request without valid payment receives a standard `HTTP 402 Payment
 ### 1. Independent Financial Firewall (Policy Engine)
 LLMs propose actions and invoke tools, but **they can never approve or grant themselves financial permissions**.
 * **Zero-Trust Boundary**: Decoupled policy engine running completely outside the LLM execution context.
-* **Fine-Grained Guardrails**: Enforces per-transaction caps, 24-hour rolling budgets, lifetime limits, and payee/asset whitelists.
+* **Fine-Grained Guardrails**: Enforces per-transaction caps, 24-hour rolling budgets, lifetime limits, and payee/asset/network/domain whitelists with configurable `WhitelistMode.SIMPLE` (empty allows by default) and `WhitelistMode.STRICT` (requires explicit whitelist entries).
 * **Autonomous Circuit Breaker**: Detects high-frequency anomalies and recursive loops, immediately switching state from `CLOSED` to `OPEN` and halting wallet drain.
 * **Atomic Two-Phase Reservations**: Uses SQLite ACID transactions (`reserve -> commit` or `reserve -> release`) to prevent race conditions during concurrent tool calls.
 

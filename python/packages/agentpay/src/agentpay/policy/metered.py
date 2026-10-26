@@ -23,11 +23,11 @@ if TYPE_CHECKING:
 @runtime_checkable
 class IMeteredPolicyEngine(Protocol):
     def reserve_metered(
-            self,
-            intent_id: str,
-            estimated_amount: int,
-            domain: str | None,
-            ttl_seconds: int = 60,
+        self,
+        intent_id: str,
+        estimated_amount: int,
+        domain: str | None,
+        ttl_seconds: int = 60,
     ) -> PolicyDecision: ...
 
     def settle_metered(self, intent_id: str, actual_amount: int | None = None) -> None: ...

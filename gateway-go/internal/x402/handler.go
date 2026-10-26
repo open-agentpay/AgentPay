@@ -1130,7 +1130,10 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		network, onchainPrice, onchainAsset := oc.Network, oc.Price, oc.Asset
 		contractAddress := oc.Contract
 		intentID := fmt.Sprintf("pi_%s", requestID)
-		settlementID := fmt.Sprintf("stl_%s", auth.Nonce)
+		if auth.ChallengeID != "" {
+			intentID = "pi_" + auth.ChallengeID
+		}
+		settlementID := fmt.Sprintf("stl_%s", requestID)
 
 		// 2.1 Idempotent On-Chain Request
 		if idemKey != "" {
@@ -1397,16 +1400,17 @@ func (p *PaymentProcessor) HandleRequestWithSnapshot(
 		WriteProtocolError(w, ErrCodeWalletAuthRequired, requestID, nil)
 		return
 	}
-	intentID = fmt.Sprintf("pi_%s", requestID)
-	initIntent(route.TenantID, "prj_default", "", intentID, idemKey, "onchain", payment.IntentStatusChallenged)
-	recordReq(route.TenantID, "prj_default", "", "", intentID, http.StatusPaymentRequired, ErrCodePaymentRequired, false)
-	p.metrics.IncChallenges()
 	oc := p.resolveOnchain(route)
 	facURL := p.facilitatorURL
 	if facURL == "" {
 		facURL = "http://127.0.0.1:8001"
 	}
 	ch := oc.newChallenge(facURL, r.URL.Path, 300*time.Second)
+	intentID = "pi_" + ch.ChallengeID
+	// Keep Idempotency-Key off the provisional challenged intent so the retry can bind it cleanly.
+	initIntent(route.TenantID, "prj_default", "", intentID, "", "onchain", payment.IntentStatusChallenged)
+	recordReq(route.TenantID, "prj_default", "", "", intentID, http.StatusPaymentRequired, ErrCodePaymentRequired, false)
+	p.metrics.IncChallenges()
 	encodedChallenge, err := EncodeChallenge(ch, true)
 	if err != nil {
 		WriteProtocolError(w, ErrCodeUpstreamBadGateway, requestID, nil)

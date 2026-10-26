@@ -408,3 +408,132 @@ func TestUpstreamAuthQueryInjection(t *testing.T) {
 	}
 }
 
+func TestPathTemplateCoinsReplacement(t *testing.T) {
+	var capturedPath string
+	var capturedEscapedPath string
+	var capturedRawQuery string
+
+	mockTransport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		capturedPath = r.URL.Path
+		capturedEscapedPath = r.URL.EscapedPath()
+		capturedRawQuery = r.URL.RawQuery
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(bytes.NewBufferString(`{"coins":{}}`)),
+			Request:    r,
+		}, nil
+	})
+
+	handler := NewHandler(metrics.New(), mockTransport)
+
+	t.Run("path parameter replaces {coins} in upstream URL", func(t *testing.T) {
+		route := &rcu.RouteConfig{
+			RouteID:     "rou_llama",
+			PathPattern: "/v1/prices/current/{coins}",
+			UpstreamURL: "https://coins.llama.fi/prices/current/{coins}",
+			Status:      "active",
+		}
+		req := httptest.NewRequest("GET", "/v1/prices/current/coingecko:ethereum,coingecko:bitcoin?searchWidth=4h", nil)
+		w := httptest.NewRecorder()
+		handler.Forward(w, req, route, nil)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+		if capturedPath != "/prices/current/coingecko:ethereum,coingecko:bitcoin" {
+			t.Errorf("expected path /prices/current/coingecko:ethereum,coingecko:bitcoin, got %s", capturedPath)
+		}
+		if strings.Contains(capturedEscapedPath, "%7B") || strings.Contains(capturedEscapedPath, "{") {
+			t.Errorf("expected escaped path without unreplaced placeholders, got %s", capturedEscapedPath)
+		}
+		if capturedRawQuery != "searchWidth=4h" {
+			t.Errorf("expected query searchWidth=4h, got %s", capturedRawQuery)
+		}
+	})
+
+	t.Run("query parameter replaces {coins} in upstream URL and is stripped from query", func(t *testing.T) {
+		route := &rcu.RouteConfig{
+			RouteID:     "rou_llama_query",
+			PathPattern: "/v1/prices/current/{coins}",
+			UpstreamURL: "https://coins.llama.fi/prices/current/{coins}",
+			Status:      "active",
+		}
+		req := httptest.NewRequest("GET", "/v1/prices/current?coins=coingecko:ethereum&searchWidth=4h", nil)
+		w := httptest.NewRecorder()
+		handler.Forward(w, req, route, nil)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+		if capturedPath != "/prices/current/coingecko:ethereum" {
+			t.Errorf("expected path /prices/current/coingecko:ethereum, got %s", capturedPath)
+		}
+		if capturedRawQuery != "searchWidth=4h" {
+			t.Errorf("expected consumed coins param stripped leaving searchWidth=4h, got %s", capturedRawQuery)
+		}
+	})
+
+	t.Run("literal {coins} in request path falls back to query parameter", func(t *testing.T) {
+		route := &rcu.RouteConfig{
+			RouteID:     "rou_llama_sdk",
+			PathPattern: "/v1/prices/current/{coins}",
+			UpstreamURL: "https://coins.llama.fi/prices/current/{coins}",
+			Status:      "active",
+		}
+		req := httptest.NewRequest("GET", "/v1/prices/current/%7Bcoins%7D?coins=coingecko:solana", nil)
+		w := httptest.NewRecorder()
+		handler.Forward(w, req, route, nil)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+		if capturedPath != "/prices/current/coingecko:solana" {
+			t.Errorf("expected path /prices/current/coingecko:solana, got %s", capturedPath)
+		}
+		if capturedRawQuery != "" {
+			t.Errorf("expected empty query after consuming coins, got %s", capturedRawQuery)
+		}
+	})
+
+	t.Run("JSON body parameter replaces {coins} in upstream URL", func(t *testing.T) {
+		route := &rcu.RouteConfig{
+			RouteID:     "rou_llama_body",
+			PathPattern: "/v1/prices/current",
+			UpstreamURL: "https://coins.llama.fi/prices/current/{coins}",
+			Status:      "active",
+		}
+		req := httptest.NewRequest("POST", "/v1/prices/current", bytes.NewBufferString(`{"coins":"coingecko:arbitrum"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.Forward(w, req, route, nil)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+		if capturedPath != "/prices/current/coingecko:arbitrum" {
+			t.Errorf("expected path /prices/current/coingecko:arbitrum, got %s", capturedPath)
+		}
+	})
+
+	t.Run("path template with base upstream URL without {coins}", func(t *testing.T) {
+		route := &rcu.RouteConfig{
+			RouteID:     "rou_llama_base",
+			PathPattern: "/v1/prices/current/{coins}",
+			UpstreamURL: "https://coins.llama.fi/prices/current",
+			Status:      "active",
+		}
+		req := httptest.NewRequest("GET", "/v1/prices/current/coingecko:ethereum", nil)
+		w := httptest.NewRecorder()
+		handler.Forward(w, req, route, nil)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+		if capturedPath != "/prices/current/coingecko:ethereum" {
+			t.Errorf("expected path /prices/current/coingecko:ethereum, got %s", capturedPath)
+		}
+	})
+}
+
+

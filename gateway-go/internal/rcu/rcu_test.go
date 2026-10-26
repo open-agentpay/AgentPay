@@ -144,3 +144,62 @@ func TestRCUMultiTenantRouteIsolation(t *testing.T) {
 	}
 }
 
+func TestRCUPathTemplateMatchingAndExtraction(t *testing.T) {
+	snap := &ConfigSnapshot{
+		SchemaVersion: "2.0.0",
+		TenantID:      "ten_default",
+		VersionID:     "ver_templates",
+		VersionNumber: 1,
+		Routes: []RouteConfig{
+			{
+				RouteID:        "rou_llama_prices",
+				PathPattern:    "/v1/prices/current/{coins}",
+				UpstreamURL:    "https://coins.llama.fi/prices/current/{coins}",
+				PriceBaseUnits: 1000,
+				Asset:          "USDC",
+				Status:         "active",
+			},
+			{
+				RouteID:        "rou_coin_chart",
+				PathPattern:    "/v1/coins/{id}/chart",
+				UpstreamURL:    "https://coins.llama.fi/chart/{id}",
+				PriceBaseUnits: 2000,
+				Asset:          "USDC",
+				Status:         "active",
+			},
+		},
+	}
+
+	mgr, err := NewManager(snap)
+	if err != nil {
+		t.Fatalf("failed to init manager: %v", err)
+	}
+
+	// 1. Match trailing {coins} template path
+	route, ok := mgr.MatchRoute("/v1/prices/current/coingecko:ethereum,coingecko:bitcoin")
+	if !ok || route.RouteID != "rou_llama_prices" {
+		t.Fatalf("expected match for /v1/prices/current/coingecko:ethereum,coingecko:bitcoin, got ok=%v", ok)
+	}
+	params, ok := ExtractPathParams(route.PathPattern, "/v1/prices/current/coingecko:ethereum,coingecko:bitcoin")
+	if !ok || params["coins"] != "coingecko:ethereum,coingecko:bitcoin" {
+		t.Fatalf("expected coins param extracted, got: %+v", params)
+	}
+
+	// 2. Match base path when trailing {coins} is passed via query/body
+	routeBase, ok := mgr.MatchRoute("/v1/prices/current")
+	if !ok || routeBase.RouteID != "rou_llama_prices" {
+		t.Fatalf("expected base path /v1/prices/current to match trailing template route, got ok=%v", ok)
+	}
+
+	// 3. Match middle segment {id} template path
+	routeChart, ok := mgr.MatchRoute("/v1/coins/ethereum:0x000/chart")
+	if !ok || routeChart.RouteID != "rou_coin_chart" {
+		t.Fatalf("expected match for /v1/coins/ethereum:0x000/chart, got ok=%v", ok)
+	}
+	chartParams, ok := ExtractPathParams(routeChart.PathPattern, "/v1/coins/ethereum:0x000/chart")
+	if !ok || chartParams["id"] != "ethereum:0x000" {
+		t.Fatalf("expected id param extracted, got: %+v", chartParams)
+	}
+}
+
+

@@ -54,9 +54,17 @@ def _normalise_vector_format(data: dict[str, Any]) -> dict[str, Any]:
         if field in data:
             result[field] = data[field]
 
+    # Whitelist mode
+    if "whitelistMode" in data:
+        result["whitelist_mode"] = data["whitelistMode"]
+    elif "whitelist_mode" in data:
+        result["whitelist_mode"] = data["whitelist_mode"]
+
     # Nested whitelist object → flat fields
     if "whitelist" in data and isinstance(data["whitelist"], dict):
         wl = data["whitelist"]
+        if "mode" in wl and "whitelist_mode" not in result:
+            result["whitelist_mode"] = wl["mode"]
         result["whitelist_payees"] = wl.get("payees", [])
         result["whitelist_assets"] = wl.get("assets", [])
         result["whitelist_networks"] = wl.get("networks", [])

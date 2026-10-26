@@ -66,10 +66,13 @@ All monetary amounts in AgentPay policies are strictly represented as **integer 
 
 ### 2.3 Whitelist Matrix (Zero-Trust Access Control)
 
-If a whitelist is configured with one or more entries, any payment request targeting an unlisted entity is immediately rejected. Empty frozensets indicate that filtering for that dimension is unconstrained.
+On-chain (EVM) whitelist enforcement supports two modes via `whitelist_mode` (`WhitelistMode.SIMPLE` and `WhitelistMode.STRICT`):
+- **Simple Mode (`WhitelistMode.SIMPLE`, default)**: Empty `frozenset` dimensions are unconstrained (allow all by default). If a whitelist dimension is configured with one or more entries, any payment request targeting an unlisted entity in that dimension is rejected.
+- **Strict Mode (`WhitelistMode.STRICT`)**: Every whitelist dimension (`whitelist_networks`, `whitelist_assets`, `whitelist_payees`, and `whitelist_domains` when a domain is present) must be explicitly configured and matched; an empty `frozenset` rejects all requests in that dimension.
 
 | Field | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
+| `whitelist_mode` | `WhitelistMode` | `WhitelistMode.SIMPLE` | Enforcement mode for empty whitelists on the on-chain path (`WhitelistMode.SIMPLE` / `"simple"` or `WhitelistMode.STRICT` / `"strict"`). |
 | `whitelist_networks` | `frozenset[str]` | `frozenset()` | Allowed CAIP-2 network identifiers. Example: `{"eip155:421614", "eip155:8453"}`. |
 | `whitelist_assets` | `frozenset[str]` | `frozenset()` | Allowed ERC-20 token contract addresses (e.g., Circle USDC address). Addresses are auto-lowercased. |
 | `whitelist_payees` | `frozenset[str]` | `frozenset()` | Approved merchant/seller recipient EVM addresses. |
@@ -133,6 +136,7 @@ from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="sandbox_policy",
+        name="Sandbox Policy",
         wallet_address="0x6c7a9c5b4655075b6ff9292f71b822f56f833e56",
         max_per_tx_base_units=100_000,       # $0.10
         rolling_budget_24h_base_units=1_000_000, # $1.00
@@ -145,17 +149,22 @@ policy = SQLitePolicyEngine.create_in_memory(
 Used for production deployments. Preserves 24-hour rolling budgets and circuit breaker states across process restarts:
 
 ```python
-import sqlite3
-from agentpay.policy import SQLitePolicyEngine, PolicyConfig
+from agentpay.policy import (
+    PolicyConfig,
+    SQLitePolicyEngine,
+    create_buyer_connection,
+    init_buyer_database,
+)
 
-# Open persistent database file with WAL mode enabled
-conn = sqlite3.connect("./data/agent_wallet.db")
-conn.execute("PRAGMA journal_mode=WAL;")
+# Open persistent database file with WAL mode and schema initialized
+conn = create_buyer_connection("./data/agent_wallet.db")
+init_buyer_database(conn)
 
 policy = SQLitePolicyEngine(
     conn=conn,
     config=PolicyConfig(
         id="production_agent_firewall",
+        name="Production Agent Firewall",
         wallet_address="0x6c7a9c5b4655075b6ff9292f71b822f56f833e56",
         max_per_tx_base_units=200_000,       # $0.20
         rolling_budget_24h_base_units=5_000_000, # $5.00
@@ -174,7 +183,7 @@ policy = SQLitePolicyEngine(
 ### 5.1 Bare Client with Financial Firewall
 ```python
 import os
-from agentpay.client import AgentPayClient, LocalSigner
+from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 
 # 1. Initialize local signer
@@ -183,6 +192,7 @@ signer = LocalSigner(os.environ["BUYER_PRIVATE_KEY"])
 # 2. Configure financial firewall
 config = PolicyConfig(
     id="market_agent_firewall",
+    name="Market Agent Firewall",
     wallet_address=signer.address,
     max_per_tx_base_units=50_000,          # Max $0.05 per call
     rolling_budget_24h_base_units=500_000, # Max $0.50 per day
@@ -201,15 +211,17 @@ print("Data:", response.json())
 
 ### 5.2 LangChain Autonomous Agent Integration
 ```python
-from agentpay.client import AgentPayClient, LocalSigner
+import os
+from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import SQLitePolicyEngine, PolicyConfig
-from agentpay.integrations.langchain import PaidTool, AgentPayToolWrapper
+from agentpay.integrations.langchain import PaidTool
 
 # Configure client with firewall
 signer = LocalSigner(os.environ["BUYER_PRIVATE_KEY"])
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="langchain_firewall",
+        name="LangChain Firewall",
         wallet_address=signer.address,
         max_per_tx_base_units=100_000,       # $0.10
         rolling_budget_24h_base_units=1_000_000, # $1.00

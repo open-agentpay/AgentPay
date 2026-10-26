@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +23,15 @@ import (
 	"github.com/open-agentpay/agentpay-gateway-go/internal/rcu"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/upstreamauth"
 )
+
+var pathPlaceholderRegex = regexp.MustCompile(`\{([a-zA-Z0-9_.\-]+)\}`)
+
+type errReadCloser struct {
+	err error
+}
+
+func (e *errReadCloser) Read(_ []byte) (int, error) { return 0, e.err }
+func (e *errReadCloser) Close() error               { return nil }
 
 const (
 	DefaultMaxBodyBytes = 10 * 1024 * 1024 // 10 MB
@@ -130,6 +141,20 @@ func (h *Handler) Forward(w http.ResponseWriter, r *http.Request, route *rcu.Rou
 		return
 	}
 
+	// 3b. Extract optional JSON body parameters if route or upstream URL uses {param} templates
+	var bodyParams map[string]interface{}
+	if (rcu.HasPathTemplate(route.UpstreamURL) || rcu.HasPathTemplate(route.PathPattern)) && r.Body != nil {
+		bodyBytes, errRead := io.ReadAll(r.Body)
+		if errRead == nil {
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			if len(bodyBytes) > 0 {
+				_ = json.Unmarshal(bodyBytes, &bodyParams)
+			}
+		} else {
+			r.Body = &errReadCloser{err: errRead}
+		}
+	}
+
 	// 4. Configure per-route timeout context
 	timeout := DefaultTimeout
 	if route.TimeoutMS > 0 {
@@ -146,10 +171,26 @@ func (h *Handler) Forward(w http.ResponseWriter, r *http.Request, route *rcu.Rou
 			outReq.URL.Scheme = targetURL.Scheme
 			outReq.URL.Host = targetURL.Host
 
-			// Path mapping: append remaining path if upstream has base path or handle exact match
+			// Path mapping: resolve {param} templates, /* wildcards, or static paths
 			targetPath := targetURL.Path
 			reqPath := r.URL.Path
-			if strings.HasSuffix(route.PathPattern, "/*") {
+			resolvedParams, consumedQueryKeys := resolveTemplateParams(route, r, targetPath, bodyParams)
+
+			if rcu.HasPathTemplate(targetPath) {
+				outReq.URL.Path = replacePathPlaceholders(targetPath, resolvedParams)
+			} else if rcu.HasPathTemplate(route.PathPattern) {
+				effectiveReqPath := reqPath
+				prefix := rcu.TemplateStaticPrefix(route.PathPattern)
+				if rcu.HasPathTemplate(reqPath) || !strings.HasPrefix(reqPath, prefix+"/") {
+					effectiveReqPath = replacePathPlaceholders(route.PathPattern, resolvedParams)
+				}
+				suffix := strings.TrimPrefix(effectiveReqPath, prefix)
+				if targetPath == "" || targetPath == "/" {
+					outReq.URL.Path = suffix
+				} else {
+					outReq.URL.Path = singleJoiningSlash(targetPath, suffix)
+				}
+			} else if strings.HasSuffix(route.PathPattern, "/*") {
 				prefix := strings.TrimSuffix(route.PathPattern, "/*")
 				suffix := strings.TrimPrefix(reqPath, prefix)
 				if targetPath == "" || targetPath == "/" {
@@ -166,9 +207,20 @@ func (h *Handler) Forward(w http.ResponseWriter, r *http.Request, route *rcu.Rou
 					outReq.URL.Path = singleJoiningSlash(targetPath, reqPath)
 				}
 			}
+			// Reset RawPath so net/http encodes the rewritten Path cleanly without stale %7Bparam%7D escapes
+			outReq.URL.RawPath = ""
+
 			// Merge upstream target query and incoming request query parameters
-			targetQuery := targetURL.RawQuery
+			targetQuery := replaceQueryPlaceholders(targetURL.RawQuery, resolvedParams)
 			reqQuery := r.URL.RawQuery
+			if len(consumedQueryKeys) > 0 && reqQuery != "" {
+				if reqVals, errQ := url.ParseQuery(reqQuery); errQ == nil {
+					for k := range consumedQueryKeys {
+						reqVals.Del(k)
+					}
+					reqQuery = reqVals.Encode()
+				}
+			}
 			if targetQuery == "" {
 				outReq.URL.RawQuery = reqQuery
 			} else if reqQuery == "" {
@@ -351,6 +403,155 @@ func singleJoiningSlash(a, b string) string {
 		return a + "/" + b
 	}
 	return a + b
+}
+
+// resolveTemplateParams extracts `{param}` values for route and upstream URL templates.
+// Priority order:
+//  1. URL Path parameters extracted via route.PathPattern (or /* suffix if upstream has a single {param})
+//  2. Incoming URL Query parameters (marking matched query keys as consumed so they aren't duplicated)
+//  3. JSON Request Body top-level fields
+func resolveTemplateParams(
+	route *rcu.RouteConfig,
+	r *http.Request,
+	targetPath string,
+	bodyParams map[string]interface{},
+) (map[string]string, map[string]bool) {
+	resolved := make(map[string]string)
+	fromPath := make(map[string]bool)
+	consumedQuery := make(map[string]bool)
+
+	if !rcu.HasPathTemplate(route.UpstreamURL) && !rcu.HasPathTemplate(route.PathPattern) {
+		return resolved, consumedQuery
+	}
+
+	// 1. Extract from URL path template if route.PathPattern has {param}
+	if rcu.HasPathTemplate(route.PathPattern) {
+		if pathParams, ok := rcu.ExtractPathParams(route.PathPattern, r.URL.Path); ok {
+			for k, v := range pathParams {
+				if v != "" {
+					resolved[k] = v
+					fromPath[k] = true
+				}
+			}
+		}
+	}
+
+	// 1b. If route uses /* wildcard and targetPath has a single {param}, map the wildcard suffix to {param}
+	if strings.HasSuffix(route.PathPattern, "/*") && rcu.HasPathTemplate(targetPath) {
+		prefix := strings.TrimSuffix(route.PathPattern, "/*")
+		suffix := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, prefix), "/")
+		if suffix != "" {
+			matches := pathPlaceholderRegex.FindAllStringSubmatch(targetPath, -1)
+			if len(matches) == 1 {
+				paramName := matches[0][1]
+				resolved[paramName] = suffix
+				fromPath[paramName] = true
+			}
+		}
+	}
+
+	// Collect all placeholder names referenced in UpstreamURL or PathPattern
+	paramNames := make(map[string]bool)
+	for _, m := range pathPlaceholderRegex.FindAllStringSubmatch(route.UpstreamURL, -1) {
+		paramNames[m[1]] = true
+	}
+	for _, m := range pathPlaceholderRegex.FindAllStringSubmatch(route.PathPattern, -1) {
+		paramNames[m[1]] = true
+	}
+
+	queryVals := r.URL.Query()
+	for name := range paramNames {
+		if fromPath[name] {
+			continue
+		}
+		// 2. Fallback to Query parameters
+		if val := queryVals.Get(name); val != "" {
+			resolved[name] = val
+			consumedQuery[name] = true
+			continue
+		}
+		foundInQuery := false
+		for qk, qvs := range queryVals {
+			if strings.EqualFold(qk, name) && len(qvs) > 0 && qvs[0] != "" {
+				resolved[name] = qvs[0]
+				consumedQuery[qk] = true
+				foundInQuery = true
+				break
+			}
+		}
+		if foundInQuery {
+			continue
+		}
+
+		// 3. Fallback to JSON Body fields
+		if len(bodyParams) > 0 {
+			if bv, ok := bodyParams[name]; ok && bv != nil {
+				if s := formatScalarParam(bv); s != "" {
+					resolved[name] = s
+					continue
+				}
+			}
+			for bk, bv := range bodyParams {
+				if strings.EqualFold(bk, name) && bv != nil {
+					if s := formatScalarParam(bv); s != "" {
+						resolved[name] = s
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return resolved, consumedQuery
+}
+
+func formatScalarParam(v interface{}) string {
+	switch val := v.(type) {
+	case string:
+		return strings.TrimSpace(val)
+	case float64, bool, int, int64, json.Number:
+		return fmt.Sprintf("%v", val)
+	case []interface{}:
+		parts := make([]string, 0, len(val))
+		for _, item := range val {
+			if s := formatScalarParam(item); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, ",")
+	default:
+		return ""
+	}
+}
+
+func replacePathPlaceholders(pathTemplate string, params map[string]string) string {
+	if len(params) == 0 || !rcu.HasPathTemplate(pathTemplate) {
+		return pathTemplate
+	}
+	return pathPlaceholderRegex.ReplaceAllStringFunc(pathTemplate, func(match string) string {
+		name := match[1 : len(match)-1]
+		if val, ok := params[name]; ok && val != "" {
+			return val
+		}
+		return match
+	})
+}
+
+func replaceQueryPlaceholders(rawQuery string, params map[string]string) string {
+	if len(params) == 0 || rawQuery == "" {
+		return rawQuery
+	}
+	res := rawQuery
+	for k, v := range params {
+		if v == "" {
+			continue
+		}
+		escaped := url.QueryEscape(v)
+		res = strings.ReplaceAll(res, "{"+k+"}", escaped)
+		res = strings.ReplaceAll(res, "%7B"+k+"%7D", escaped)
+		res = strings.ReplaceAll(res, "%7b"+k+"%7d", escaped)
+	}
+	return res
 }
 
 func extractClientIP(r *http.Request) string {

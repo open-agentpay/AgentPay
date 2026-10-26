@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS ap_policy (
     lifetime_budget_base_units INTEGER CHECK (lifetime_budget_base_units > 0),
     
     -- Whitelist rules (Stored as canonical lowercase JSON string array)
+    whitelist_mode TEXT NOT NULL DEFAULT 'simple' CHECK (whitelist_mode IN ('strict', 'simple')),
     whitelist_payees_json TEXT NOT NULL DEFAULT '[]',
     whitelist_assets_json TEXT NOT NULL DEFAULT '[]',
     whitelist_networks_json TEXT NOT NULL DEFAULT '[]',

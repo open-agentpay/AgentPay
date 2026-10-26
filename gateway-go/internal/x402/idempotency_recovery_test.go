@@ -377,7 +377,7 @@ func TestOnChainIdempotencyAndAntiRollback(t *testing.T) {
 	}
 
 	// Anti-Rollback Check: The settlement record is preserved in unknown state
-	settlementID := "stl_" + auth.Nonce
+	settlementID := "stl_req_onchain_1"
 	settlement, err := processor.recoveryCoord.GetSettlement(settlementID)
 	if err != nil {
 		t.Fatalf("settlement record disappeared: %v", err)

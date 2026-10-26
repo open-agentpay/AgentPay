@@ -14,6 +14,7 @@ from agentpay.policy.models import (
     PolicyConfig,
     PolicyDecision,
     ReservationToken,
+    WhitelistMode,
 )
 
 # Backward compatibility / convenient domain aliases
@@ -34,4 +35,5 @@ __all__ = [
     "PolicyEvaluationResult",
     "PolicyStatus",
     "ReservationToken",
+    "WhitelistMode",
 ]

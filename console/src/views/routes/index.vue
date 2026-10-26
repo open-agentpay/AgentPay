@@ -186,7 +186,7 @@ onMounted(() => {
 
 // Form validation rules
 const evmAddressRegex = /^0x[a-fA-F0-9]{40}$/;
-const pathPatternRegex = /^\/[a-zA-Z0-9_\-/{}]*$/;
+const pathPatternRegex = /^\/[a-zA-Z0-9_\-/{}*]*$/;
 
 const routeRules: FormRules = {
   project_id: [{ required: true, message: t('请选择所属项目'), trigger: 'change' }],

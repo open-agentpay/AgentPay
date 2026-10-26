@@ -69,6 +69,7 @@ signer = LocalSigner(private_key)
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="agent_firewall",
+        name="Agent Firewall",
         wallet_address=signer.address,
         max_per_tx_base_units=100_000,  # Max $0.10 per call
         rolling_budget_24h_base_units=1_000_000,  # Daily cap $1.00
@@ -94,10 +95,21 @@ from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import SQLitePolicyEngine, PolicyConfig
 
 private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+signer = LocalSigner(private_key)
 client = AgentPayClient(
-    signer=LocalSigner(private_key),
-    policy=SQLitePolicyEngine.create_in_memory(PolicyConfig(...)),
+    signer=signer,
+    policy=SQLitePolicyEngine.create_in_memory(
+        PolicyConfig(
+            id="wallet_firewall",
+            name="Wallet Firewall",
+            wallet_address=signer.address,
+            max_per_tx_base_units=100_000,
+            rolling_budget_24h_base_units=5_000_000,
+            whitelist_domains=frozenset(["gateway.seller.com"]),
+        )
+    ),
     headers={"Authorization": "Bearer agp_live_your_api_key"},
+    wallet_challenge_mode=True,
 )
 
 response = client.get("https://gateway.seller.com/v1/compute")

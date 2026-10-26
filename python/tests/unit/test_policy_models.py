@@ -76,6 +76,16 @@ class TestEnums:
             BreakerState.HALF_OPEN,
         }
 
+    def test_whitelist_mode_values(self) -> None:
+        from agentpay.policy.models import WhitelistMode
+
+        assert set(WhitelistMode) == {
+            WhitelistMode.STRICT,
+            WhitelistMode.SIMPLE,
+        }
+        assert WhitelistMode.STRICT.value == "strict"
+        assert WhitelistMode.SIMPLE.value == "simple"
+
     def test_ledger_entry_state_values(self) -> None:
         from agentpay.policy.models import LedgerEntryState
 
@@ -118,19 +128,59 @@ class TestPolicyConfig:
     """Validate PolicyConfig Pydantic model constraints."""
 
     def test_valid_minimal_config(self) -> None:
-        from agentpay.policy.models import BreakerState, PolicyConfig
+        from agentpay.policy.models import BreakerState, PolicyConfig, WhitelistMode
 
         cfg = PolicyConfig(**_make_policy_dict())
         assert cfg.id == "pol_test_01"
         assert cfg.name == "Test Policy"
         # Defaults
         assert cfg.lifetime_budget_base_units is None
+        assert cfg.whitelist_mode is WhitelistMode.SIMPLE
         assert cfg.circuit_max_rpm == 15
         assert cfg.circuit_consecutive_failures == 5
         assert cfg.circuit_cooldown_seconds == 300
         assert cfg.breaker_state is BreakerState.CLOSED
         assert cfg.tripped_at is None
         assert cfg.is_frozen is False
+
+    def test_whitelist_mode_strict_accepted(self) -> None:
+        from agentpay.policy.models import PolicyConfig, WhitelistMode
+
+        cfg = PolicyConfig(**_make_policy_dict(whitelist_mode=WhitelistMode.STRICT))
+        assert cfg.whitelist_mode is WhitelistMode.STRICT
+
+        cfg_str = PolicyConfig(**_make_policy_dict(whitelist_mode="strict"))
+        assert cfg_str.whitelist_mode is WhitelistMode.STRICT
+
+    def test_name_defaults_to_id_when_omitted(self) -> None:
+        from agentpay.policy.models import PolicyConfig
+
+        data = _make_policy_dict()
+        del data["name"]
+        cfg = PolicyConfig(**data)
+        assert cfg.name == "pol_test_01"
+
+    def test_sqlite_policy_engine_create_in_memory(self) -> None:
+        from agentpay.policy import PolicyConfig, SQLitePolicyEngine
+
+        cfg = PolicyConfig(
+            id="in_mem_firewall",
+            wallet_address="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            max_per_tx_base_units=100_000,
+            rolling_budget_24h_base_units=1_000_000,
+            circuit_max_rpm=5,
+        )
+        engine = SQLitePolicyEngine.create_in_memory(cfg)
+        assert engine.get_available_rolling_budget() == 1_000_000
+        decision = engine.reserve(
+            intent_id="intent_mem_01",
+            amount=50_000,
+            payee="0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+            asset="0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+            network="eip155:84532",
+        )
+        assert decision.approved is True
+        assert decision.available_after == 950_000
 
     # --- Address normalisation (auto-lowercase) ---
 
@@ -561,6 +611,7 @@ class TestPublicAPI:
             PolicyErrorCode,
             PolicyViolationError,
             ReservationToken,
+            WhitelistMode,
             load_policy_config,
         )
 
@@ -572,6 +623,7 @@ class TestPublicAPI:
         assert PolicyErrorCode is not None
         assert PolicyViolationError is not None
         assert BreakerState is not None
+        assert WhitelistMode is not None
         assert LedgerEntryState is not None
         assert IPolicyEngine is not None
         assert load_policy_config is not None
@@ -600,4 +652,3 @@ class TestPublicAPI:
         )
         assert req.asset == currency
         assert req.is_agentpay_wallet is True
-

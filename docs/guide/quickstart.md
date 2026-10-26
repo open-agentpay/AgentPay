@@ -135,19 +135,25 @@ Create `first_request.py`:
 import os
 
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-# 1. Local financial firewall: protects you from an agent looping and burning budget.
-#    Amounts are integer minor units; the wallet challenge reports USD pricing.
-policy = MemoryPolicyEngine(
-    max_per_tx=1_000_000,       # at most 1 USD per request
-    daily_budget=10_000_000,    # at most 10 USD per 24 hours
-)
-
-# 2. Signer. In wallet mode no on-chain signature is made, so this is only a placeholder.
+# 1. Signer. In wallet mode no on-chain signature is made, so this is only a placeholder.
 #    ⚠️ TESTNET DEVELOPMENT ONLY: This is a well-known public Hardhat key. NEVER deposit real funds!
 dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 signer = LocalSigner(dev_key)
+
+# 2. Local financial firewall: protects you from an agent looping and burning budget.
+#    Amounts are integer minor units; the wallet challenge reports USD pricing.
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="quickstart_firewall",
+        name="Quickstart Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=1_000_000,       # at most 1 USD per request
+        rolling_budget_24h_base_units=10_000_000, # at most 10 USD per 24 hours
+        whitelist_domains=frozenset(["127.0.0.1", "localhost"]),
+    )
+)
 
 # 3. API key issued for your agent (development key seeded with a test wallet balance).
 api_key = os.getenv("AGENTPAY_API_KEY", "apk_live_valid123")

@@ -22,6 +22,7 @@ from collections.abc import Callable
 
 from pydantic import ValidationError
 
+from agentpay.policy.db import create_buyer_connection, init_buyer_database
 from agentpay.policy.errors import PolicyErrorCode, PolicyViolationError
 from agentpay.policy.evaluator import evaluate_metered_rules, evaluate_static_rules
 from agentpay.policy.interfaces import IPolicyEngine
@@ -44,10 +45,10 @@ class SQLitePolicyEngine(IPolicyEngine):
     """
 
     def __init__(
-            self,
-            conn: sqlite3.Connection,
-            config: PolicyConfig,
-            clock: Callable[[], int] | None = None,
+        self,
+        conn: sqlite3.Connection,
+        config: PolicyConfig,
+        clock: Callable[[], int] | None = None,
     ) -> None:
         """
         Initialize the SQLite policy engine.
@@ -62,6 +63,26 @@ class SQLitePolicyEngine(IPolicyEngine):
         self._clock = clock if clock is not None else (lambda: int(time.time()))
         self._consecutive_failures = 0
         self._sync_policy_record()
+
+    @classmethod
+    def create_in_memory(
+        cls,
+        config: PolicyConfig,
+        clock: Callable[[], int] | None = None,
+    ) -> SQLitePolicyEngine:
+        """
+        Create an in-memory SQLitePolicyEngine with the buyer schema initialized.
+
+        Args:
+            config: The policy configuration instance.
+            clock: Optional clock callable returning Unix seconds (defaults to time.time).
+
+        Returns:
+            Initialized in-memory SQLitePolicyEngine instance.
+        """
+        conn = create_buyer_connection(":memory:")
+        init_buyer_database(conn)
+        return cls(conn=conn, config=config, clock=clock)
 
     def _sync_policy_record(self) -> None:
         """
@@ -81,23 +102,33 @@ class SQLitePolicyEngine(IPolicyEngine):
                 except sqlite3.OperationalError:
                     # Column already added by concurrent thread or schema init
                     pass
+            if "whitelist_mode" not in cols:
+                try:
+                    cursor.execute(
+                        "ALTER TABLE ap_policy ADD COLUMN whitelist_mode TEXT NOT NULL DEFAULT 'simple' "
+                        "CHECK (whitelist_mode IN ('strict', 'simple'));"
+                    )
+                except sqlite3.OperationalError:
+                    pass
             self._conn.execute(
                 """
                 INSERT INTO ap_policy (
                     id, name, wallet_address, max_per_tx_base_units,
                     rolling_budget_24h_base_units, lifetime_budget_base_units,
+                    whitelist_mode,
                     whitelist_payees_json, whitelist_assets_json,
                     whitelist_networks_json, whitelist_domains_json,
                     circuit_max_rpm, circuit_consecutive_failures,
                     circuit_cooldown_seconds, breaker_state, tripped_at,
                     is_frozen, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     wallet_address = excluded.wallet_address,
                     max_per_tx_base_units = excluded.max_per_tx_base_units,
                     rolling_budget_24h_base_units = excluded.rolling_budget_24h_base_units,
                     lifetime_budget_base_units = excluded.lifetime_budget_base_units,
+                    whitelist_mode = excluded.whitelist_mode,
                     whitelist_payees_json = excluded.whitelist_payees_json,
                     whitelist_assets_json = excluded.whitelist_assets_json,
                     whitelist_networks_json = excluded.whitelist_networks_json,
@@ -116,6 +147,7 @@ class SQLitePolicyEngine(IPolicyEngine):
                     cfg.max_per_tx_base_units,
                     cfg.rolling_budget_24h_base_units,
                     cfg.lifetime_budget_base_units,
+                    cfg.whitelist_mode.value,
                     json.dumps(sorted(cfg.whitelist_payees)),
                     json.dumps(sorted(cfg.whitelist_assets)),
                     json.dumps(sorted(cfg.whitelist_networks)),
@@ -231,9 +263,9 @@ class SQLitePolicyEngine(IPolicyEngine):
         tripped_at = row[1]
 
         if (
-                current_state == BreakerState.OPEN
-                and tripped_at is not None
-                and now >= tripped_at + self._config.circuit_cooldown_seconds
+            current_state == BreakerState.OPEN
+            and tripped_at is not None
+            and now >= tripped_at + self._config.circuit_cooldown_seconds
         ):
             # Transition to HALF_OPEN
             with self._conn:
@@ -311,14 +343,14 @@ class SQLitePolicyEngine(IPolicyEngine):
             )
 
     def reserve(
-            self,
-            intent_id: str,
-            amount: int,
-            payee: str,
-            asset: str,
-            network: str,
-            domain: str | None = None,
-            ttl_seconds: int = 360,
+        self,
+        intent_id: str,
+        amount: int,
+        payee: str,
+        asset: str,
+        network: str,
+        domain: str | None = None,
+        ttl_seconds: int = 360,
     ) -> PolicyDecision:
         """
         Atomically evaluate all precedence rules and lock quota in ap_budget_ledger.
@@ -368,9 +400,9 @@ class SQLitePolicyEngine(IPolicyEngine):
             # Step 2: Circuit Breaker State & RPM Check
             # Check cooldown transition to HALF_OPEN
             if (
-                    current_breaker == BreakerState.OPEN
-                    and tripped_at is not None
-                    and now >= tripped_at + self._config.circuit_cooldown_seconds
+                current_breaker == BreakerState.OPEN
+                and tripped_at is not None
+                and now >= tripped_at + self._config.circuit_cooldown_seconds
             ):
                 current_breaker = BreakerState.HALF_OPEN
                 cursor.execute(
@@ -648,9 +680,9 @@ class SQLitePolicyEngine(IPolicyEngine):
         state = BreakerState(row[1]) if row and row[1] else BreakerState.CLOSED
         tripped_at = row[2] if row else None
         if (
-                state == BreakerState.OPEN
-                and tripped_at is not None
-                and now >= tripped_at + self._config.circuit_cooldown_seconds
+            state == BreakerState.OPEN
+            and tripped_at is not None
+            and now >= tripped_at + self._config.circuit_cooldown_seconds
         ):
             state = BreakerState.HALF_OPEN
             cursor.execute(
@@ -671,11 +703,11 @@ class SQLitePolicyEngine(IPolicyEngine):
         return None
 
     def reserve_metered(
-            self,
-            intent_id: str,
-            estimated_amount: int,
-            domain: str | None,
-            ttl_seconds: int = 60,
+        self,
+        intent_id: str,
+        estimated_amount: int,
+        domain: str | None,
+        ttl_seconds: int = 60,
     ) -> PolicyDecision:
         """
         Reserve quota for a credential-mode (non-402) call BEFORE it is sent.
@@ -685,14 +717,14 @@ class SQLitePolicyEngine(IPolicyEngine):
         """
         now = self._clock()
         if (
-                not isinstance(intent_id, str)
-                or not intent_id
-                or isinstance(estimated_amount, bool)
-                or not isinstance(estimated_amount, int)
-                or not (0 < estimated_amount <= SQLITE_MAX_INT)
-                or isinstance(ttl_seconds, bool)
-                or not isinstance(ttl_seconds, int)
-                or not (0 < ttl_seconds <= 86400)
+            not isinstance(intent_id, str)
+            or not intent_id
+            or isinstance(estimated_amount, bool)
+            or not isinstance(estimated_amount, int)
+            or not (0 < estimated_amount <= SQLITE_MAX_INT)
+            or isinstance(ttl_seconds, bool)
+            or not isinstance(ttl_seconds, int)
+            or not (0 < ttl_seconds <= 86400)
         ):
             return PolicyDecision(approved=False, error_code=PolicyErrorCode.INVALID_AMOUNT_FORMAT)
 
@@ -771,9 +803,9 @@ class SQLitePolicyEngine(IPolicyEngine):
         never reduce recorded spend. Never raises on expiry: the call already happened.
         """
         if actual_amount is not None and (
-                isinstance(actual_amount, bool)
-                or not isinstance(actual_amount, int)
-                or not (0 < actual_amount <= SQLITE_MAX_INT)
+            isinstance(actual_amount, bool)
+            or not isinstance(actual_amount, int)
+            or not (0 < actual_amount <= SQLITE_MAX_INT)
         ):
             logging.warning("invalid actual_amount %r for %s; keeping reserved estimate", actual_amount, intent_id)
             actual_amount = None

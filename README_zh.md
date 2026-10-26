@@ -137,11 +137,9 @@ make demo-live
 
 ```python
 import os
-from agentpay.client.client import AgentPayClient
-from agentpay.client.signer import LocalSigner
+from agentpay import AgentPayClient, LocalSigner
 from agentpay.integrations.langchain import paid_tool
-from agentpay.policy.config import PolicyConfig
-from agentpay.policy.sqlite_engine import SQLitePolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 # 1. 初始化买方私钥与本地财务防火墙策略
 # ⚠️ 仅限测试网开发：此密钥为公开测试密钥（Hardhat/Anvil 默认账户 0），切勿转入任何主网真实资产！
@@ -151,6 +149,7 @@ signer = LocalSigner(private_key)
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="agent_firewall",
+        name="Agent Firewall",
         wallet_address=signer.address,
         max_per_tx_base_units=100_000,       # 单笔交易限额 $0.10 USDC
         rolling_budget_24h_base_units=1_000_000, # 24小时滚动预算 $1.00 USDC
@@ -175,6 +174,7 @@ print(result)
 ### 4. 卖方：1 分钟将任何现有 API 变现
 
 创建网关路由配置文件 `gateway.yaml`：
+
 ```yaml
 version: "1.0"
 server:
@@ -195,9 +195,11 @@ routes:
 ```
 
 启动网关反向代理：
+
 ```bash
 python -m agentpay_gateway.cli --config gateway.yaml
 ```
+
 未附带签名的请求将自动收到标准的 `HTTP 402 Payment Required` 质询；附带合法 EIP-712 授权的请求将在毫秒级完成链下验签、转发上游业务并交付响应，同时由网关在后台异步向 Arbitrum 提交链上清算。
 
 ---
@@ -205,26 +207,35 @@ python -m agentpay_gateway.cli --config gateway.yaml
 ## 🌟 核心支柱与架构创新
 
 ### 1. 独立的财务防火墙（策略引擎 Policy Engine）
+
 大语言模型提议调用工具或发起交易，但**绝不能自我批准或修改财务权限**。
-* **零信任边界**：策略引擎运行于独立的执行环境中，完全脱离 LLM 上下文。
-* **细粒度预算控制**：强制约束单笔交易限额、24 小时滚动预算、终身额度上限及商户/资产白名单。
-* **自主熔断器（Circuit Breaker）**：实时识别高频异常与递归死循环耗资模式，毫秒级将状态由 `CLOSED` 切为 `OPEN`，彻底锁死钱包。
-* **两阶段原子预留**：基于 SQLite ACID 事务保障（`reserve -> commit` / `reserve -> release`），彻底解决并发工具调用时的超额竞态问题。
+
+- **零信任边界**：策略引擎运行于独立的执行环境中，完全脱离 LLM 上下文。
+- **细粒度预算控制**：强制约束单笔交易限额、24 小时滚动预算、终身额度上限及商户/资产/网络/域名白名单（支持 `WhitelistMode.SIMPLE` 简单模式空列表默认放行，以及 `WhitelistMode.STRICT` 严格模式强制校验白名单）。
+- **自主熔断器（Circuit Breaker）**：实时识别高频异常与递归死循环耗资模式，毫秒级将状态由 `CLOSED` 切为 `OPEN`，彻底锁死钱包。
+- **两阶段原子预留**：基于 SQLite ACID 事务保障（`reserve -> commit` / `reserve -> release`），彻底解决并发工具调用时的超额竞态问题。
 
 ### 2. 免 Gas 微结算（EIP-712 & EIP-3009）
-* **AI Agent 零 Gas 负担**：智能体钱包只需持有 Circle USDC，仅签署离线 EIP-712 `TransferWithAuthorization` 消息。**钱包内无需持有任何原生 ETH**。
-* **EIP-1559 动态费率与 1.5x BaseFee 安全缓冲**：Facilitator 履约网关代付 L2 Gas，采用 EIP-1559（Type 2）交易广播结算：
-  $$\text{maxFeePerGas} = \max(\lfloor \text{baseFee} \times 1.5 \rfloor + \text{priorityFee},\; \lfloor \text{gasPrice} \times 1.35 \rfloor + \text{priorityFee})$$
+
+- **AI Agent 零 Gas 负担**：智能体钱包只需持有 Circle USDC，仅签署离线 EIP-712 `TransferWithAuthorization` 消息。**钱包内无需持有任何原生 ETH**。
+- **EIP-1559 动态费率与 1.5x BaseFee 安全缓冲**：Facilitator 履约网关代付 L2 Gas，采用 EIP-1559（Type 2）交易广播结算：
+
+  $$
+  \text{maxFeePerGas} = \max(\lfloor \text{baseFee} \times 1.5 \rfloor + \text{priorityFee},\; \lfloor \text{gasPrice} \times 1.35 \rfloor + \text{priorityFee})
+  $$
+
   > [!NOTE]
   > 在 EIP-1559 机制下，`maxFeePerGas` 仅代表费率上限，实际扣除仍为实际 baseFee + priorityFee。1.5 倍上浮**100% 免疫出块波动被拒，且不会多花一分 Gas**，并支持对旧链的自适应 Legacy 降级。
 
 ### 3. 三态解耦状态机（Tri-State Decoupled State Machine）
-传统网关将支付与交付耦合在单次同步请求中，AgentPay 严格解耦为三个异步状态维度：
-* **支付意图（Payment Intent）**：`CREATED -> AUTHORIZED -> VERIFIED -> [COMPLETED | REJECTED | EXPIRED | CANCELLED]`
-* **结算状态（Settlement State）**：`NOT_STARTED -> SUBMITTED -> PENDING -> [CONFIRMED | FAILED | REORGED]`
-* **交付状态（Fulfillment State）**：`NOT_STARTED -> PROCESSING -> [DELIVERED | FAILED | RECOVERY_REQUIRED]`
 
-> **核心设计哲学：** *网络超时 ≠ 扣款失败。* 即使上游业务交付因超时挂起，AgentPay 保障幂等重试自愈，杜绝重复扣款。
+传统网关将支付与交付耦合在单次同步请求中，AgentPay 严格解耦为三个异步状态维度：
+
+- **支付意图（Payment Intent）**：`CREATED -> AUTHORIZED -> VERIFIED -> [COMPLETED | REJECTED | EXPIRED | CANCELLED]`
+- **结算状态（Settlement State）**：`NOT_STARTED -> SUBMITTED -> PENDING -> [CONFIRMED | FAILED | REORGED]`
+- **交付状态（Fulfillment State）**：`NOT_STARTED -> PROCESSING -> [DELIVERED | FAILED | RECOVERY_REQUIRED]`
+
+> **核心设计哲学：** _网络超时 ≠ 扣款失败。_ 即使上游业务交付因超时挂起，AgentPay 保障幂等重试自愈，杜绝重复扣款。
 
 ---
 
@@ -269,20 +280,22 @@ sequenceDiagram
 AgentPay 原生支持两种不同的系统部署拓扑，以适应不同阶段的工程与业务需求：
 
 ### 方案 1：本地进程内沙盒仿真拓扑（开发自测与 CI/CD）
-* **单进程全链路**：AI Agent、买方 SDK、内存 SQLite 防火墙、网关及 Facilitator 均运行在同一进程内，通过 ASGI 内存通道（`GatewayTransport`）直接调用，**零网络 TCP 开销**。
-* **零 Gas 与测试币成本**：使用内置的 EVM RPC Mock 处理器（`MockArbitrumSepoliaRpcHandler`）生成确定性 32 字节 Hash，无需领水或消耗真实测试币。
-* **极速验证**：`make demo` 命令开箱即用，10 秒内完整跑通攻防三阶段。
+
+- **单进程全链路**：AI Agent、买方 SDK、内存 SQLite 防火墙、网关及 Facilitator 均运行在同一进程内，通过 ASGI 内存通道（`GatewayTransport`）直接调用，**零网络 TCP 开销**。
+- **零 Gas 与测试币成本**：使用内置的 EVM RPC Mock 处理器（`MockArbitrumSepoliaRpcHandler`）生成确定性 32 字节 Hash，无需领水或消耗真实测试币。
+- **极速验证**：`make demo` 命令开箱即用，10 秒内完整跑通攻防三阶段。
 
 ### 方案 2：云原生分布式生产拓扑（多租户生产微服务）
-* **买方安全域（Agent 客户端侧）**：
+
+- **买方安全域（Agent 客户端侧）**：
   - AI Agent 部署于买方本地或买方自有的私有 VPC / K8s Pod 中。
   - **私钥绝对不出本地（Non-Custodial）**：买方私钥保存在本地 KMS / `LocalSigner` 中，仅用于生成 EIP-712 链下签名，**从不上链或上传云端**。
   - **本地贴身防火墙**：`SQLitePolicyEngine` 作为 Agent 的“防盗门”，在收到 402 质询时在本地就地校验限额并拦截，超额调用直接在本地熔断终止，0 流量打向外部网络。
   - 买方客户端通过公网标准 **HTTPS**（443 端口）与云端网关通信。
-* **卖方 / 基础设施云端域（Cloud VPC / K8s）**：
+- **卖方 / 基础设施云端域（Cloud VPC / K8s）**：
   - **`agentpay-gateway`**：部署在云厂商负载均衡器（SLB / Ingress）之后，对外开放标准 HTTPS。负责路由匹配、发放 402 质询、幂等去重并将合法流量代理至内网真实微服务。
   - **`agentpay-facilitator`**：独立的履约清算微服务，持有平台代付 Gas 钱包，对接 Alchemy/QuickNode 等公网 EVM RPC，通过 EIP-1559（Type 2）交易以 1.5x BaseFee 缓冲将授权真实广播至 Arbitrum Sepolia / Base Sepolia 测试网上链。
-* *详细架构图解、信任边界划分与时序说明请参阅：[`specs/architecture.md`](./specs/architecture.md#7-deployment-topology-architectures)。*
+- _详细架构图解、信任边界划分与时序说明请参阅：[`specs/architecture.md`](./specs/architecture.md#7-deployment-topology-architectures)。_
 
 ---
 
@@ -340,33 +353,33 @@ AgentPay/
 
 ## 📚 核心文档与技术规范索引
 
-| 文档名称 | 面向角色 | 核心内容与价值 |
-| :--- | :--- | :--- |
-| [**系统总体架构规范**](./specs/architecture.md) | 架构师 / 开发者 | 总体架构、买卖双方零信任边界划分、EIP-712 离线签名交互时序与两种部署拓扑 |
-| [**网关运维与配置指南**](./specs/gateway-guide.md) | 卖方 / 运维工程师 | `agentpay-gateway` 自托管反向代理部署、`gateway.yaml` 详细配置参考、Docker/K8s 编排 |
-| [**Docker 容器化与云服务器部署指南**](./docs/deployment-docker.md) | 运维 / 云原生工程师 | Golang 服务端 + Vue3 控制台 + PostgreSQL 容器打包发布与 `docker compose` 一键上云 |
-| [**策略引擎配置参考手册**](./specs/policy-configuration-reference.md) | 买方 / 风控研发 | 财务防火墙规则定义、6 位精度 USDC 转换、SQLite 持久化与内存沙盒、熔断器应对策略 |
-| [**公开版威胁模型规范**](./specs/security-model.md) | 安全工程师 | 信任矩阵（防 Prompt 注入、防死循环）、网关防护（G1-G5）、非目标边界（N1-N6） |
-| [**三态解耦状态机规范**](./specs/payment-state-machine.md) | 核心开发者 | 支付/清算/履约三态正交矩阵、网络超时故障自愈机制、对账补偿不变量证明 |
-| [**Gas 经济模型与执行规范**](./specs/gas-cost-and-settlement-models.md) | 经济设计 / 开发者 | 卖方代付模式、Facilitator EIP-1559 1.5x BaseFee 防拒上浮算法与未来加价/批量路线 |
+| 文档名称                                                                | 面向角色            | 核心内容与价值                                                                      |
+| :---------------------------------------------------------------------- | :------------------ | :---------------------------------------------------------------------------------- |
+| [**系统总体架构规范**](./specs/architecture.md)                         | 架构师 / 开发者     | 总体架构、买卖双方零信任边界划分、EIP-712 离线签名交互时序与两种部署拓扑            |
+| [**网关运维与配置指南**](./specs/gateway-guide.md)                      | 卖方 / 运维工程师   | `agentpay-gateway` 自托管反向代理部署、`gateway.yaml` 详细配置参考、Docker/K8s 编排 |
+| [**Docker 容器化与云服务器部署指南**](./docs/deployment-docker.md)      | 运维 / 云原生工程师 | Golang 服务端 + Vue3 控制台 + PostgreSQL 容器打包发布与`docker compose` 一键上云    |
+| [**策略引擎配置参考手册**](./specs/policy-configuration-reference.md)   | 买方 / 风控研发     | 财务防火墙规则定义、6 位精度 USDC 转换、SQLite 持久化与内存沙盒、熔断器应对策略     |
+| [**公开版威胁模型规范**](./specs/security-model.md)                     | 安全工程师          | 信任矩阵（防 Prompt 注入、防死循环）、网关防护（G1-G5）、非目标边界（N1-N6）        |
+| [**三态解耦状态机规范**](./specs/payment-state-machine.md)              | 核心开发者          | 支付/清算/履约三态正交矩阵、网络超时故障自愈机制、对账补偿不变量证明                |
+| [**Gas 经济模型与执行规范**](./specs/gas-cost-and-settlement-models.md) | 经济设计 / 开发者   | 卖方代付模式、Facilitator EIP-1559 1.5x BaseFee 防拒上浮算法与未来加价/批量路线     |
 
 ---
 
 ## 🚦 研发路线图与交付进度
 
-| 阶段 / 核心组件 | 状态 | 目标版本 | 交付特性说明 |
-| :--- | :---: | :---: | :--- |
-| **Python 买方 SDK (`agentpay`)** | 🟢 已完成 | v0.1.0 (2026) | 透明 402 自动重试、EIP-712/3009 本地签名 |
-| **财务防火墙（策略引擎 Policy Engine）** | 🟢 已完成 | v0.1.0 (2026) | 单笔上限、滚动预算、白名单、RPM 熔断器 |
-| **LangChain 付费工具（`@paid_tool`）** | 🟢 已完成 | v0.1.0 (2026) | 1 行代码武装 Agent 付费工具调用 |
-| **Go 高性能云原生网关 (`gateway-go`)** | 🟢 已完成 | v0.1.0 (2026) | Go 原生高性能反向代理、RCU 零停机热加载、多租户治理与双轨钱包账本 |
-| **多租户可视化控制台 (`console`)** | 🟢 已完成 | v0.1.0 (2026) | Vue 3 + Element Plus 多租户可视化仪表盘、路由与密钥管理 |
-| **Python 参考网关（`agentpay-gateway`）** | 🟢 已完成 | v0.1.0 (2026) | 轻量级路由转发、402 质询管理、状态协调 |
-| **Arbitrum Sepolia 链上结算与履约** | 🟢 已完成 | v0.1.0 (2026) | Circle USDC 合约、EIP-1559 广播、1.5x BaseFee 缓冲 |
-| **失控循环熔断演示 Demo** | 🟢 已完成 | v0.1.0 (2026) | `make demo` (本地极速仿真) 与 `make demo-live` (公网) |
-| **Gas 模式 2：动态加价分摊（Dynamic Surcharge）** | ⚪ 规划中 | 2027 Q1 (v0.2.0) | 预估 Gas 并通过 Oracle 附加至 USDC 质询，Facilitator 零亏损 |
-| **Gas 模式 3：批量聚合与状态通道延迟清算** | ⚪ 规划中 | 2027 Q2 (v0.3.0) | 高频微额流式计费、多笔合并 multicall 或状态通道净额提交 |
-| **TypeScript 买卖双方 SDK** | ⚪ 规划中 | 2027 Q2 (v0.3.0) | Express / Fastify 变现插件与 TS 买方客户端 |
+| 阶段 / 核心组件                                   |   状态    |     目标版本     | 交付特性说明                                                      |
+| :------------------------------------------------ | :-------: | :--------------: | :---------------------------------------------------------------- |
+| **Python 买方 SDK (`agentpay`)**                  | 🟢 已完成 |  v0.1.0 (2026)   | 透明 402 自动重试、EIP-712/3009 本地签名                          |
+| **财务防火墙（策略引擎 Policy Engine）**          | 🟢 已完成 |  v0.1.0 (2026)   | 单笔上限、滚动预算、白名单、RPM 熔断器                            |
+| **LangChain 付费工具（`@paid_tool`）**            | 🟢 已完成 |  v0.1.0 (2026)   | 1 行代码武装 Agent 付费工具调用                                   |
+| **Go 高性能云原生网关 (`gateway-go`)**            | 🟢 已完成 |  v0.1.0 (2026)   | Go 原生高性能反向代理、RCU 零停机热加载、多租户治理与双轨钱包账本 |
+| **多租户可视化控制台 (`console`)**                | 🟢 已完成 |  v0.1.0 (2026)   | Vue 3 + Element Plus 多租户可视化仪表盘、路由与密钥管理           |
+| **Python 参考网关（`agentpay-gateway`）**         | 🟢 已完成 |  v0.1.0 (2026)   | 轻量级路由转发、402 质询管理、状态协调                            |
+| **Arbitrum Sepolia 链上结算与履约**               | 🟢 已完成 |  v0.1.0 (2026)   | Circle USDC 合约、EIP-1559 广播、1.5x BaseFee 缓冲                |
+| **失控循环熔断演示 Demo**                         | 🟢 已完成 |  v0.1.0 (2026)   | `make demo` (本地极速仿真) 与 `make demo-live` (公网)             |
+| **Gas 模式 2：动态加价分摊（Dynamic Surcharge）** | ⚪ 规划中 | 2027 Q1 (v0.2.0) | 预估 Gas 并通过 Oracle 附加至 USDC 质询，Facilitator 零亏损       |
+| **Gas 模式 3：批量聚合与状态通道延迟清算**        | ⚪ 规划中 | 2027 Q2 (v0.3.0) | 高频微额流式计费、多笔合并 multicall 或状态通道净额提交           |
+| **TypeScript 买卖双方 SDK**                       | ⚪ 规划中 | 2027 Q2 (v0.3.0) | Express / Fastify 变现插件与 TS 买方客户端                        |
 
 ---
 
@@ -403,6 +416,7 @@ make gateway-test      # 运行 Go 单元测试、并发测试与 E2E 测试
 ## 🤝 参与贡献
 
 我们热烈欢迎社区贡献者！请查阅以下指引：
+
 - [**贡献指南 (Contributing Guide)**](./CONTRIBUTING.md)：本地开发环境搭建、架构红线与代码规范、PR 提交流程。
 - [**新人任务 (Good First Issues)**](./docs/good-first-issues.md)：精心整理的新手友好任务清单与实现指引。
 - [**安全政策 (Security Policy)**](./SECURITY.md)：负责任的安全漏洞披露流程。

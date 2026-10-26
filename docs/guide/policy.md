@@ -17,7 +17,7 @@ AgentPay enforces policy at two points. They are complementary: the first protec
 
 | Layer | Runs in | Protects | Configured by |
 | --- | --- | --- | --- |
-| **Local firewall** | The buyer's SDK process (`MemoryPolicyEngine` / SQLite-backed engine) | Your own signing key and budget from loops, injected prompts and inflated quotes | Python code or a YAML policy file |
+| **Local firewall** | The buyer's SDK process (`SQLitePolicyEngine` in-memory or file-backed) | Your own signing key and budget from loops, injected prompts and inflated quotes | Python code or a YAML policy file |
 | **Gateway policy** | The AgentPay Gateway, in the request path | The tenant wallet and platform: per-agent budgets, rate limits, route access, kill switch | [Management Console](/guide/console) (draft → validate → publish) |
 
 Both layers evaluate **before money moves**. If either rejects, nothing is signed, held or charged.
@@ -47,14 +47,20 @@ The same limits applied directly in the Python SDK:
 
 ```python
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-policy = MemoryPolicyEngine(
-    max_per_tx=500_000,          # 0.5 USDC
-    daily_budget=5_000_000,      # 5.0 USDC
-    whitelist_payees=["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"],
+signer = LocalSigner(...)
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="pol_weather_default",
+        name="Weather Policy",
+        wallet_address=signer.address,
+        max_per_tx_base_units=500_000,          # 0.5 USDC
+        rolling_budget_24h_base_units=5_000_000, # 5.0 USDC
+        whitelist_payees=frozenset(["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"]),
+    )
 )
-client = AgentPayClient(signer=LocalSigner(...), policy=policy)
+client = AgentPayClient(signer=signer, policy=policy)
 ```
 
 ---
@@ -116,18 +122,21 @@ An absolute ceiling on total spend over the lifetime of the ledger, regardless o
 
 | | |
 | --- | --- |
-| **YAML keys** | `allowed_payees`, `allowed_networks` |
-| **SDK parameter** | `whitelist_payees` |
+| **YAML keys** | `whitelist_mode`, `allowed_payees`, `allowed_networks` |
+| **SDK parameters** | `whitelist_mode` (`WhitelistMode.SIMPLE` / `WhitelistMode.STRICT`), `whitelist_payees`, `whitelist_assets`, `whitelist_networks`, `whitelist_domains` |
 | **Gateway fields** | `whitelisted_payees`, `whitelisted_networks` |
-| **Type** | list of strings |
+| **Type** | `WhitelistMode` enum (`"simple"` \| `"strict"`) + list / `frozenset` of strings |
 
-Only pay recipients, and only on networks, that you have explicitly allowed.
+Only pay recipients, assets, domains, and networks that match your configured policy mode:
 
 - **Payees** are EVM addresses (`0x` + 40 hex characters).
 - **Networks** use [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/master/CAIPs/caip-2.md) identifiers such as `eip155:421614` (Arbitrum Sepolia).
-- An **empty** list means "no restriction" for that dimension in most development setups. For anything beyond local experiments, always set `allowed_payees` explicitly so an attacker cannot redirect payments to their own address.
+- **Two whitelist enforcement modes** on the Python SDK on-chain path (`whitelist_mode`):
+  - **Simple mode (`WhitelistMode.SIMPLE`, default)**: An empty whitelist for a dimension means "no restriction" (allow by default); if entries are configured for that dimension, only listed values are allowed.
+  - **Strict mode (`WhitelistMode.STRICT`)**: Every whitelist dimension (`whitelist_networks`, `whitelist_assets`, `whitelist_payees`, and `whitelist_domains` when a domain is present) must be explicitly populated and matched; an empty whitelist rejects all requests in that dimension.
+- For production or high-value agents, use `WhitelistMode.STRICT` or explicitly set `whitelist_payees` so an attacker cannot redirect payments to their own address.
 
-A request whose payee, asset or network is not allowed is rejected before signing.
+A request whose payee, asset, domain, or network is not allowed is rejected before signing.
 
 ### Route allow-list (gateway, per agent)
 
@@ -226,16 +235,21 @@ A hold expires after the upstream timeout plus 60 seconds (default 120 s) and is
 Best for development and for protecting an agent's own key.
 
 ```python
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-policy = MemoryPolicyEngine(
-    max_per_tx=100_000,        # 0.10 USDC
-    daily_budget=5_000_000,    # 5.00 USDC
-    whitelist_payees=["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"],
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="local_firewall",
+        name="Local Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=100_000,        # 0.10 USDC
+        rolling_budget_24h_base_units=5_000_000, # 5.00 USDC
+        whitelist_payees=frozenset(["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"]),
+    )
 )
 ```
 
-`MemoryPolicyEngine` keeps state in memory and is ideal for tests and short-lived agents. For state that survives restarts, use the SQLite-backed policy engine, which uses atomic transactions for reservation.
+`SQLitePolicyEngine.create_in_memory(...)` keeps state in an in-memory SQLite database (`:memory:`) and is ideal for tests and short-lived agents. For state that survives restarts, pass a file-backed connection via `create_buyer_connection` + `init_buyer_database` to `SQLitePolicyEngine(conn, config)`.
 
 ::: warning One key, one ledger
 A given private key must map to exactly **one** SQLite ledger file. Running several processes with the same key but separate ledgers multiplies your effective budget, which defeats the firewall.

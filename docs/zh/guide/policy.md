@@ -17,7 +17,7 @@ AgentPay 在两个位置执行策略，二者互补：第一层保护买方自�
 
 | 层级 | 运行位置 | 保护对象 | 配置方式 |
 | --- | --- | --- | --- |
-| **本地防火墙** | 买方 SDK 进程内（`MemoryPolicyEngine` / 基于 SQLite 的引擎） | 你自己的签名密钥与预算，防止循环调用、提示词注入与被抬高的报价 | Python 代码或 YAML 策略文件 |
+| **本地防火墙** | 买方 SDK 进程内（`SQLitePolicyEngine` 内存模式或持久化文件模式） | 你自己的签名密钥与预算，防止循环调用、提示词注入与被抬高的报价 | Python 代码或 YAML 策略文件 |
 | **网关策略** | AgentPay 网关，位于请求路径中 | 租户钱包与平台：按 Agent 的预算、频率限制、路由访问、Kill Switch | [管理控制台](/zh/guide/console)（草稿 → 校验 → 发布） |
 
 两层都在**资金流动之前**评估。任何一层拒绝，都不会产生签名、冻结或扣费。
@@ -47,14 +47,20 @@ circuit_breaker:
 
 ```python
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-policy = MemoryPolicyEngine(
-    max_per_tx=500_000,          # 0.5 USDC
-    daily_budget=5_000_000,      # 5.0 USDC
-    whitelist_payees=["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"],
+signer = LocalSigner(...)
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="pol_weather_default",
+        name="Weather Policy",
+        wallet_address=signer.address,
+        max_per_tx_base_units=500_000,          # 0.5 USDC
+        rolling_budget_24h_base_units=5_000_000, # 5.0 USDC
+        whitelist_payees=frozenset(["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"]),
+    )
 )
-client = AgentPayClient(signer=LocalSigner(...), policy=policy)
+client = AgentPayClient(signer=signer, policy=policy)
 ```
 
 ---
@@ -116,18 +122,21 @@ Agent 为**单次**请求愿意支付的最高价格。用于防御恶意或被�
 
 | | |
 | --- | --- |
-| **YAML 字段** | `allowed_payees`、`allowed_networks` |
-| **SDK 参数** | `whitelist_payees` |
+| **YAML 字段** | `whitelist_mode`、`allowed_payees`、`allowed_networks` |
+| **SDK 参数** | `whitelist_mode`（`WhitelistMode.SIMPLE` / `WhitelistMode.STRICT`）、`whitelist_payees`、`whitelist_assets`、`whitelist_networks`、`whitelist_domains` |
 | **网关字段** | `whitelisted_payees`、`whitelisted_networks` |
-| **类型** | 字符串列表 |
+| **类型** | `WhitelistMode` 枚举（`"simple"` \| `"strict"`）+ 字符串列表 / `frozenset` |
 
-只向你明确允许的收款人付款，且只在你明确允许的网络上付款。
+按所配置的白名单策略模式向允许的收款人、资产、域名和网络付款：
 
 - **收款人**为 EVM 地址（`0x` + 40 位十六进制字符）。
 - **网络**使用 [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/master/CAIPs/caip-2.md) 标识，如 `eip155:421614`（Arbitrum Sepolia）。
-- 在多数开发环境中，**空列表**表示该维度"不限制"。除本地实验外，请始终显式设置 `allowed_payees`，避免攻击者把付款重定向到自己的地址。
+- **Python SDK 链上路径支持两种白名单模式**（`whitelist_mode`）：
+  - **简单模式（`WhitelistMode.SIMPLE`，默认）**：某个白名单维度为空集合时默认放行（不限制）；若该维度配置了白名单项，则仅放行列表内的目标。
+  - **严格模式（`WhitelistMode.STRICT`）**：所有链上白名单维度（`whitelist_networks`、`whitelist_assets`、`whitelist_payees`，以及请求携带域名时的 `whitelist_domains`）均必须显式添加白名单且命中，任一维度为空即默认拒绝。
+- 除本地快速实验外，生产或高价值 Agent 建议开启 `WhitelistMode.STRICT` 或显式设置 `whitelist_payees`，避免攻击者把付款重定向到自己的地址。
 
-收款人、资产或网络不在允许范围内的请求，会在签名之前被拒绝。
+收款人、资产、域名或网络不在允许范围内的请求，会在签名之前被拒绝。
 
 ### 路由白名单（网关，按 Agent）
 
@@ -226,16 +235,21 @@ HOLD（行级锁）→ 上游 → 2xx：CAPTURE  |  4xx：RELEASE  |  5xx/超时
 最适合开发阶段，以及保护 Agent 自身的密钥。
 
 ```python
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-policy = MemoryPolicyEngine(
-    max_per_tx=100_000,        # 0.10 USDC
-    daily_budget=5_000_000,    # 5.00 USDC
-    whitelist_payees=["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"],
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="local_firewall",
+        name="Local Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=100_000,        # 0.10 USDC
+        rolling_budget_24h_base_units=5_000_000, # 5.00 USDC
+        whitelist_payees=frozenset(["0x742d35Cc6634C0532925a3b844Bc454e4438f44e"]),
+    )
 )
 ```
 
-`MemoryPolicyEngine` 将状态保存在内存中，适合测试与短生命周期的 Agent。如需在重启后保留状态，请使用基于 SQLite 的策略引擎，它通过原子事务完成预留。
+`SQLitePolicyEngine.create_in_memory(...)` 将状态保存在内存 SQLite 数据库（`:memory:`）中，适合测试与短生命周期的 Agent。如需在重启后保留状态，请通过 `create_buyer_connection` + `init_buyer_database` 传入持久化连接初始化 `SQLitePolicyEngine(conn, config)`。
 
 ::: warning 一个密钥，一个账本
 同一个私钥必须只对应**一个** SQLite 账本文件。多个进程使用同一密钥却各用独立账本，会使有效预算成倍放大，等于废掉防火墙。

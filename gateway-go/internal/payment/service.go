@@ -136,6 +136,25 @@ func (m *MemoryService) CreateIntent(ctx context.Context, intent *PaymentIntent)
 	defer m.mu.Unlock()
 
 	now := time.Now()
+	if existing, exists := m.intents[intent.IntentID]; exists {
+		cp := *existing
+		cp.Status = intent.Status
+		if intent.RequestID != "" {
+			cp.RequestID = intent.RequestID
+		}
+		if intent.IdempotencyKey != "" {
+			cp.IdempotencyKey = intent.IdempotencyKey
+		}
+		if intent.AgentID != "" {
+			cp.AgentID = intent.AgentID
+		}
+		cp.UpdatedAt = now
+		m.intents[cp.IntentID] = &cp
+		if cp.RequestID != "" {
+			m.intentsByReq[cp.RequestID] = cp.IntentID
+		}
+		return nil
+	}
 	if intent.CreatedAt.IsZero() {
 		intent.CreatedAt = now
 	}

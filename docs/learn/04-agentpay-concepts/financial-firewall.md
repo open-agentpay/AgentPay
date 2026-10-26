@@ -98,7 +98,7 @@ The firewall enforces:
 
 - **Per-Transaction Cap**: Any request exceeding the single-transaction limit is rejected immediately before reaching the signer.
 - **Rolling Budget**: Cumulative expenditure over a rolling window (e.g., past 24 hours) cannot exceed a set ceiling.
-- **Payee Whitelist**: Payments are strictly restricted to designated payee addresses, domains, and networks.
+- **Payee Whitelist**: Supports `WhitelistMode.SIMPLE` (default, where empty whitelists allow by default and non-empty whitelists restrict to listed targets) and `WhitelistMode.STRICT` (requires explicit network, asset, payee, and domain whitelists).
 - **Circuit Breaker & Loop Detection**: High-frequency transactions or repetitive failure patterns trip the breaker, blocking subsequent requests.
 - **Atomic Reservation**: Balance checks and holds execute within the same database transaction, preventing concurrency overruns.
 

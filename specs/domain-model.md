@@ -24,7 +24,7 @@ To preserve strict separation of concerns and eliminate shared-database bottlene
 
 #### `ap_policy`
 Represents the local financial guardrail configuration for an agent wallet.
-* **Fields**: `id`, `name`, `wallet_address`, `max_per_tx_base_units`, `rolling_budget_24h_base_units`, `lifetime_budget_base_units`, `whitelist_payees_json`, `whitelist_assets_json`, `whitelist_networks_json`, `whitelist_domains_json`, `circuit_max_rpm`, `circuit_consecutive_failures`, `circuit_cooldown_seconds`, `breaker_state`, `tripped_at`, `is_frozen`, `created_at`, `updated_at`.
+* **Fields**: `id`, `name`, `wallet_address`, `max_per_tx_base_units`, `rolling_budget_24h_base_units`, `lifetime_budget_base_units`, `whitelist_mode`, `whitelist_payees_json`, `whitelist_assets_json`, `whitelist_networks_json`, `whitelist_domains_json`, `circuit_max_rpm`, `circuit_consecutive_failures`, `circuit_cooldown_seconds`, `breaker_state`, `tripped_at`, `is_frozen`, `created_at`, `updated_at`.
 * **Invariant**: One policy file governs one specific wallet address. Multiple agent instances sharing a single wallet MUST share the same SQLite database file to prevent multi-instance budget bypass.
 
 #### `ap_budget_ledger` (True Rolling Window Ledger)

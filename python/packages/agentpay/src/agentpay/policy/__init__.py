@@ -17,6 +17,7 @@ from agentpay.policy.models import (
     PolicyConfig,
     PolicyDecision,
     ReservationToken,
+    WhitelistMode,
 )
 from agentpay.policy.sqlite_engine import SQLitePolicyEngine
 
@@ -32,6 +33,7 @@ __all__ = [
     "ReservationToken",
     "SQLitePolicyEngine",
     "StaticEvaluationResult",
+    "WhitelistMode",
     "create_buyer_connection",
     "evaluate_static_rules",
     "init_buyer_database",

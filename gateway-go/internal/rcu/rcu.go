@@ -494,6 +494,173 @@ func (m *Manager) Update(snapshot *ConfigSnapshot) error {
 	return nil
 }
 
+// HasPathTemplate reports whether a path or URL pattern contains `{param}` placeholders.
+func HasPathTemplate(pattern string) bool {
+	openIdx := strings.IndexByte(pattern, '{')
+	if openIdx < 0 {
+		return false
+	}
+	closeIdx := strings.IndexByte(pattern[openIdx:], '}')
+	return closeIdx > 1
+}
+
+// ExtractPathParams matches a route pattern containing `{param}` placeholders against an incoming
+// request path and returns the extracted parameter map if matched.
+func ExtractPathParams(pattern, reqPath string) (map[string]string, bool) {
+	if !HasPathTemplate(pattern) {
+		return nil, false
+	}
+
+	patTrim := strings.Trim(pattern, "/")
+	reqTrim := strings.Trim(reqPath, "/")
+	if patTrim == "" || reqTrim == "" {
+		return nil, false
+	}
+
+	patSegs := strings.Split(patTrim, "/")
+	reqSegs := strings.Split(reqTrim, "/")
+	if len(patSegs) != len(reqSegs) {
+		return nil, false
+	}
+
+	params := make(map[string]string)
+	for i := 0; i < len(patSegs); i++ {
+		patSeg := patSegs[i]
+		reqSeg := reqSegs[i]
+		if reqSeg == "" {
+			return nil, false
+		}
+		if HasPathTemplate(patSeg) {
+			if !matchSegmentTemplate(patSeg, reqSeg, params) {
+				return nil, false
+			}
+		} else if patSeg != reqSeg {
+			return nil, false
+		}
+	}
+
+	return params, true
+}
+
+// matchSegmentTemplate matches a single path segment that contains one or more `{param}` placeholders
+// (e.g., "{coins}" or "v1-{coins}") and populates params. If the incoming segment is literally the
+// unreplaced placeholder "{coins}", it matches structurally without recording "{coins}" as the value.
+func matchSegmentTemplate(patSeg, reqSeg string, params map[string]string) bool {
+	if strings.HasPrefix(patSeg, "{") && strings.HasSuffix(patSeg, "}") && !strings.Contains(patSeg[1:len(patSeg)-1], "{") {
+		name := strings.TrimSpace(patSeg[1 : len(patSeg)-1])
+		if name == "" || reqSeg == "" {
+			return false
+		}
+		if reqSeg != patSeg {
+			params[name] = reqSeg
+		}
+		return true
+	}
+
+	// Support composite segment templates like "token-{coins}" or "{chain}:{token}"
+	remPat := patSeg
+	remReq := reqSeg
+	for {
+		openIdx := strings.IndexByte(remPat, '{')
+		if openIdx < 0 {
+			return remPat == remReq
+		}
+		closeIdx := strings.IndexByte(remPat[openIdx:], '}')
+		if closeIdx <= 1 {
+			return false
+		}
+		closeIdx += openIdx
+
+		staticPrefix := remPat[:openIdx]
+		if !strings.HasPrefix(remReq, staticPrefix) {
+			return false
+		}
+		remReq = remReq[len(staticPrefix):]
+
+		paramName := strings.TrimSpace(remPat[openIdx+1 : closeIdx])
+		remPat = remPat[closeIdx+1:]
+
+		if remPat == "" {
+			if remReq == "" {
+				return false
+			}
+			if remReq != "{"+paramName+"}" {
+				params[paramName] = remReq
+			}
+			return true
+		}
+
+		nextOpen := strings.IndexByte(remPat, '{')
+		var nextLiteral string
+		if nextOpen < 0 {
+			nextLiteral = remPat
+		} else {
+			nextLiteral = remPat[:nextOpen]
+		}
+		if nextLiteral == "" {
+			return false
+		}
+		litIdx := strings.Index(remReq, nextLiteral)
+		if litIdx <= 0 {
+			return false
+		}
+		val := remReq[:litIdx]
+		if val != "{"+paramName+"}" {
+			params[paramName] = val
+		}
+		remReq = remReq[litIdx:]
+	}
+}
+
+// matchesTrailingTemplateBase reports whether pattern ends with a `/{param}` segment and reqPath
+// matches the pattern with that trailing segment omitted (e.g., pattern "/v1/prices/current/{coins}"
+// and reqPath "/v1/prices/current" when `{coins}` is supplied via query or JSON body).
+func matchesTrailingTemplateBase(pattern, reqPath string) bool {
+	if !HasPathTemplate(pattern) {
+		return false
+	}
+	patTrim := strings.Trim(pattern, "/")
+	reqTrim := strings.Trim(reqPath, "/")
+	if patTrim == "" || reqTrim == "" {
+		return false
+	}
+	patSegs := strings.Split(patTrim, "/")
+	reqSegs := strings.Split(reqTrim, "/")
+	if len(patSegs) < 2 || len(reqSegs) != len(patSegs)-1 {
+		return false
+	}
+	lastSeg := patSegs[len(patSegs)-1]
+	if !strings.HasPrefix(lastSeg, "{") || !strings.HasSuffix(lastSeg, "}") {
+		return false
+	}
+	for i := 0; i < len(reqSegs); i++ {
+		if patSegs[i] != reqSegs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TemplateStaticPrefix returns the leading static path prefix before the first `{param}` segment.
+func TemplateStaticPrefix(pattern string) string {
+	patTrim := strings.Trim(pattern, "/")
+	if patTrim == "" {
+		return "/"
+	}
+	segs := strings.Split(patTrim, "/")
+	staticSegs := make([]string, 0, len(segs))
+	for _, s := range segs {
+		if HasPathTemplate(s) {
+			break
+		}
+		staticSegs = append(staticSegs, s)
+	}
+	if len(staticSegs) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(staticSegs, "/")
+}
+
 // MatchRoute matches an incoming request path against the active routes map.
 func (m *Manager) MatchRoute(path string) (*RouteConfig, bool) {
 	route, _, _, ok := m.MatchRouteWithPolicy(path)
@@ -516,14 +683,40 @@ func (m *Manager) MatchRouteWithPolicy(path string) (*RouteConfig, *PolicyConfig
 		return nil, nil, snap, false
 	}
 
-	// 2. Prefix / wildcard match fallback
-	for pattern, route := range snap.routesByPattern {
+	// 2. Path template match (e.g., "/v1/prices/current/{coins}")
+	for i := range snap.Routes {
+		route := &snap.Routes[i]
+		if route.Status != "active" || !HasPathTemplate(route.PathPattern) {
+			continue
+		}
+		if _, ok := ExtractPathParams(route.PathPattern, path); ok {
+			policy := snap.findPolicyForRoute(route.RouteID)
+			return route, policy, snap, true
+		}
+	}
+
+	// 3. Trailing template base match (e.g., "/v1/prices/current" when pattern is "/v1/prices/current/{coins}" and param is in query/body)
+	for i := range snap.Routes {
+		route := &snap.Routes[i]
+		if route.Status != "active" || !HasPathTemplate(route.PathPattern) {
+			continue
+		}
+		if matchesTrailingTemplateBase(route.PathPattern, path) {
+			policy := snap.findPolicyForRoute(route.RouteID)
+			return route, policy, snap, true
+		}
+	}
+
+	// 4. Prefix / wildcard match fallback (e.g., "/v1/ai/*")
+	for i := range snap.Routes {
+		route := &snap.Routes[i]
 		if route.Status != "active" {
 			continue
 		}
+		pattern := route.PathPattern
 		if strings.HasSuffix(pattern, "/*") {
 			prefix := strings.TrimSuffix(pattern, "/*")
-			if strings.HasPrefix(path, prefix) {
+			if prefix == "" || path == prefix || strings.HasPrefix(path, prefix+"/") {
 				policy := snap.findPolicyForRoute(route.RouteID)
 				return route, policy, snap, true
 			}

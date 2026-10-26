@@ -116,10 +116,6 @@ def validate_policy_budget_vectors(vectors_dir: Path) -> int:
     max_cap = int(policy["max_per_tx_base_units"])
     daily_budget = int(policy["rolling_budget_24h_base_units"])
     whitelist = policy["whitelist"]
-    wl_payees = [p.lower() for p in whitelist["payees"]]
-    wl_assets = [a.lower() for a in whitelist["assets"]]
-    wl_networks = whitelist["networks"]
-    wl_domains = whitelist.get("domains", [])
 
     errors = 0
     for tc in data["testCases"]:
@@ -128,6 +124,15 @@ def validate_policy_budget_vectors(vectors_dir: Path) -> int:
         ledger = {}  # intent_id -> {"amount": int, "state": str, "created_at": int, "expires_at": int}
         is_frozen = tc.get("initialState", {}).get("is_frozen", 0) == 1
         clock = tc.get("clock", 1729000000)
+
+        tc_overrides = tc.get("policyOverrides", {})
+        tc_wl = tc_overrides.get("whitelist", whitelist)
+        tc_wl_mode = tc_overrides.get("whitelistMode", tc_wl.get("mode", policy.get("whitelistMode", "simple")))
+        is_strict = tc_wl_mode == "strict"
+        tc_payees = [p.lower() for p in tc_wl.get("payees", [])]
+        tc_assets = [a.lower() for a in tc_wl.get("assets", [])]
+        tc_networks = tc_wl.get("networks", [])
+        tc_domains = tc_wl.get("domains", [])
 
         for step in tc["actions"]:
             action = step["action"]
@@ -151,16 +156,16 @@ def validate_policy_budget_vectors(vectors_dir: Path) -> int:
                     actual_res = "REJECTED"
                     actual_err = "INVALID_AMOUNT_FORMAT"
                 # Precedence 3: Whitelist
-                elif network not in wl_networks:
+                elif (is_strict or tc_networks) and network not in tc_networks:
                     actual_res = "REJECTED"
                     actual_err = "NETWORK_NOT_WHITELISTED"
-                elif asset not in wl_assets:
+                elif (is_strict or tc_assets) and asset not in tc_assets:
                     actual_res = "REJECTED"
                     actual_err = "ASSET_NOT_WHITELISTED"
-                elif payee not in wl_payees:
+                elif (is_strict or tc_payees) and payee not in tc_payees:
                     actual_res = "REJECTED"
                     actual_err = "PAYEE_NOT_WHITELISTED"
-                elif domain and domain not in wl_domains:
+                elif domain and (is_strict or tc_domains) and domain not in tc_domains:
                     actual_res = "REJECTED"
                     actual_err = "DOMAIN_NOT_WHITELISTED"
                 # Precedence 4: Single cap
@@ -223,7 +228,7 @@ def validate_policy_budget_vectors(vectors_dir: Path) -> int:
                         errors += 1
 
     if errors == 0:
-        print("  ✓ All 11 policy budget cases passed mathematical and rule verification")
+        print(f"  ✓ All {len(data['testCases'])} policy budget cases passed mathematical and rule verification")
     return errors
 
 

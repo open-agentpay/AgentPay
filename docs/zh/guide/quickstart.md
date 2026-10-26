@@ -135,19 +135,25 @@ python -c "import agentpay; print('agentpay OK')"
 import os
 
 from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import MemoryPolicyEngine
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-# 1. 本地财务防火墙：防止 Agent 陷入循环刷爆预算。
-#    金额为最小单位整数；钱包挑战使用 USD 计价。
-policy = MemoryPolicyEngine(
-    max_per_tx=1_000_000,       # 单笔最多 1 USD
-    daily_budget=10_000_000,    # 24 小时最多 10 USD
-)
-
-# 2. 签名器。钱包模式不需要链上签名，这里仅作占位。
+# 1. 签名器。钱包模式不需要链上签名，这里仅作占位。
 #    ⚠️ 仅限测试网开发：此公钥对应 Hardhat/Anvil 默认公开测试密钥，切勿转入任何主网真实资产！
 dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 signer = LocalSigner(dev_key)
+
+# 2. 本地财务防火墙：防止 Agent 陷入循环刷爆预算。
+#    金额为最小单位整数；钱包挑战使用 USD 计价。
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="quickstart_firewall",
+        name="Quickstart Firewall",
+        wallet_address=signer.address,
+        max_per_tx_base_units=1_000_000,       # 单笔最多 1 USD
+        rolling_budget_24h_base_units=10_000_000, # 24 小时最多 10 USD
+        whitelist_domains=frozenset(["127.0.0.1", "localhost"]),
+    )
+)
 
 # 3. 为 Agent 颁发的 API Key（开发密钥，已预置测试钱包余额）。
 api_key = os.getenv("AGENTPAY_API_KEY", "apk_live_valid123")

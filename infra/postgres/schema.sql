@@ -328,7 +328,7 @@ CREATE TABLE IF NOT EXISTS ap_wallet_challenge (
 CREATE INDEX IF NOT EXISTS idx_wallet_challenge_expiry ON ap_wallet_challenge(status, valid_before);
 
 CREATE TABLE IF NOT EXISTS ap_settlement_record (
-    settlement_id VARCHAR(64) PRIMARY KEY,
+    settlement_id VARCHAR(128) PRIMARY KEY,
     intent_id VARCHAR(64) NOT NULL UNIQUE REFERENCES ap_payment_intent(intent_id) ON DELETE CASCADE,
     network_id VARCHAR(64) NOT NULL,
     asset_address VARCHAR(128) NOT NULL,
@@ -442,7 +442,7 @@ CREATE TABLE IF NOT EXISTS ap_agent_audit_event (
     idempotency_key VARCHAR(128) NULL,
     intent_id VARCHAR(64) NULL,
     hold_id VARCHAR(64) NULL,
-    settlement_id VARCHAR(64) NULL,
+    settlement_id VARCHAR(128) NULL,
     fulfillment_id VARCHAR(64) NULL,
     actor_type VARCHAR(32) NOT NULL,
     actor_id VARCHAR(64) NOT NULL,
