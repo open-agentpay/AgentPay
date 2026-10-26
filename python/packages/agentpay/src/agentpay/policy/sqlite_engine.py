@@ -33,6 +33,7 @@ from agentpay.policy.models import (
     PolicyConfig,
     PolicyDecision,
     ReservationToken,
+    _validate_positive_int,
 )
 
 
@@ -355,101 +356,60 @@ class SQLitePolicyEngine(IPolicyEngine):
         """
         Atomically evaluate all precedence rules and lock quota in ap_budget_ledger.
         Fails-closed on any database error.
+
+        Precedence order (specs/policy-engine-spec.md §3, P2-2):
+          1. Freeze check (POLICY_FROZEN)
+          2. Circuit breaker & RPM check (CIRCUIT_BREAKER_OPEN)
+          3. Request format validation (INVALID_AMOUNT_FORMAT / INVALID_REQUEST)
+          4. Whitelist matrix (NETWORK / ASSET / PAYEE / DOMAIN)
+          5. Single-transaction cap (SINGLE_TX_CAP_EXCEEDED)
+          6. Lifetime budget ceiling (LIFETIME_BUDGET_EXCEEDED)
+          7. 24h rolling budget (DAILY_BUDGET_EXCEEDED)
         """
         now = self._clock()
-
-        # Step 0: Validate PaymentRequest format early
-        try:
-            req = PaymentRequest(
-                intent_id=intent_id,
-                amount=amount,
-                payee=payee,
-                asset=asset,
-                network=network,
-                domain=domain,
-                ttl_seconds=ttl_seconds,
-            )
-        except (ValueError, TypeError, ValidationError):
-            return PolicyDecision(
-                approved=False,
-                error_code=PolicyErrorCode.INVALID_AMOUNT_FORMAT,
-            )
-
         cursor = self._conn.cursor()
         try:
             # SECURITY-REVIEW: BEGIN IMMEDIATE acquires exclusive write lock immediately
             cursor.execute("BEGIN IMMEDIATE;")
 
-            # Step 1: Policy Administrative Lock (is_frozen) from authoritative DB record (P1-2)
-            cursor.execute(
-                "SELECT is_frozen, breaker_state, tripped_at FROM ap_policy WHERE id = ?;",
-                (self._config.id,),
-            )
-            row = cursor.fetchone()
-            is_frozen = (row[0] == 1) if row else self._config.is_frozen
-            current_breaker = BreakerState(row[1]) if row and row[1] else BreakerState.CLOSED
-            tripped_at = row[2] if row else None
-
-            if is_frozen:
-                cursor.execute("ROLLBACK;")
+            # Step 1 & 2: Policy Administrative Lock (is_frozen) -> Circuit Breaker & RPM Check (P1-2, P2-2)
+            # SECURITY-REVIEW: Freeze and Circuit Breaker must precede request format validation (TV-ORD-01).
+            gate_err = self._gate(cursor, now)
+            if gate_err is not None:
+                self._conn.commit()  # persist breaker transitions written by _gate
                 return PolicyDecision(
                     approved=False,
-                    error_code=PolicyErrorCode.POLICY_FROZEN,
+                    error_code=gate_err,
                 )
 
-            # Step 2: Circuit Breaker State & RPM Check
-            # Check cooldown transition to HALF_OPEN
-            if (
-                current_breaker == BreakerState.OPEN
-                and tripped_at is not None
-                and now >= tripped_at + self._config.circuit_cooldown_seconds
-            ):
-                current_breaker = BreakerState.HALF_OPEN
-                cursor.execute(
-                    """
-                    UPDATE ap_policy
-                    SET breaker_state = 'HALF_OPEN', updated_at = ?
-                    WHERE id = ?;
-                    """,
-                    (now, self._config.id),
-                )
-
-            if current_breaker == BreakerState.OPEN:
-                cursor.execute("ROLLBACK;")
-                return PolicyDecision(
-                    approved=False,
-                    error_code=PolicyErrorCode.CIRCUIT_BREAKER_OPEN,
-                )
-
-            if current_breaker == BreakerState.HALF_OPEN:
-                # Probe Locking: permit only 1 in-flight test probe transaction
-                active_probes = self._query_active_probe_count(cursor, now)
-                if active_probes >= 1:
-                    cursor.execute("ROLLBACK;")
-                    return PolicyDecision(
-                        approved=False,
-                        error_code=PolicyErrorCode.CIRCUIT_BREAKER_OPEN,
-                    )
-
-            # Check RPM in last 60s
-            recent_requests = self._query_requests_in_last_60s(cursor, now)
-            if recent_requests >= self._config.circuit_max_rpm:
-                # Exceeded RPM threshold -> Trip breaker to OPEN
-                cursor.execute(
-                    """
-                    UPDATE ap_policy
-                    SET breaker_state = 'OPEN', tripped_at = ?, updated_at = ?
-                    WHERE id = ?;
-                    """,
-                    (now, now, self._config.id),
-                )
+            # Step 3: Validate PaymentRequest format (amount -> INVALID_AMOUNT_FORMAT, other fields -> INVALID_REQUEST)
+            try:
+                _validate_positive_int(amount, "amount")
+            except (ValueError, TypeError):
                 self._conn.commit()
                 return PolicyDecision(
                     approved=False,
-                    error_code=PolicyErrorCode.CIRCUIT_BREAKER_OPEN,
+                    error_code=PolicyErrorCode.INVALID_AMOUNT_FORMAT,
                 )
 
-            # Step 3-5: Evaluate static rules (Format, Whitelist, Single-Tx Cap, Lifetime)
+            try:
+                req = PaymentRequest(
+                    intent_id=intent_id,
+                    amount=amount,
+                    payee=payee,
+                    asset=asset,
+                    network=network,
+                    domain=domain,
+                    ttl_seconds=ttl_seconds,
+                )
+            except (ValueError, TypeError, ValidationError):
+                self._conn.commit()
+                return PolicyDecision(
+                    approved=False,
+                    error_code=PolicyErrorCode.INVALID_REQUEST,
+                )
+
+            # Step 4-6: Evaluate static rules (Whitelist, Single-Tx Cap, Lifetime)
             lifetime_spent = self._query_lifetime_spent(cursor, now)
             static_res = evaluate_static_rules(
                 config=self._config,
@@ -457,23 +417,23 @@ class SQLitePolicyEngine(IPolicyEngine):
                 lifetime_spent=lifetime_spent,
             )
             if not static_res.passed:
-                cursor.execute("ROLLBACK;")
+                self._conn.commit()
                 return PolicyDecision(
                     approved=False,
                     error_code=static_res.error_code,
                 )
 
-            # Step 6: 24h Rolling Budget Check (P0-6)
+            # Step 7: 24h Rolling Budget Check (P0-6)
             rolling_usage = self._query_rolling_usage(cursor, now)
             available = self._config.rolling_budget_24h_base_units - rolling_usage
             if available < req.amount:
-                cursor.execute("ROLLBACK;")
+                self._conn.commit()
                 return PolicyDecision(
                     approved=False,
                     error_code=PolicyErrorCode.DAILY_BUDGET_EXCEEDED,
                 )
 
-            # Step 7: Insert Reservation Slot
+            # Step 8: Insert Reservation Slot
             reservation_id = f"res_{uuid.uuid4().hex}"
             expires_at = now + req.ttl_seconds
             cursor.execute(
@@ -511,26 +471,18 @@ class SQLitePolicyEngine(IPolicyEngine):
                 available_after=new_available,
             )
         except sqlite3.IntegrityError:
-            try:
-                if self._conn.in_transaction:
-                    cursor.execute("ROLLBACK;")
-            except sqlite3.OperationalError:
-                pass
-            # Duplicate intent_id or unique constraint violation -> fail closed
+            self._rollback_quietly(cursor)
+            # Duplicate intent_id or unique constraint violation -> fail closed (P2-1)
             return PolicyDecision(
                 approved=False,
-                error_code=PolicyErrorCode.DAILY_BUDGET_EXCEEDED,
+                error_code=PolicyErrorCode.DUPLICATE_INTENT,
             )
         except Exception:  # noqa: BLE001
-            try:
-                if self._conn.in_transaction:
-                    cursor.execute("ROLLBACK;")
-            except sqlite3.OperationalError:
-                pass
-            # Fail closed on any other unexpected DB or system errors
+            self._rollback_quietly(cursor)
+            # Fail closed on any other unexpected DB or system errors (P2-1)
             return PolicyDecision(
                 approved=False,
-                error_code=PolicyErrorCode.POLICY_FROZEN,
+                error_code=PolicyErrorCode.POLICY_SYSTEM_ERROR,
             )
 
     def commit(self, intent_id: str) -> None:
@@ -712,27 +664,33 @@ class SQLitePolicyEngine(IPolicyEngine):
         """
         Reserve quota for a credential-mode (non-402) call BEFORE it is sent.
 
-        Applies frozen/breaker/RPM, domain whitelist, single-tx cap, lifetime and
-        24h rolling budget against ``estimated_amount``. Fails closed.
+        Applies frozen/breaker/RPM, request format, domain whitelist, single-tx cap,
+        lifetime and 24h rolling budget against ``estimated_amount``. Fails closed.
         """
         now = self._clock()
-        if (
-            not isinstance(intent_id, str)
-            or not intent_id
-            or isinstance(estimated_amount, bool)
-            or not isinstance(estimated_amount, int)
-            or not (0 < estimated_amount <= SQLITE_MAX_INT)
-            or isinstance(ttl_seconds, bool)
-            or not isinstance(ttl_seconds, int)
-            or not (0 < ttl_seconds <= 86400)
-        ):
-            return PolicyDecision(approved=False, error_code=PolicyErrorCode.INVALID_AMOUNT_FORMAT)
-
         cursor = self._conn.cursor()
         try:
+            # SECURITY-REVIEW: Freeze and Circuit Breaker precede format validation (P2-2, TV-ORD-01).
             cursor.execute("BEGIN IMMEDIATE;")
 
             err = self._gate(cursor, now)
+            if err is None:
+                if (
+                    isinstance(estimated_amount, bool)
+                    or not isinstance(estimated_amount, int)
+                    or not (0 < estimated_amount <= SQLITE_MAX_INT)
+                ):
+                    err = PolicyErrorCode.INVALID_AMOUNT_FORMAT
+                elif (
+                    not isinstance(intent_id, str)
+                    or not intent_id.strip()
+                    or isinstance(ttl_seconds, bool)
+                    or not isinstance(ttl_seconds, int)
+                    or not (0 < ttl_seconds <= 86400)
+                    or (domain is not None and not isinstance(domain, str))
+                ):
+                    err = PolicyErrorCode.INVALID_REQUEST
+
             if err is None:
                 res = evaluate_metered_rules(
                     self._config,

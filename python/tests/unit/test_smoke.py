@@ -6,7 +6,7 @@ import agentpay
 class TestSmoke(unittest.TestCase):
     def test_agentpay_version(self):
         """Smoke test ensuring agentpay module can be imported and version is defined."""
-        self.assertEqual(agentpay.__version__, "0.2.4")
+        self.assertEqual(agentpay.__version__, "0.2.5")
 
 
 if __name__ == "__main__":

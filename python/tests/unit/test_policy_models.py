@@ -26,6 +26,7 @@ class TestPolicyErrorCodes:
             "POLICY_FROZEN",
             "CIRCUIT_BREAKER_OPEN",
             "INVALID_AMOUNT_FORMAT",
+            "INVALID_REQUEST",
             "NETWORK_NOT_WHITELISTED",
             "ASSET_NOT_WHITELISTED",
             "PAYEE_NOT_WHITELISTED",

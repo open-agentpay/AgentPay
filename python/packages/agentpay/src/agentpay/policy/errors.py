@@ -24,8 +24,9 @@ class PolicyErrorCode(enum.Enum):
     # 2. Circuit breaker
     CIRCUIT_BREAKER_OPEN = "CIRCUIT_BREAKER_OPEN"
 
-    # 3. Input format
+    # 3. Request format validation
     INVALID_AMOUNT_FORMAT = "INVALID_AMOUNT_FORMAT"
+    INVALID_REQUEST = "INVALID_REQUEST"
 
     # 4. Whitelist matrix (evaluated in order: network → asset → payee → domain)
     NETWORK_NOT_WHITELISTED = "NETWORK_NOT_WHITELISTED"
@@ -42,14 +43,11 @@ class PolicyErrorCode(enum.Enum):
     # 7. Rolling 24h budget
     DAILY_BUDGET_EXCEEDED = "DAILY_BUDGET_EXCEEDED"
 
-    # Reservation lifecycle errors
+    # Reservation lifecycle & system errors
     RESERVATION_EXPIRED = "RESERVATION_EXPIRED"
     RESERVATION_ALREADY_FINALIZED = "RESERVATION_ALREADY_FINALIZED"
-
     UNMETERED_CREDENTIAL = "UNMETERED_CREDENTIAL"
-
     DUPLICATE_INTENT = "DUPLICATE_INTENT"
-
     POLICY_SYSTEM_ERROR = "POLICY_SYSTEM_ERROR"
 
 

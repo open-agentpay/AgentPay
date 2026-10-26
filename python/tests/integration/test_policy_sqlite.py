@@ -342,6 +342,182 @@ class TestSQLitePolicyEngine:
         assert dec_strict.approved is False
         assert dec_strict.error_code == PolicyErrorCode.NETWORK_NOT_WHITELISTED
 
+    def test_p2_1_duplicate_intent_returns_duplicate_intent(
+        self, db_conn: sqlite3.Connection, clock: MockClock
+    ) -> None:
+        """P2-1: Duplicate intent_id in reserve() and reserve_metered() both return DUPLICATE_INTENT."""
+        from agentpay.policy.sqlite_engine import SQLitePolicyEngine
+
+        config = _make_sample_config()
+        engine = SQLitePolicyEngine(conn=db_conn, config=config, clock=clock)
+
+        first = engine.reserve(
+            intent_id="intent_dup_01",
+            amount=100_000,
+            payee="0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+            network="eip155:84532",
+        )
+        assert first.approved is True
+
+        dup = engine.reserve(
+            intent_id="intent_dup_01",
+            amount=100_000,
+            payee="0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+            network="eip155:84532",
+        )
+        assert dup.approved is False
+        assert dup.error_code == PolicyErrorCode.DUPLICATE_INTENT
+
+        dup_metered = engine.reserve_metered(
+            intent_id="intent_dup_01",
+            estimated_amount=100_000,
+            domain="api.trusted-provider.com",
+        )
+        assert dup_metered.approved is False
+        assert dup_metered.error_code == PolicyErrorCode.DUPLICATE_INTENT
+
+    def test_p2_1_unexpected_db_error_returns_policy_system_error(
+        self, db_conn: sqlite3.Connection, clock: MockClock
+    ) -> None:
+        """P2-1: Unexpected DB error in reserve() returns POLICY_SYSTEM_ERROR, not POLICY_FROZEN."""
+        from agentpay.policy.sqlite_engine import SQLitePolicyEngine
+
+        config = _make_sample_config()
+        engine = SQLitePolicyEngine(conn=db_conn, config=config, clock=clock)
+
+        # Drop ap_budget_ledger to simulate unexpected DB operational failure
+        db_conn.execute("DROP TABLE ap_budget_ledger;")
+        db_conn.commit()
+
+        dec = engine.reserve(
+            intent_id="intent_db_err",
+            amount=100_000,
+            payee="0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+            network="eip155:84532",
+        )
+        assert dec.approved is False
+        assert dec.error_code == PolicyErrorCode.POLICY_SYSTEM_ERROR
+
+    def test_p2_1_invalid_request_vs_invalid_amount_format(
+        self, db_conn: sqlite3.Connection, clock: MockClock
+    ) -> None:
+        """P2-1: Malformed amount returns INVALID_AMOUNT_FORMAT; malformed payee/asset/network/ttl/intent returns INVALID_REQUEST."""
+        from agentpay.policy.sqlite_engine import SQLitePolicyEngine
+
+        config = _make_sample_config()
+        engine = SQLitePolicyEngine(conn=db_conn, config=config, clock=clock)
+
+        # Invalid amount -> INVALID_AMOUNT_FORMAT
+        dec_amt = engine.reserve(
+            intent_id="intent_bad_amt",
+            amount=0,
+            payee="0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+            network="eip155:84532",
+        )
+        assert dec_amt.approved is False
+        assert dec_amt.error_code == PolicyErrorCode.INVALID_AMOUNT_FORMAT
+
+        # Invalid payee -> INVALID_REQUEST
+        dec_payee = engine.reserve(
+            intent_id="intent_bad_payee",
+            amount=100_000,
+            payee="not_an_evm_address",
+            asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+            network="eip155:84532",
+        )
+        assert dec_payee.approved is False
+        assert dec_payee.error_code == PolicyErrorCode.INVALID_REQUEST
+
+        # Invalid asset -> INVALID_REQUEST
+        dec_asset = engine.reserve(
+            intent_id="intent_bad_asset",
+            amount=100_000,
+            payee="0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            asset="bad_asset",
+            network="eip155:84532",
+        )
+        assert dec_asset.approved is False
+        assert dec_asset.error_code == PolicyErrorCode.INVALID_REQUEST
+
+        # Invalid network -> INVALID_REQUEST
+        dec_net = engine.reserve(
+            intent_id="intent_bad_net",
+            amount=100_000,
+            payee="0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            asset="0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+            network="invalid_caip2",
+        )
+        assert dec_net.approved is False
+        assert dec_net.error_code == PolicyErrorCode.INVALID_REQUEST
+
+        # Metered mode: invalid intent_id / ttl_seconds -> INVALID_REQUEST
+        dec_metered_req = engine.reserve_metered(
+            intent_id="",
+            estimated_amount=100_000,
+            domain="api.trusted-provider.com",
+        )
+        assert dec_metered_req.approved is False
+        assert dec_metered_req.error_code == PolicyErrorCode.INVALID_REQUEST
+
+    def test_p2_2_tv_ord_01_precedence_order(
+        self, db_conn: sqlite3.Connection, clock: MockClock
+    ) -> None:
+        """P2-2 (TV-ORD-01): Freeze and Circuit Breaker precede Request Format validation."""
+        from agentpay.policy.sqlite_engine import SQLitePolicyEngine
+
+        # 1. Frozen policy receiving malformed amount and malformed payee -> POLICY_FROZEN
+        frozen_cfg = PolicyConfig(
+            id="pol_ord_frozen",
+            name="Frozen Order Policy",
+            wallet_address="0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            max_per_tx_base_units=1_000_000,
+            rolling_budget_24h_base_units=10_000_000,
+            is_frozen=True,
+        )
+        frozen_engine = SQLitePolicyEngine(conn=db_conn, config=frozen_cfg, clock=clock)
+        dec_frozen = frozen_engine.reserve(
+            intent_id="tv_ord_01_frozen",
+            amount=-100,
+            payee="malformed_payee",
+            asset="malformed_asset",
+            network="malformed_network",
+        )
+        assert dec_frozen.approved is False
+        assert dec_frozen.error_code == PolicyErrorCode.POLICY_FROZEN
+
+        dec_frozen_metered = frozen_engine.reserve_metered(
+            intent_id="",
+            estimated_amount=-100,
+            domain="api.trusted-provider.com",
+        )
+        assert dec_frozen_metered.approved is False
+        assert dec_frozen_metered.error_code == PolicyErrorCode.POLICY_FROZEN
+
+        # 2. Open circuit breaker receiving malformed amount/payee -> CIRCUIT_BREAKER_OPEN
+        breaker_cfg = PolicyConfig(
+            id="pol_ord_breaker",
+            name="Breaker Order Policy",
+            wallet_address="0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            max_per_tx_base_units=1_000_000,
+            rolling_budget_24h_base_units=10_000_000,
+            circuit_consecutive_failures=1,
+        )
+        breaker_engine = SQLitePolicyEngine(conn=db_conn, config=breaker_cfg, clock=clock)
+        breaker_engine.record_failure("trip breaker")
+        dec_breaker = breaker_engine.reserve(
+            intent_id="tv_ord_01_breaker",
+            amount=0,
+            payee="malformed_payee",
+            asset="malformed_asset",
+            network="malformed_network",
+        )
+        assert dec_breaker.approved is False
+        assert dec_breaker.error_code == PolicyErrorCode.CIRCUIT_BREAKER_OPEN
+
 
 class TestConformanceVectorsT23:
     """Executes all test cases in policy-budget.json against SQLitePolicyEngine."""

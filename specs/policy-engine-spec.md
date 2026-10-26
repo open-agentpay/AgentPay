@@ -3,7 +3,7 @@
 > **Specification Version:** 1.1.0  
 > **Status:** Draft  
 > **Target Implementations:** Python SDK (`agentpay.policy`), SQLite Ledger  
-> **Task Tracking:** 2026 Plan Milestone M1 (Tasks T1.3, T2.1, T2.2, T2.3, T2.4, P0-6, P1-11, P1-12, P1-18, P1-21, P1-23)
+> **Task Tracking:** 2026 Plan Milestone M1 (Tasks T1.3, T2.1, T2.2, T2.3, T2.4, P0-6, P1-11, P1-12, P1-18, P1-21, P1-23, P2-1, P2-2)
 
 ---
 
@@ -16,10 +16,11 @@ graph TD
     Req[Payment Challenge Received] --> S1{1. Freeze Check}
     S1 -->|is_frozen == 1| D1[Reject: POLICY_FROZEN]
     S1 -->|is_frozen == 0| S2{2. Circuit Breaker}
-    S2 -->|State == OPEN| D2[Reject: CIRCUIT_BREAKER_OPEN]
-    S2 -->|State == CLOSED/HALF_OPEN| S3{3. Input Format}
-    S3 -->|amount <= 0 or not int| D3[Reject: INVALID_AMOUNT_FORMAT]
-    S3 -->|Valid int| S4{4. Whitelist Matrix}
+    S2 -->|State == OPEN or RPM exceeded| D2[Reject: CIRCUIT_BREAKER_OPEN]
+    S2 -->|State == CLOSED/HALF_OPEN| S3{3. Request Format}
+    S3 -->|amount <= 0 or not int| D3A[Reject: INVALID_AMOUNT_FORMAT]
+    S3 -->|payee / asset / network / ttl / intent malformed| D3B[Reject: INVALID_REQUEST]
+    S3 -->|Valid request| S4{4. Whitelist Matrix}
     S4 -->|Network / Asset / Payee / Domain unlisted| D4[Reject: *_NOT_WHITELISTED]
     S4 -->|Whitelisted| S5{5. Single-Tx Cap}
     S5 -->|amount > max_per_tx| D5[Reject: SINGLE_TX_CAP_EXCEEDED]
@@ -33,15 +34,16 @@ graph TD
 
 ---
 
-## 2. Standardized Error Codes (Language-Agnostic, P1-18)
+## 2. Standardized Error Codes (Language-Agnostic, P1-18, P2-1)
 
-All errors returned by the Policy Engine map to standard uppercase string codes:
+All errors returned by the Policy Engine map to standard uppercase string codes across both x402 (`reserve()`) and credential-metered (`reserve_metered()`) flows:
 
 | Error Code | HTTP Status Equivalent | Description |
 | :--- | :---: | :--- |
-| `POLICY_FROZEN` | 403 Forbidden | Policy is administratively frozen or locked by circuit breaker. |
-| `CIRCUIT_BREAKER_OPEN` | 429 Too Many Requests | Rate of spending or consecutive failures exceeded threshold. |
-| `INVALID_AMOUNT_FORMAT` | 400 Bad Request | Amount is non-integer, zero, negative, or malformed. |
+| `POLICY_FROZEN` | 403 Forbidden | Policy is administratively frozen (`is_frozen == 1`). |
+| `CIRCUIT_BREAKER_OPEN` | 429 Too Many Requests | Rate of spending (`circuit_max_rpm`) or consecutive failures exceeded threshold, or active half-open probe in flight. |
+| `INVALID_AMOUNT_FORMAT` | 400 Bad Request | Amount is non-integer, boolean, zero, negative, or exceeds 64-bit integer bounds. |
+| `INVALID_REQUEST` | 400 Bad Request | Non-amount request field (`payee`, `asset`, `network`, `intent_id`, `domain`, or `ttl_seconds`) is malformed. |
 | `NETWORK_NOT_WHITELISTED` | 403 Forbidden | CAIP-2 network ID is not present in policy whitelist. |
 | `ASSET_NOT_WHITELISTED` | 403 Forbidden | Token contract address is not in policy whitelist. |
 | `PAYEE_NOT_WHITELISTED` | 403 Forbidden | Recipient address is not in policy whitelist. |
@@ -51,19 +53,24 @@ All errors returned by the Policy Engine map to standard uppercase string codes:
 | `DAILY_BUDGET_EXCEEDED` | 402 Payment Required | Rolling 24-hour window budget exhausted. |
 | `RESERVATION_EXPIRED` | 410 Gone | Quota reservation lease window (`expires_at`) elapsed. |
 | `RESERVATION_ALREADY_FINALIZED` | 409 Conflict | Attempted to release or double-commit a settled reservation. |
+| `UNMETERED_CREDENTIAL` | 403 Forbidden | Credential-bearing request blocked when `unmetered_credential_policy="block"` or unexpected 2xx in wallet challenge mode. |
+| `DUPLICATE_INTENT` | 409 Conflict | Duplicate `intent_id` or unique constraint violation in `ap_budget_ledger`. |
+| `POLICY_SYSTEM_ERROR` | 500 Internal Server Error | Unexpected database or internal policy system failure (fail-closed). |
 
 ---
 
-## 3. Evaluation Precedence & Short-Circuit Order (P1-21)
+## 3. Evaluation Precedence & Short-Circuit Order (P1-21, P2-2)
 
-When a payment challenge arrives, the evaluation pipeline **MUST** evaluate rules in this strict sequential order, short-circuiting on the first failure:
+When a payment challenge or metered request arrives, the evaluation pipeline **MUST** evaluate rules in this strict sequential order, short-circuiting on the first failure:
 
 1. **Policy Administrative Lock (`is_frozen`):** If `is_frozen == 1`, immediately abort with `POLICY_FROZEN`.
-2. **Circuit Breaker State (`breaker_state`):**
-   * If `OPEN`, immediately abort with `CIRCUIT_BREAKER_OPEN`.
-   * If `HALF_OPEN`, permit only 1 in-flight test probe transaction.
-3. **Format & Precision Validation:**
-   * Validate `amount > 0` and `amount` is an integer base unit. If invalid, abort with `INVALID_AMOUNT_FORMAT`.
+2. **Circuit Breaker State (`breaker_state` & RPM):**
+   * If `OPEN` (after evaluating cooldown transition to `HALF_OPEN`), immediately abort with `CIRCUIT_BREAKER_OPEN`.
+   * If `HALF_OPEN`, permit only 1 in-flight test probe transaction; otherwise abort with `CIRCUIT_BREAKER_OPEN`.
+   * If requests in the last 60 seconds $\ge$ `circuit_max_rpm`, trip breaker to `OPEN` and abort with `CIRCUIT_BREAKER_OPEN`.
+3. **Request Format & Precision Validation:**
+   * Validate `amount > 0` and `amount` is an integer base unit within 64-bit bounds. If invalid, abort with `INVALID_AMOUNT_FORMAT`.
+   * Validate remaining request parameters (`intent_id`, `payee`, `asset`, `network`, `domain`, `ttl_seconds`). If invalid, abort with `INVALID_REQUEST`.
 4. **Whitelist Matrix (Order: Network $\to$ Asset $\to$ Payee $\to$ Domain):**
    * Supports two enforcement modes via `whitelist_mode`:
      * **`WhitelistMode.SIMPLE` (`"simple"`, default):** Empty whitelist sets (`frozenset()`) allow all entities in that dimension by default. If a whitelist dimension is non-empty, only listed entities are allowed.
@@ -93,7 +100,7 @@ class IPolicyEngine:
         network: str,
         domain: str | None = None,
         ttl_seconds: int = 360
-    ) -> ReservationToken:
+    ) -> PolicyDecision:
         """Atomically checks precedence rules and locks quota in ap_budget_ledger."""
         ...
 

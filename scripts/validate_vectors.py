@@ -146,15 +146,20 @@ def validate_policy_budget_vectors(vectors_dir: Path) -> int:
                 asset = step["asset"].lower()
                 network = step["network"]
                 domain = step.get("domain")
+                evm_addr_re = re.compile(r"^0x[0-9a-fA-F]{40}$")
+                caip2_re = re.compile(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$")
 
                 # Precedence 1: Frozen check
                 if is_frozen:
                     actual_res = "REJECTED"
                     actual_err = "POLICY_FROZEN"
-                # Precedence 2: Format
+                # Precedence 2: Format (amount -> INVALID_AMOUNT_FORMAT, request fields -> INVALID_REQUEST)
                 elif amount <= 0:
                     actual_res = "REJECTED"
                     actual_err = "INVALID_AMOUNT_FORMAT"
+                elif not evm_addr_re.match(payee) or not evm_addr_re.match(asset) or not caip2_re.match(network):
+                    actual_res = "REJECTED"
+                    actual_err = "INVALID_REQUEST"
                 # Precedence 3: Whitelist
                 elif (is_strict or tc_networks) and network not in tc_networks:
                     actual_res = "REJECTED"

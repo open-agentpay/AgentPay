@@ -292,6 +292,13 @@ class PaymentRequest(BaseModel):
     domain: str | None = None
     ttl_seconds: int = 360
 
+    @field_validator("intent_id", mode="before")
+    @classmethod
+    def _validate_intent_id(cls, v: object) -> str:
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("intent_id must be a non-empty string")
+        return v
+
     @field_validator("amount", mode="before")
     @classmethod
     def _validate_amount(cls, v: object) -> int:

@@ -302,6 +302,57 @@
           "expectedError": "PAYEE_NOT_WHITELISTED"
         }
       ]
+    },
+    {
+      "id": "TV-ORD-01",
+      "description": "Strict evaluation order: Freeze check precedes request format validation (frozen policy receiving malformed request returns POLICY_FROZEN, and unfrozen policy receiving malformed payee/asset/network returns INVALID_REQUEST)",
+      "clock": 1729000000,
+      "initialState": {
+        "is_frozen": 1
+      },
+      "actions": [
+        {
+          "step": 1,
+          "action": "reserve",
+          "intentId": "intent_ord_01_frozen_bad_amount",
+          "amount": "0",
+          "payee": "invalid_payee",
+          "asset": "invalid_asset",
+          "network": "invalid_network",
+          "domain": "api.untrusted.com",
+          "expectedResult": "REJECTED",
+          "expectedError": "POLICY_FROZEN"
+        }
+      ]
+    },
+    {
+      "id": "TC_POLICY_14_INVALID_REQUEST_FORMAT",
+      "description": "Reject malformed payee, asset, or network format with INVALID_REQUEST",
+      "clock": 1729000000,
+      "actions": [
+        {
+          "step": 1,
+          "action": "reserve",
+          "intentId": "intent_14_bad_payee",
+          "amount": "100000",
+          "payee": "not_an_evm_address",
+          "asset": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+          "network": "eip155:84532",
+          "expectedResult": "REJECTED",
+          "expectedError": "INVALID_REQUEST"
+        },
+        {
+          "step": 2,
+          "action": "reserve",
+          "intentId": "intent_14_bad_network",
+          "amount": "100000",
+          "payee": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+          "asset": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+          "network": "invalid_caip2_network",
+          "expectedResult": "REJECTED",
+          "expectedError": "INVALID_REQUEST"
+        }
+      ]
     }
   ]
 }

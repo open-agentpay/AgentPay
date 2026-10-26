@@ -3,7 +3,7 @@ Static rule evaluation logic for AgentPay Policy Engine.
 
 Evaluates deterministic static guardrails according to specs/policy-engine-spec.md §3:
   1. Administrative lock (is_frozen) -> POLICY_FROZEN
-  2. Input format -> INVALID_AMOUNT_FORMAT
+  2. Request format -> INVALID_AMOUNT_FORMAT (for amount) / INVALID_REQUEST (for other fields)
   3. Whitelist matrix (Order: Network -> Asset -> Payee -> Domain)
   4. Single-Transaction Cap -> SINGLE_TX_CAP_EXCEEDED
   5. Lifetime Budget Ceiling -> LIFETIME_BUDGET_EXCEEDED
@@ -16,7 +16,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agentpay.policy.errors import PolicyErrorCode
-from agentpay.policy.models import PaymentRequest, PolicyConfig, WhitelistMode, _normalize_domain_host
+from agentpay.policy.models import (
+    SQLITE_MAX_INT,
+    PaymentRequest,
+    PolicyConfig,
+    WhitelistMode,
+    _normalize_domain_host,
+)
 
 
 @dataclass(frozen=True)
@@ -52,12 +58,29 @@ def evaluate_static_rules(
             reason=f"Policy {config.id} is administratively frozen",
         )
 
-    # 2. Format validation (Amount must be strictly positive int)
-    if not isinstance(request.amount, int) or isinstance(request.amount, bool) or request.amount <= 0:
+    # 2. Format validation (Amount must be strictly positive int within SQLite 64-bit bounds)
+    if (
+        not isinstance(request.amount, int)
+        or isinstance(request.amount, bool)
+        or not (0 < request.amount <= SQLITE_MAX_INT)
+    ):
         return StaticEvaluationResult(
             passed=False,
             error_code=PolicyErrorCode.INVALID_AMOUNT_FORMAT,
             reason=f"Invalid payment amount: {request.amount!r}",
+        )
+
+    if (
+        not isinstance(request.intent_id, str)
+        or not request.intent_id.strip()
+        or not isinstance(request.ttl_seconds, int)
+        or isinstance(request.ttl_seconds, bool)
+        or not (0 < request.ttl_seconds <= 86400)
+    ):
+        return StaticEvaluationResult(
+            passed=False,
+            error_code=PolicyErrorCode.INVALID_REQUEST,
+            reason="Invalid payment request parameters",
         )
 
     # 3. Whitelist Matrix (EVM only). AgentPay's internal wallet ledger uses
@@ -149,11 +172,18 @@ def evaluate_metered_rules(
             reason=f"Policy {config.id} is administratively frozen",
         )
 
-    if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
+    if not isinstance(amount, int) or isinstance(amount, bool) or not (0 < amount <= SQLITE_MAX_INT):
         return StaticEvaluationResult(
             passed=False,
             error_code=PolicyErrorCode.INVALID_AMOUNT_FORMAT,
             reason=f"Invalid estimated amount: {amount!r}",
+        )
+
+    if domain is not None and not isinstance(domain, str):
+        return StaticEvaluationResult(
+            passed=False,
+            error_code=PolicyErrorCode.INVALID_REQUEST,
+            reason=f"Invalid domain type: {type(domain).__name__}",
         )
 
     host = _normalize_domain_host(domain) if isinstance(domain, str) else ""
