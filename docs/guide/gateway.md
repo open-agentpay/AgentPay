@@ -5,7 +5,7 @@ description: gateway.yaml configuration schema reference, reverse proxy settings
 
 # Gateway Configuration Guide
 
-The AgentPay reverse proxy gateway is configured via YAML. A reference template is provided at `gateway-go/configs/gateway.example.yaml`.
+The AgentPay reverse proxy gateway is configured via YAML. A reference template is provided at `services/gateway/configs/gateway.example.yaml`.
 
 ## Basic Configuration Example
 
@@ -28,4 +28,4 @@ routes:
     policy_id: "pol_weather_default"
 ```
 
-For advanced settings including RCU hot-reloads and Prometheus metrics, see `gateway-go/configs/gateway.example.yaml`.
+For advanced settings including RCU hot-reloads and Prometheus metrics, see `services/gateway/configs/gateway.example.yaml`.

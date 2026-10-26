@@ -17,7 +17,7 @@ Each task is scoped to be achievable within a few hours to a weekend, with clear
 
 ## 📌 Issue #1: Policy Config CLI Validator (`agentpay policy validate`)
 
-- **Component**: `python/packages/agentpay`
+- **Component**: `sdk/python/packages/agentpay`
 - **Difficulty**: ⭐ Easy
 - **Tags**: `good first issue`, `cli`, `developer-experience`
 
@@ -32,18 +32,18 @@ python -m agentpay.cli policy validate path/to/policy.yaml
 that loads and validates the YAML against `PolicyConfig`, reporting clear human-readable errors without needing to initialize the full SQLite database.
 
 ### Implementation Guide
-1. **File Location**: `python/packages/agentpay/src/agentpay/cli.py` (create or extend).
+1. **File Location**: `sdk/python/packages/agentpay/src/agentpay/cli.py` (create or extend).
 2. **Schema**: Use `PolicyConfig.model_validate(...)` (Pydantic v2).
 3. **Exit Codes**:
    - Exit `0`: Configuration is valid. Print a clean summary table of active limits.
    - Exit `1`: Configuration is invalid. Print line numbers / fields and validation reasons.
-4. **Tests**: Add unit tests under `python/tests/unit/test_cli.py` testing valid YAML, malformed YAML, and schema violation cases.
+4. **Tests**: Add unit tests under `sdk/python/tests/unit/test_cli.py` testing valid YAML, malformed YAML, and schema violation cases.
 
 ---
 
 ## 📌 Issue #2: SQLite Ledger Audit Exporter (`agentpay audit export`)
 
-- **Component**: `python/packages/agentpay`
+- **Component**: `sdk/python/packages/agentpay`
 - **Difficulty**: ⭐ Easy
 - **Tags**: `good first issue`, `sqlite`, `accounting`
 
@@ -61,13 +61,13 @@ python -m agentpay.cli audit export --db ./policy_ledger.db --format csv --outpu
 1. **Query**: Select records from `transactions` and `reservations` in `SQLitePolicyEngine`.
 2. **Fields to Export**: `intent_id`, `tx_hash`, `amount`, `asset`, `payee`, `network`, `status`, `timestamp`, `created_at`.
 3. **Masking**: Ensure no private keys or internal memory references are included.
-4. **Tests**: Add integration tests under `python/tests/unit/test_audit_export.py` verifying that records inserted into a temporary SQLite DB export accurately in both JSON and CSV formats.
+4. **Tests**: Add integration tests under `sdk/python/tests/unit/test_audit_export.py` verifying that records inserted into a temporary SQLite DB export accurately in both JSON and CSV formats.
 
 ---
 
 ## 📌 Issue #3: Gateway Dynamic Route Reload on SIGHUP
 
-- **Component**: `python/packages/agentpay-gateway`
+- **Component**: `sdk/python/packages/agentpay-gateway`
 - **Difficulty**: ⭐⭐ Medium
 - **Tags**: `good first issue`, `gateway`, `devops`
 
@@ -78,17 +78,17 @@ When deploying `agentpay-gateway` in production or staging, operators may update
 On POSIX platforms (Linux / macOS), allow the gateway to reload `gateway.yaml` on receipt of a `SIGHUP` signal without terminating the running server.
 
 ### Implementation Guide
-1. **File Location**: `python/packages/agentpay-gateway/src/agentpay_gateway/server.py`.
+1. **File Location**: `sdk/python/packages/agentpay-gateway/src/agentpay_gateway/server.py`.
 2. **Signal Handling**: Use Python's standard `signal.signal(signal.SIGHUP, handler)` or Starlette lifespan hooks.
 3. **Thread Safety**: Safely reload and swap the active `GatewayConfig.routes` mapping under a lock.
 4. **Logging**: Log at `INFO` level: `"Reloaded gateway configuration: X active routes"`.
-5. **Tests**: Add a test under `python/tests/integration/test_gateway_reload.py` verifying that modifying the YAML file and sending SIGHUP updates the routes served by the test client.
+5. **Tests**: Add a test under `sdk/python/tests/integration/test_gateway_reload.py` verifying that modifying the YAML file and sending SIGHUP updates the routes served by the test client.
 
 ---
 
 ## 📌 Issue #4: Standard CAIP-2 Network Registry & Block Explorer Helpers
 
-- **Component**: `python/packages/agentpay`
+- **Component**: `sdk/python/packages/agentpay`
 - **Difficulty**: ⭐ Easy
 - **Tags**: `good first issue`, `web3`, `utility`
 
@@ -103,15 +103,15 @@ Provide a clean helper module `agentpay.core.networks` with:
 - Helper function `get_explorer_address_url(caip2_id: str, address: str) -> str | None`.
 
 ### Implementation Guide
-1. **File Location**: `python/packages/agentpay/src/agentpay/core/networks.py`.
+1. **File Location**: `sdk/python/packages/agentpay/src/agentpay/core/networks.py`.
 2. **Export**: Export public functions in `agentpay` top-level `__init__.py`.
-3. **Tests**: Add unit tests in `python/tests/unit/test_networks.py` verifying correct URL formatting and graceful handling of unknown CAIP-2 networks.
+3. **Tests**: Add unit tests in `sdk/python/tests/unit/test_networks.py` verifying correct URL formatting and graceful handling of unknown CAIP-2 networks.
 
 ---
 
 ## 📌 Issue #5: Gateway Prometheus-Compatible `/metrics` Endpoint
 
-- **Component**: `python/packages/agentpay-gateway`
+- **Component**: `sdk/python/packages/agentpay-gateway`
 - **Difficulty**: ⭐⭐ Medium
 - **Tags**: `good first issue`, `observability`, `metrics`
 
@@ -126,7 +126,7 @@ Expose a `/metrics` HTTP endpoint on the gateway serving Prometheus text-based e
 - `agentpay_gateway_upstream_duration_seconds` (Histogram/Summary)
 
 ### Implementation Guide
-1. **File Location**: `python/packages/agentpay-gateway/src/agentpay_gateway/server.py`.
+1. **File Location**: `sdk/python/packages/agentpay-gateway/src/agentpay_gateway/server.py`.
 2. **Zero Bloat**: Use a lightweight in-memory metric counter class or optional integration so external dependencies remain minimal.
 3. **Tests**: Add integration tests verifying `GET /metrics` returns status `200` with `text/plain; version=0.0.4` and accurately increments after sample requests.
 

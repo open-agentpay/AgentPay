@@ -14,7 +14,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-agentpay}
       POSTGRES_USER: ${POSTGRES_USER:-agentpay}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aZTbJNhs9c9f9iaBf7UJAkJmPrHXcoWvX}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -36,12 +36,12 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./gateway-go/configs/gateway.yaml:/etc/agentpay/gateway.yaml:ro
+      - ./services/gateway/configs/gateway.yaml:/etc/agentpay/gateway.yaml:ro
     environment:
       AGENTPAY_HOST: "0.0.0.0"
       AGENTPAY_PORT: 8000
-      AGENTPAY_POSTGRES_URL: "postgres://${POSTGRES_USER:-agentpay}:${POSTGRES_PASSWORD:-aZTbJNhs9c9f9iaBf7UJAkJmPrHXcoWvX}@postgres:5432/${POSTGRES_DB:-agentpay}?sslmode=disable"
-      AGENTPAY_JWT_SECRET: ${AGENTPAY_JWT_SECRET:-dTHqDHf53e7meEc78rhBkT7vkUZVxru7}
+      AGENTPAY_POSTGRES_URL: "postgres://${POSTGRES_USER:-agentpay}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-agentpay}?sslmode=disable"
+      AGENTPAY_JWT_SECRET: ${AGENTPAY_JWT_SECRET:?AGENTPAY_JWT_SECRET must be set}
       AGENTPAY_LOG_LEVEL: ${LOG_LEVEL:-info}
       AGENTPAY_LOG_FORMAT: "json"
     ports:
@@ -108,7 +108,7 @@ services:
       RPC_URL: ${RPC_URL:-https://sepolia-rollup.arbitrum.io/rpc}
       CHAIN_ID: ${CHAIN_ID:-421614}
       USDC_ADDRESS: ${USDC_ADDRESS:-0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d}
-      FACILITATOR_PRIVATE_KEY: ${FACILITATOR_PRIVATE_KEY:-1222356011c55a40befe08a3f7f1e2ebe1a18052808db7ccf88ed4f8c73dea01}
+      FACILITATOR_PRIVATE_KEY: ${FACILITATOR_PRIVATE_KEY:?FACILITATOR_PRIVATE_KEY must be set}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "${FACILITATOR_PORT:-8001}:8001"

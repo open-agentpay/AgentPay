@@ -30,7 +30,7 @@ STUB_PACKAGES = [
 
 
 def get_version() -> str:
-    init_py = ROOT_DIR / "python" / "packages" / "agentpay" / "src" / "agentpay" / "__init__.py"
+    init_py = ROOT_DIR / "sdk" / "python" / "packages" / "agentpay" / "src" / "agentpay" / "__init__.py"
     for line in init_py.read_text(encoding="utf-8").splitlines():
         if line.startswith("__version__"):
             return line.split("=")[1].strip().strip('"').strip("'")
@@ -46,11 +46,11 @@ def run(cmd: list[str], cwd: Path | None = None) -> None:
 
 def build_primary_packages() -> None:
     # 1. open-agentpay
-    agentpay_pkg = ROOT_DIR / "python" / "packages" / "agentpay"
+    agentpay_pkg = ROOT_DIR / "sdk" / "python" / "packages" / "agentpay"
     run([sys.executable, "-m", "build", "--no-isolation", "--outdir", str(DIST_DIR)], cwd=agentpay_pkg)
 
     # 2. agentpay-gateway
-    gateway_pkg = ROOT_DIR / "python" / "packages" / "agentpay-gateway"
+    gateway_pkg = ROOT_DIR / "sdk" / "python" / "packages" / "agentpay-gateway"
     run([sys.executable, "-m", "build", "--no-isolation", "--outdir", str(DIST_DIR)], cwd=gateway_pkg)
 
 

@@ -22,12 +22,12 @@ import sys
 root = Path(sys.argv[1])
 version = sys.argv[2]
 files = {
-    "python/pyproject.toml": (r'^(version\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
-    "python/packages/agentpay/pyproject.toml": (r'^(version\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
-    "python/packages/agentpay-gateway/pyproject.toml": (r'^(version\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
-    "python/packages/agentpay/src/agentpay/__init__.py": (r'^(__version__\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
-    "python/packages/agentpay-gateway/src/agentpay_gateway/__init__.py": (r'^(__version__\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
-    "python/tests/unit/test_smoke.py": (r'^(\s*self\.assertEqual\(agentpay\.__version__,\s*")[^"]+("\)\s*)$', rf'\g<1>{version}\2'),
+    "sdk/python/pyproject.toml": (r'^(version\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
+    "sdk/python/packages/agentpay/pyproject.toml": (r'^(version\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
+    "sdk/python/packages/agentpay-gateway/pyproject.toml": (r'^(version\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
+    "sdk/python/packages/agentpay/src/agentpay/__init__.py": (r'^(__version__\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
+    "sdk/python/packages/agentpay-gateway/src/agentpay_gateway/__init__.py": (r'^(__version__\s*=\s*")[^"]+("\s*)$', rf'\g<1>{version}\2'),
+    "sdk/python/tests/unit/test_smoke.py": (r'^(\s*self\.assertEqual\(agentpay\.__version__,\s*")[^"]+("\)\s*)$', rf'\g<1>{version}\2'),
     "scripts/build_pypi_dist.py": (r'^(\s*return\s+")[^"]+("\s*)$', rf'\g<1>{version}\2'),
 }
 

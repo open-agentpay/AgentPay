@@ -65,7 +65,7 @@ graph TB
 | **Buyer Agent** | High-level agent runtime or script initiating HTTP calls to tools, APIs, and data sources. |
 | **AgentPay Client Interceptor** | Transparent HTTP client wrapper that detects `402 Payment Required`, triggers policy evaluation, collects EIP-712 signatures, and replays requests. |
 | **Policy Engine (Firewall)** | Standalone security engine enforcing rate limits, per-transaction caps, daily rolling budgets, and destination whitelists. |
-| **Gateway / Seller Proxy** | High-performance Go Reverse Proxy (`gateway-go`) intercepting incoming requests, generating x402 challenges, managing wallet reservations, and coordinating verification. |
+| **Gateway / Seller Proxy** | High-performance Go Reverse Proxy (`services/gateway`) intercepting incoming requests, generating x402 challenges, managing wallet reservations, and coordinating verification. |
 | **Facilitator Service** | High-performance gateway that validates off-chain EIP-712/3009 signatures, sponsors gas, and batches on-chain settlement transactions. |
 | **Reconciliation Worker** | Asynchronous service that polls unconfirmed settlements, repairs state after network splits, and triggers automated recovery workflows. |
 
@@ -131,8 +131,8 @@ sequenceDiagram
 To serve different operational requirements while guaranteeing identical protocol behavior:
 
 ### 5.1 Current Implementation (v0.1.x Baseline)
-* **Go Reverse Proxy Gateway (`gateway-go/`):** High-throughput cloud-native reverse proxy, embedded Policy Engine, multitenant wallet & ledger, low-latency EIP-712 cryptographic verification (`geth/crypto`), structured logging, and minimal container footprints.
-* **Python Client SDK (`python/packages/agentpay`):** Targeted at the primary AI Agent and LLM framework ecosystem (LangChain, CrewAI, AutoGen, LlamaIndex), featuring transparent HTTP interceptors (`httpx`, `aiohttp`) and native MCP server tools.
+* **Go Reverse Proxy Gateway (`services/gateway/`):** High-throughput cloud-native reverse proxy, embedded Policy Engine, multitenant wallet & ledger, low-latency EIP-712 cryptographic verification (`geth/crypto`), structured logging, and minimal container footprints.
+* **Python Client SDK (`sdk/python/packages/agentpay`):** Targeted at the primary AI Agent and LLM framework ecosystem (LangChain, CrewAI, AutoGen, LlamaIndex), featuring transparent HTTP interceptors (`httpx`, `aiohttp`) and native MCP server tools.
 
 ### 5.2 Multi-Language Roadmap (2027+)
 * **TypeScript / Node.js Stack:** Targeted at JS/TS AI agents (Browser, Bun, MCP servers) and Next.js / Express microservices.

@@ -65,7 +65,7 @@ You should see the `postgres` service with a status of `running` (or `healthy`).
 Open a **second terminal** (the gateway runs in the foreground) and start it:
 
 ```bash
-cd AgentPay/gateway-go
+cd AgentPay/services/gateway
 go run ./cmd/gateway
 ```
 
@@ -123,7 +123,7 @@ From the repository root, in a virtual environment:
 python3 -m venv .venv
 source .venv/bin/activate          # Windows (WSL): same; PowerShell: .venv\Scripts\Activate.ps1
 
-pip install -e python/packages/agentpay
+pip install -e sdk/python/packages/agentpay
 python -c "import agentpay; print('agentpay OK')"
 ```
 

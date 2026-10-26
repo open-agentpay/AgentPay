@@ -117,7 +117,7 @@ pip install open-agentpay agentpay-gateway
 git clone https://github.com/open-agentpay/AgentPay.git
 cd AgentPay
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e python/packages/agentpay -e python/packages/agentpay-gateway
+pip install -e sdk/python/packages/agentpay -e sdk/python/packages/agentpay-gateway
 ```
 
 ### 2. Run Built-in Demos
@@ -288,28 +288,29 @@ AgentPay natively supports two distinct operational topologies:
 
 ```text
 AgentPay/
-├── gateway-go/                      # Production Cloud-Native Go Reverse Proxy Gateway
-│   ├── cmd/gateway/                 # Gateway main server entrypoint
-│   ├── internal/                    # Core modules (RCU, x402, wallet, admin, state machine)
-│   ├── tests/                       # E2E & concurrency test suites
-│   └── Makefile                     # Go build, test & clean targets
+├── services/
+│   ├── gateway/                     # Production Cloud-Native Go Reverse Proxy Gateway
+│   │   ├── cmd/gateway/             # Gateway main server entrypoint
+│   │   ├── internal/                # Core modules (RCU, x402, wallet, admin, state machine)
+│   │   ├── tests/                   # E2E & concurrency test suites
+│   │   └── Makefile                 # Go build, test & clean targets
+│   └── facilitator/                 # Go Facilitator Node (EIP-712 settlement)
 │
-├── console/                         # Multi-Tenant Web Management Console (Vue 3 + Element Plus)
-│   ├── src/                         # Views (dashboard, routes, agents, wallets, audit)
-│   └── package.json                 # Web console workspace
+├── apps/
+│   ├── console/                     # Multi-Tenant Web Management Console (Vue 3 + Element Plus)
+│   │   ├── src/                     # Views (dashboard, routes, agents, wallets, audit)
+│   │   └── package.json             # Web console workspace
+│   └── marketplace-web/             # AgentPay Marketplace & Documentation (Next.js 15)
 │
-├── python/packages/
-│   ├── agentpay/                    # Buyer SDK & Financial Firewall
-│   │   ├── client/                  # Transparent HTTP 402 interceptor (httpx)
-│   │   ├── policy/                  # SQLite Financial Firewall & circuit breaker
-│   │   ├── evm/                     # EIP-712 / EIP-3009 codecs & EvmRpcClient
-│   │   └── integrations/langchain/  # @paid_tool decorator for AI agents
-│   │
-│   └── agentpay-gateway/            # Python Reference Reverse Proxy & Facilitator
-│       ├── proxy/                   # Streaming forwarder & ASGI service
-│       ├── payment/                 # PaymentVerifier & AsyncSettlementWorker
-│       ├── facilitator/             # EvmFacilitatorService (EIP-1559 clearing)
-│       └── state/                   # GatewayStateCoordinator & SQLite idempotency
+├── sdk/
+│   └── python/                      # Python Monorepo (SDK & Reference Gateway)
+│       └── packages/
+│           ├── agentpay/            # Buyer SDK & Financial Firewall
+│           │   ├── client/          # Transparent HTTP 402 interceptor (httpx)
+│           │   ├── policy/          # SQLite Financial Firewall & circuit breaker
+│           │   ├── evm/             # EIP-712 / EIP-3009 codecs & EvmRpcClient
+│           │   └── integrations/langchain/ # @paid_tool decorator for AI agents
+│           └── agentpay-gateway/    # Python Reference Reverse Proxy & Facilitator
 │
 ├── examples/
 │   ├── runaway-agent/               # T6.4 Runaway Agent & Circuit Breaker Demo
@@ -357,8 +358,8 @@ AgentPay/
 | **Python Buyer SDK (`agentpay`)** | 🟢 Complete | v0.1.0 (2026) | Transparent 402 interceptor, EIP-712/3009 signing |
 | **Financial Firewall (Policy Engine)** | 🟢 Complete | v0.1.0 (2026) | Per-tx cap, rolling budget, RPM circuit breaker |
 | **LangChain Paid Tools (`@paid_tool`)**| 🟢 Complete | v0.1.0 (2026) | 1-line paid tool decorator for AI agents |
-| **Go Cloud-Native Gateway (`gateway-go`)** | 🟢 Complete | v0.1.0 (2026) | High-performance Go proxy, zero-downtime RCU reload, multitenancy, ledger |
-| **Management Console (`console`)** | 🟢 Complete | v0.1.0 (2026) | Vue 3 + Element Plus multi-tenant web dashboard & API management |
+| **Go Cloud-Native Gateway (`services/gateway`)** | 🟢 Complete | v0.1.0 (2026) | High-performance Go proxy, zero-downtime RCU reload, multitenancy, ledger |
+| **Management Console (`apps/console`)** | 🟢 Complete | v0.1.0 (2026) | Vue 3 + Element Plus multi-tenant web dashboard & API management |
 | **Python Reference Gateway (`agentpay-gateway`)** | 🟢 Complete | v0.1.0 (2026) | Lightweight reference reverse proxy, challenge manager |
 | **Arbitrum Sepolia EIP-3009 Settlement** | 🟢 Complete | v0.1.0 (2026) | Circle USDC, EIP-1559 Facilitator, 1.5x BaseFee buffer |
 | **Runaway Agent Circuit Breaker Demo** | 🟢 Complete | v0.1.0 (2026) | `make demo` (simulation) & `make demo-live` (testnet) |

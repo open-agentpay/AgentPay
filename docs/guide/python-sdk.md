@@ -32,7 +32,7 @@ Requires **Python 3.10+**.
 pip install open-agentpay
 
 # Or install in editable mode for development from repository root
-pip install -e python/packages/agentpay
+pip install -e sdk/python/packages/agentpay
 ```
 
 ---

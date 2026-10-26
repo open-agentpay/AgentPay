@@ -1,6 +1,6 @@
 # AgentPay Docker 容器化与云服务器部署指南
 
-本文档介绍如何将 AgentPay **Golang 服务端 (`gateway-go`)**、**前端控制台 (`console`)**、**功能商店与 GEO 门户 (`marketplace-web`)** 以及 **PostgreSQL 15** 打包为 Docker 镜像，并通过 `docker-compose.yml` 快速部署到云服务器（如阿里云 ECS、腾讯云 CVM、AWS EC2、DigitalOcean 等）。
+本文档介绍如何将 AgentPay **Golang 服务端 (`services/gateway`)**、**前端控制台 (`apps/console`)**、**功能商店与 GEO 门户 (`apps/marketplace-web`)** 以及 **PostgreSQL 15** 打包为 Docker 镜像，并通过 `docker-compose.yml` 快速部署到云服务器（如阿里云 ECS、腾讯云 CVM、AWS EC2、DigitalOcean 等）。
 
 ---
 
@@ -35,15 +35,15 @@
 
 ```
 AgentPay/
-├── gateway-go/
+├── services/gateway/
 │   ├── Dockerfile             # Golang 网关多阶段构建镜像文件
 │   ├── .dockerignore          # 排除本地编译与临时文件
 │   └── configs/gateway.yaml   # 网关运行参数配置
-├── console/
+├── apps/console/
 │   ├── Dockerfile             # 前端控制台多阶段构建镜像文件 (Node.js -> Nginx)
 │   ├── .dockerignore          # 排除 node_modules 等
 │   └── nginx.conf             # Nginx 反向代理与 SPA 路由配置
-├── marketplace-web/
+├── apps/marketplace-web/
 │   ├── Dockerfile             # 功能商店 Next.js 15 Standalone 多阶段构建镜像文件
 │   ├── .dockerignore          # 排除 node_modules、.next 等
 │   └── next.config.mjs        # Next.js 独立输出构建配置
@@ -104,16 +104,16 @@ sudo apt-get update && sudo apt-get install -y docker-compose-plugin
 - `docker-compose.yml`（或 `docker-compose.prod.yml`）
 - `.env.example`
 - `infra/postgres/schema.sql`
-- `gateway-go/configs/gateway.yaml`
+- `services/gateway/configs/gateway.yaml`
 
 可使用 `rsync` 或 `scp`：
 ```bash
-ssh user@your-server-ip "mkdir -p ~/agentpay/infra/postgres ~/agentpay/gateway-go/configs"
+ssh user@your-server-ip "mkdir -p ~/agentpay/infra/postgres ~/agentpay/services/gateway/configs"
 
 scp docker-compose.prod.yml user@your-server-ip:~/agentpay/docker-compose.yml
 scp .env.example user@your-server-ip:~/agentpay/.env
 scp infra/postgres/schema.sql user@your-server-ip:~/agentpay/infra/postgres/
-scp gateway-go/configs/gateway.yaml user@your-server-ip:~/agentpay/gateway-go/configs/
+scp services/gateway/configs/gateway.yaml user@your-server-ip:~/agentpay/services/gateway/configs/
 ```
 
 ### 第三步：配置环境变量 `.env`

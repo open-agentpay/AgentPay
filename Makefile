@@ -4,19 +4,19 @@ PYTHON ?= python3
 
 # Run all test suites across the Monorepo
 test:
-	PYTHONPATH=python/packages/agentpay/src:python/packages/agentpay-gateway/src:python $(PYTHON) -m pytest -v python/tests
+	PYTHONPATH=sdk/python/packages/agentpay/src:sdk/python/packages/agentpay-gateway/src:sdk/python $(PYTHON) -m pytest -v sdk/python/tests
 
 # Run unit tests only
 test-unit:
-	PYTHONPATH=python/packages/agentpay/src:python/packages/agentpay-gateway/src:python $(PYTHON) -m pytest -v python/tests/unit
+	PYTHONPATH=sdk/python/packages/agentpay/src:sdk/python/packages/agentpay-gateway/src:sdk/python $(PYTHON) -m pytest -v sdk/python/tests/unit
 
 # Run integration tests only
 test-integration:
-	PYTHONPATH=python/packages/agentpay/src:python/packages/agentpay-gateway/src:python $(PYTHON) -m pytest -v python/tests/integration
+	PYTHONPATH=sdk/python/packages/agentpay/src:sdk/python/packages/agentpay-gateway/src:sdk/python $(PYTHON) -m pytest -v sdk/python/tests/integration
 
 # Run e2e tests only
 test-e2e:
-	PYTHONPATH=python/packages/agentpay/src:python/packages/agentpay-gateway/src:python $(PYTHON) -m pytest -v python/tests/e2e
+	PYTHONPATH=sdk/python/packages/agentpay/src:sdk/python/packages/agentpay-gateway/src:sdk/python $(PYTHON) -m pytest -v sdk/python/tests/e2e
 
 # Validate language-agnostic conformance test vectors
 vectors:
@@ -24,59 +24,59 @@ vectors:
 
 # Check code linting with ruff
 lint:
-	$(PYTHON) -m ruff check python/
+	$(PYTHON) -m ruff check sdk/python/
 
 # Format code with ruff
 format:
-	$(PYTHON) -m ruff format python/
+	$(PYTHON) -m ruff format sdk/python/
 
 # Check code formatting without applying changes
 format-check:
-	$(PYTHON) -m ruff format --check python/
+	$(PYTHON) -m ruff format --check sdk/python/
 
 # Go Gateway targets
 gateway-build:
-	$(MAKE) -C gateway-go build
+	$(MAKE) -C services/gateway build
 
 gateway-test:
-	$(MAKE) -C gateway-go test
+	$(MAKE) -C services/gateway test
 
 gateway-clean:
-	$(MAKE) -C gateway-go clean
+	$(MAKE) -C services/gateway clean
 
 # Go Facilitator targets
 facilitator-build:
-	cd facilitator-go && go build -o bin/facilitator ./cmd/facilitator
+	cd services/facilitator && go build -o bin/facilitator ./cmd/facilitator
 
 facilitator-test:
-	cd facilitator-go && go test -v ./...
+	cd services/facilitator && go test -v ./...
 
 facilitator-clean:
-	rm -rf facilitator-go/bin
+	rm -rf services/facilitator/bin
 
 # Console targets (Vue 3 + Element Plus)
 console-dev:
-	npm --prefix console run dev
+	pnpm --prefix apps/console run dev
 
 console-build:
-	npm --prefix console run build
+	pnpm --prefix apps/console run build
 
 console-test:
-	npm --prefix console run test
+	pnpm --prefix apps/console run test
 
 # Marketplace targets (Next.js 15)
 marketplace-dev:
-	npm --prefix marketplace-web run dev
+	pnpm --prefix apps/marketplace-web run dev
 
 marketplace-build:
-	@if [ ! -d marketplace-web/public/docs ] || [ ! -f marketplace-web/public/docs/index.html ]; then \
-		echo "Building and bundling docs into marketplace-web/public/docs..."; \
-		node scripts/sync-specs.mjs && DOCS_BASE=/docs/ npx vitepress build docs && rm -rf marketplace-web/public/docs && cp -r docs/.vitepress/dist marketplace-web/public/docs; \
+	@if [ ! -d apps/marketplace-web/public/docs ] || [ ! -f apps/marketplace-web/public/docs/index.html ]; then \
+		echo "Building and bundling docs into apps/marketplace-web/public/docs..."; \
+		node scripts/sync-specs.mjs && DOCS_BASE=/docs/ npx vitepress build docs && rm -rf apps/marketplace-web/public/docs && cp -r docs/.vitepress/dist apps/marketplace-web/public/docs; \
 	fi
-	npm --prefix marketplace-web run build
+	pnpm --prefix apps/marketplace-web run build
 
 marketplace-lint:
-	npm --prefix marketplace-web run lint
+	pnpm --prefix apps/marketplace-web run lint
 
 # Docker build & Compose targets
 docker-build:
@@ -111,8 +111,8 @@ clean: gateway-clean
 
 # Runaway agent circuit breaker demo (Local simulation)
 demo:
-	PYTHONPATH=python/packages/agentpay/src:python/packages/agentpay-gateway/src:python $(PYTHON) examples/runaway-agent/demo.py
+	PYTHONPATH=sdk/python/packages/agentpay/src:sdk/python/packages/agentpay-gateway/src:sdk/python $(PYTHON) examples/runaway-agent/demo.py
 
 # Runaway agent circuit breaker demo (Live Arbitrum Sepolia testnet)
 demo-live:
-	PYTHONPATH=python/packages/agentpay/src:python/packages/agentpay-gateway/src:python $(PYTHON) examples/runaway-agent/demo.py --live
+	PYTHONPATH=sdk/python/packages/agentpay/src:sdk/python/packages/agentpay-gateway/src:sdk/python $(PYTHON) examples/runaway-agent/demo.py --live

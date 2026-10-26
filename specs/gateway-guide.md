@@ -43,7 +43,7 @@ Install the gateway package from source or wheel:
 git clone https://github.com/open-agentpay/AgentPay.git
 cd AgentPay
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e python/packages/agentpay -e python/packages/agentpay-gateway
+pip install -e sdk/python/packages/agentpay -e sdk/python/packages/agentpay-gateway
 ```
 
 ### 2.2 Minimal Configuration (`gateway.yaml`)
@@ -230,8 +230,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY python/ /app/python/
 RUN pip install --no-cache-dir \
-    -e /app/python/packages/agentpay \
-    -e /app/python/packages/agentpay-gateway
+    -e /app/sdk/python/packages/agentpay \
+    -e /app/sdk/python/packages/agentpay-gateway
 
 EXPOSE 8000
 

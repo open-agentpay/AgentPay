@@ -24,11 +24,11 @@
 
 | 测试维度               | 测试套件与文件                                                                                                                             | 测试用例数 | 结果     | 重点验证项                                                                                             |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| **全量错误码对齐**     | `gateway-go/internal/x402/conformance_test.go`<br>`python/tests/unit/test_protocol_conformance_vectors.py`                                 | 18 项      | **PASS** | 17 个 Canonical Error Code 状态码、Domain、Message 及标准 Wire Format Envelope 校验                    |
-| **双轨协议测试向量**   | `specs/test-vectors/dual-path-protocol.json`<br>`gateway-go/internal/x402/conformance_test.go`                                             | 6 项       | **PASS** | `TC_PROTO_01` ~ `TC_PROTO_06` 驱动测试，覆盖出题、选路、防降级、欠费、幂等冲突                         |
-| **状态机矩阵与守卫**   | `gateway-go/internal/statemachine/engine_test.go`<br>`python/tests/unit/test_state_machine_matrix.py`                                      | 42 项      | **PASS** | 35 个合法转移、非法转移拦截、终端状态不可变、双轨调度守卫、未知防重守卫、复合视图映射                  |
-| **配置发布一致性**     | `specs/test-vectors/config-publishing.json`<br>`gateway-go/internal/rcu/snapshot_test.go`<br>`python/tests/unit/test_config_publishing.py` | 5 项       | **PASS** | `TC_CFG_01` ~ `TC_CFG_05`，静态校验矩阵、Canonical SHA-256 签名计算、版本回滚与容灾降级                |
-| **端到端进程级互操作** | `python/tests/integration/test_cross_language_conformance.py`                                                                              | 6 项       | **PASS** | 真实 Python 客户端向独立 Go Gateway 发起 HTTP 请求，解析 Challenge、钱包扣费、标头溯源、幂等与故障注入 |
+| **全量错误码对齐**     | `services/gateway/internal/x402/conformance_test.go`<br>`sdk/python/tests/unit/test_protocol_conformance_vectors.py`                                 | 18 项      | **PASS** | 17 个 Canonical Error Code 状态码、Domain、Message 及标准 Wire Format Envelope 校验                    |
+| **双轨协议测试向量**   | `specs/test-vectors/dual-path-protocol.json`<br>`services/gateway/internal/x402/conformance_test.go`                                             | 6 项       | **PASS** | `TC_PROTO_01` ~ `TC_PROTO_06` 驱动测试，覆盖出题、选路、防降级、欠费、幂等冲突                         |
+| **状态机矩阵与守卫**   | `services/gateway/internal/statemachine/engine_test.go`<br>`sdk/python/tests/unit/test_state_machine_matrix.py`                                      | 42 项      | **PASS** | 35 个合法转移、非法转移拦截、终端状态不可变、双轨调度守卫、未知防重守卫、复合视图映射                  |
+| **配置发布一致性**     | `specs/test-vectors/config-publishing.json`<br>`services/gateway/internal/rcu/snapshot_test.go`<br>`sdk/python/tests/unit/test_config_publishing.py` | 5 项       | **PASS** | `TC_CFG_01` ~ `TC_CFG_05`，静态校验矩阵、Canonical SHA-256 签名计算、版本回滚与容灾降级                |
+| **端到端进程级互操作** | `sdk/python/tests/integration/test_cross_language_conformance.py`                                                                              | 6 项       | **PASS** | 真实 Python 客户端向独立 Go Gateway 发起 HTTP 请求，解析 Challenge、钱包扣费、标头溯源、幂等与故障注入 |
 
 ---
 
@@ -71,7 +71,7 @@
 
 ### 3.3 状态机矩阵与安全守卫对齐
 
-在 Go 侧建立 `gateway-go/internal/statemachine` 引擎并执行 `specs/conformance/state-machine.json`：
+在 Go 侧建立 `services/gateway/internal/statemachine` 引擎并执行 `specs/conformance/state-machine.json`：
 
 1. **合法转移矩阵**：35 个 (from, event, to) 状态迁移在 Go 与 Python 中产出完全一致的目标状态；
 2. **终态不可变性（Terminal Immutability）**：`settlement: confirmed/failed/released`、`fulfillment: succeeded/failed`、`payment_intent: settled/failed` 均严格拒绝后续修改事件；
@@ -90,7 +90,7 @@
 
 1. **Canonical Error Taxonomy 命名与别名同构**：
    - _差异_：Go 网关此前定义了 `ERR_NONCE_ALREADY_USED` 与 `ERR_UPSTREAM_BAD_GATEWAY`，而标准规范定义为 `ERR_NONCE_REPLAY` (409, SETTLEMENT) 与 `ERR_UPSTREAM_FAILED` (502, GATEWAY)，且缺少 `ERR_HOLD_EXPIRED` 与 `ERR_CONFIG_VERSION_EXPIRED`；
-   - _修复_：完善 `gateway-go/internal/x402/errors.go`，补齐全量 17 个错误码及其 Actionable 字段，并设立向后兼容别名保证已有模块零破坏。
+   - _修复_：完善 `services/gateway/internal/x402/errors.go`，补齐全量 17 个错误码及其 Actionable 字段，并设立向后兼容别名保证已有模块零破坏。
 2. **出题 Network 动态化与 Fallback 机制**：
    - _差异_：Go 网关原先在下发 402 challenge 时写死了 `"eip155:84532"`，未读取路由定义中的 `route.Network`；
    - _修复_：在 `rcu.RouteConfig` 与 `config.RouteDefinition` 中增加 `Network` 字段，并在出题时优先取路由配置的 `route.Network`，空值回退至全局 `cfg.Settlement.DefaultNetwork`（如 `eip155:421614` Arbitrum Sepolia）。
@@ -98,7 +98,7 @@
    - _差异_：Python 字典键查找对 HTTP Header 大小写敏感，导致断言 `x-agentpay-config-version` 偶现空指针；EVM 地址校验在 Python SDK 规范化为小写，而 Go 原样透传；
    - _修复_：端到端测试与客户端逻辑统一采用大小写不敏感（RFC 7230 兼容）标头提取与以太坊地址比较。
 4. **测试钱包预设与隔离**：
-   - _优化_：在 `gateway-go/internal/server` 默认构造中内置激活、余额不足、欠费冻结三类预设账户，便于任何本地开发工具与端到端跨语言测试即开即测。
+   - _优化_：在 `services/gateway/internal/server` 默认构造中内置激活、余额不足、欠费冻结三类预设账户，便于任何本地开发工具与端到端跨语言测试即开即测。
 
 ---
 

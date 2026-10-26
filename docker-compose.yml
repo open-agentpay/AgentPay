@@ -30,7 +30,7 @@ services:
   # ==============================================================================
   gateway:
     build:
-      context: ./gateway-go
+      context: ./services/gateway
       dockerfile: Dockerfile
     image: ${DOCKER_REGISTRY:-openagentpay}/gateway:${IMAGE_TAG:-latest}
     container_name: agentpay-gateway
@@ -39,7 +39,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./gateway-go/configs/gateway.yaml:/etc/agentpay/gateway.yaml:ro
+      - ./services/gateway/configs/gateway.yaml:/etc/agentpay/gateway.yaml:ro
     environment:
       AGENTPAY_HOST: "0.0.0.0"
       AGENTPAY_PORT: 8000
@@ -63,7 +63,7 @@ services:
   # ==============================================================================
   console:
     build:
-      context: ./console
+      context: ./apps/console
       dockerfile: Dockerfile
     image: ${DOCKER_REGISTRY:-openagentpay}/console:${IMAGE_TAG:-latest}
     container_name: agentpay-console
@@ -87,7 +87,7 @@ services:
   # ==============================================================================
   marketplace:
     build:
-      context: ./marketplace-web
+      context: ./apps/marketplace-web
       dockerfile: Dockerfile
     image: ${DOCKER_REGISTRY:-openagentpay}/marketplace:${IMAGE_TAG:-latest}
     container_name: agentpay-marketplace
@@ -135,7 +135,7 @@ services:
   # ==============================================================================
   facilitator:
     build:
-      context: ./facilitator-go
+      context: ./services/facilitator
       dockerfile: Dockerfile
     image: ${DOCKER_REGISTRY:-openagentpay}/facilitator:${IMAGE_TAG:-latest}
     container_name: agentpay-facilitator

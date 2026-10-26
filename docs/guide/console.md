@@ -5,7 +5,7 @@ description: Overview of the AgentPay administrative console, tenant isolation, 
 
 # Management Console
 
-The management console located under `console/` provides administrative tools for team operators:
+The management console located under `apps/console/` provides administrative tools for team operators:
 
 - **Tenant & Project Management**: Scope API Keys, wallets, and registered agents per team.
 - **Ledger Journal & Exports**: Real-time auditing of double-entry ledger entries and settlement proofs.

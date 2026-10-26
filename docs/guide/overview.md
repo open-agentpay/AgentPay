@@ -96,7 +96,7 @@ If a wallet-path request has insufficient balance, the gateway returns `402 ERR_
 | --- | --- |
 | **Python SDK** (`agentpay`) | Transparent `httpx` interceptor (sync + async): detects `402`, runs the local firewall, signs, replays, commits or releases. Includes a LangChain paid-tool wrapper. |
 | **Financial Firewall / Policy Engine** | Per-tx cap, rolling 24h budget, lifetime limit, payee / domain / network whitelists, rate limit, circuit breaker. SQLite-backed atomic reservation on the buyer side. |
-| **Gateway** (`gateway-go`) | Go reverse proxy: route matching, 402 challenge generation, signature verification, header sanitization, upstream credential isolation, idempotency, recovery, agent-level policy and kill switch. A Python reference gateway ships for the v0.1.0 baseline. |
+| **Gateway** (`services/gateway`) | Go reverse proxy: route matching, 402 challenge generation, signature verification, header sanitization, upstream credential isolation, idempotency, recovery, agent-level policy and kill switch. A Python reference gateway ships for the v0.1.0 baseline. |
 | **Virtual Wallet & Ledger** | One wallet per tenant; append-only ledger; Hold / Capture / Release; reconciliation. |
 | **Facilitator** | Verifies authorizations and submits gas-sponsored `transferWithAuthorization` transactions. A mock Facilitator is provided for local runs. |
 | **Management Console** | Routes & upstream auth, config draft → validate → publish → rollback, wallet, agents & audit timeline. |

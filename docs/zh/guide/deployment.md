@@ -161,18 +161,18 @@ sudo apt-get update && sudo apt-get install -y docker-compose-plugin
 ├── docker-compose.yml               # 由本地 docker-compose.prod.yml 复制而来
 ├── .env                             # 由本地 .env.example 复制并修改
 ├── infra/postgres/schema.sql        # PostgreSQL 初始化表结构（只读挂载）
-└── gateway-go/configs/gateway.yaml  # Go 网关初始配置（只读挂载）
+└── services/gateway/configs/gateway.yaml  # Go 网关初始配置（只读挂载）
 ```
 
 在本地开发机执行以下命令，将上述文件同步至云服务器（将 `user@your-server-ip` 替换为你的服务器地址）：
 
 ```bash
-ssh user@your-server-ip "mkdir -p ~/agentpay/infra/postgres ~/agentpay/gateway-go/configs"
+ssh user@your-server-ip "mkdir -p ~/agentpay/infra/postgres ~/agentpay/services/gateway/configs"
 
 scp docker-compose.prod.yml user@your-server-ip:~/agentpay/docker-compose.yml
 scp .env.example user@your-server-ip:~/agentpay/.env
 scp infra/postgres/schema.sql user@your-server-ip:~/agentpay/infra/postgres/
-scp gateway-go/configs/gateway.yaml user@your-server-ip:~/agentpay/gateway-go/configs/
+scp services/gateway/configs/gateway.yaml user@your-server-ip:~/agentpay/services/gateway/configs/
 ```
 
 ### 步骤 3：配置云服务器 `.env`
@@ -275,7 +275,7 @@ docker compose ps
 | `AGENTPAY_LOG_LEVEL` | `logger.level` | `debug` / `info` / `warn` / `error` |
 | `AGENTPAY_LOG_FORMAT` | `logger.format` | `json`（推荐用于日志采集）或 `text` |
 
-::: details 查看完整的 `gateway-go/configs/gateway.yaml` 生产配置模板
+::: details 查看完整的 `services/gateway/configs/gateway.yaml` 生产配置模板
 ```yaml
 version: "2.0.0"
 

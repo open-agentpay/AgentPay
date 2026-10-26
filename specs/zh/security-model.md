@@ -2,7 +2,7 @@
 
 > **规范版本：** 1.1.0（公开威胁模型 v0）  
 > **状态：** 正式生产规范  
-> **适用运行时：** Python SDK (`agentpay`)、Go 网关 (`gateway-go`)  
+> **适用运行时：** Python SDK (`agentpay`)、Go 网关 (`services/gateway`)  
 
 ---
 

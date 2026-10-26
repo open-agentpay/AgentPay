@@ -119,8 +119,9 @@ docs/.vitepress/cache/
 docs/.vitepress/dist/
 internal-docs/
 
-# Local gateway config with runtime credentials
-gateway-go/configs/gateway.yaml
+# Local gateway/facilitator configs with runtime credentials
+services/gateway/configs/gateway.yaml
+services/facilitator/configs/facilitator.yaml
 
 # 同步产物不进 Git；手写的 index.md 与 reports/ 要进
 docs/specs/*.md
@@ -135,8 +136,9 @@ docs/zh/specs/adr/
 !docs/zh/specs/reports/
 !docs/zh/specs/reports/**
 
-# Agent skills
-.agents/skills/
+# Agent skills & local assistant configs
+.agents/
+skills-lock.json
 
 # Next.js build output
 .next/

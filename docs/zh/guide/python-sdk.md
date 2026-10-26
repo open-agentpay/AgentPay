@@ -32,7 +32,7 @@ AgentPay 尚未经过审计，仅适用于测试网与沙箱环境。切勿向�
 pip install open-agentpay
 
 # 或在仓库根目录以可编辑模式本地安装进行开发
-pip install -e python/packages/agentpay
+pip install -e sdk/python/packages/agentpay
 ```
 
 ---

@@ -38,26 +38,30 @@ TypeScript 包、Java / Spring Boot starter、MCP 封装、PostgreSQL、控制�
 ```
 specs/                    规范与测试向量（事实来源）
   conformance/test-vectors/   JSON 向量
-python/
-  agentpay-core/          领域模型、x402 编解码、类型
-  agentpay-policy/        策略引擎（预算流水、白名单、熔断）
-  agentpay-client/        httpx 拦截器、签名器
-  agentpay-gateway/       自托管网关（规划新增）
-infra/sqlite/schema.sql   唯一的 DDL 来源（规划新增）
+services/
+  gateway/                Go 网关服务
+  facilitator/            Go 协调器服务
+apps/
+  console/                控制台前端 (Vue 3)
+  marketplace-web/        Marketplace 前端 (Next.js 15)
+sdk/python/
+  packages/agentpay/      Python 核心 SDK
+  packages/agentpay-gateway/ 网关客户端
+infra/                    基础设施与部署配置
 examples/                 端到端示例与 Demo
 ```
 
 ## 4. 技术栈与命令（待确认）
 
-Python 3.10+，SQLite（标准库 `sqlite3`），httpx，Starlette/FastAPI，pytest，ruff，mypy。
+Python 3.10+，Go 1.21+，Node.js 20+ (pnpm)，SQLite / PostgreSQL，httpx，pytest，ruff，mypy。
 密码学一律使用 `eth-account`，**不要自己实现任何底层密码学**。
 
 ```bash
 uv sync                                   # 安装依赖
 uv run ruff check . && uv run ruff format --check .
-uv run mypy python/
+uv run mypy sdk/python/
 uv run pytest -q                          # 全部测试
-uv run python specs/conformance/validate_vectors.py specs/conformance/test-vectors
+uv run python scripts/validate_vectors.py specs/conformance/test-vectors
 make demo                                 # 失控循环 Demo（实现后）
 ```
 

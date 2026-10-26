@@ -100,42 +100,42 @@ fi
   --build-arg COMMIT="${COMMIT}" \
   --build-arg BUILD_DATE="${BUILD_DATE}" \
   -t "${GATEWAY_IMAGE}" \
-  -f "${ROOT_DIR}/gateway-go/Dockerfile" \
-  "${ROOT_DIR}/gateway-go"
+  -f "${ROOT_DIR}/services/gateway/Dockerfile" \
+  "${ROOT_DIR}/services/gateway"
 
 # 2. Build Facilitator Go image
 echo ""
 echo ">>> Building Go Facilitator image: ${FACILITATOR_IMAGE} ..."
 "${BUILD_CMD[@]}" \
   -t "${FACILITATOR_IMAGE}" \
-  -f "${ROOT_DIR}/facilitator-go/Dockerfile" \
-  "${ROOT_DIR}/facilitator-go"
+  -f "${ROOT_DIR}/services/facilitator/Dockerfile" \
+  "${ROOT_DIR}/services/facilitator"
 
 # 3. Build Console Frontend image
 echo ""
 echo ">>> Building Console Frontend image: ${CONSOLE_IMAGE} ..."
 "${BUILD_CMD[@]}" \
   -t "${CONSOLE_IMAGE}" \
-  -f "${ROOT_DIR}/console/Dockerfile" \
-  "${ROOT_DIR}/console"
+  -f "${ROOT_DIR}/apps/console/Dockerfile" \
+  "${ROOT_DIR}/apps/console"
 
 # 4. Build Marketplace Web image
 echo ""
 echo ">>> Building Marketplace Web image: ${MARKETPLACE_IMAGE} ..."
 
-# Ensure docs are built and bundled into marketplace-web/public/docs
-if [[ ! -d "${ROOT_DIR}/marketplace-web/public/docs" || ! -f "${ROOT_DIR}/marketplace-web/public/docs/index.html" ]]; then
-  echo ">>> Pre-bundling documentation into marketplace-web/public/docs ..."
+# Ensure docs are built and bundled into apps/marketplace-web/public/docs
+if [[ ! -d "${ROOT_DIR}/apps/marketplace-web/public/docs" || ! -f "${ROOT_DIR}/apps/marketplace-web/public/docs/index.html" ]]; then
+  echo ">>> Pre-bundling documentation into apps/marketplace-web/public/docs ..."
   node "${ROOT_DIR}/scripts/sync-specs.mjs"
   DOCS_BASE=/docs/ npx --yes vitepress build "${ROOT_DIR}/docs"
-  rm -rf "${ROOT_DIR}/marketplace-web/public/docs"
-  cp -r "${ROOT_DIR}/docs/.vitepress/dist" "${ROOT_DIR}/marketplace-web/public/docs"
+  rm -rf "${ROOT_DIR}/apps/marketplace-web/public/docs"
+  cp -r "${ROOT_DIR}/docs/.vitepress/dist" "${ROOT_DIR}/apps/marketplace-web/public/docs"
 fi
 
 "${BUILD_CMD[@]}" \
   -t "${MARKETPLACE_IMAGE}" \
-  -f "${ROOT_DIR}/marketplace-web/Dockerfile" \
-  "${ROOT_DIR}/marketplace-web"
+  -f "${ROOT_DIR}/apps/marketplace-web/Dockerfile" \
+  "${ROOT_DIR}/apps/marketplace-web"
 
 # 5. Push images if requested and not already pushed via buildx
 if [[ "${PUSH}" == "true" && -z "${PLATFORM}" ]]; then

@@ -40,8 +40,8 @@ In AgentPay's multi-tenant architecture, distinct tenants may represent competin
 | **Vertical RBAC Escalation** | `test_tenant_isolation_penetration.py`<br>`test_vertical_rbac_privilege_escalation_blocked` | Member RBAC Matrix | 403 Forbidden / `ERR_PERMISSION_DENIED` | **PASS** | `viewer` cannot create projects, keys, routes, or policies |
 | **REST API Path/Payload Spoofing** | `test_tenant_isolation_penetration.py`<br>`test_api_rest_idor_and_spoofing_matrix` | REST API Endpoints | 403 Forbidden | **PASS** | Blocks injections where URL path `tenant_id` conflicts with body `project_id`/`agent_id` |
 | **Last-Owner Protection Guard** | `test_member_rbac.py` | Tenant Member | 400 Bad Request / `CannotRemoveLastOwner` | **PASS** | Prevents deleting, demoting, or disabling a tenant's sole active Owner |
-| **Data-Plane Route Isolation** | `gateway-go/internal/rcu/rcu_test.go`<br>`TestRCUMultiTenantRouteIsolation` | Go Gateway RCU Router | `MatchRouteForTenant` returns `false` | **PASS** | Tenant Beta can never match or invoke Tenant Alpha's routes |
-| **Virtual Wallet & Ledger Isolation** | `gateway-go/tests/wallet_isolation_test.go`<br>`TestMultiTenantWalletIsolation` | Virtual Wallet & Ledger | Zero balance interference, invisible ledgers, 100% independent reconciliation | **PASS** | Alpha's holds and captures have zero impact on Beta's available balance |
+| **Data-Plane Route Isolation** | `services/gateway/internal/rcu/rcu_test.go`<br>`TestRCUMultiTenantRouteIsolation` | Go Gateway RCU Router | `MatchRouteForTenant` returns `false` | **PASS** | Tenant Beta can never match or invoke Tenant Alpha's routes |
+| **Virtual Wallet & Ledger Isolation** | `services/gateway/tests/wallet_isolation_test.go`<br>`TestMultiTenantWalletIsolation` | Virtual Wallet & Ledger | Zero balance interference, invisible ledgers, 100% independent reconciliation | **PASS** | Alpha's holds and captures have zero impact on Beta's available balance |
 
 ---
 

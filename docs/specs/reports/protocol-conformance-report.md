@@ -27,11 +27,11 @@ To guarantee 100% behavioral parity between AgentPay's **Python Buyer SDK** and 
 
 | Test Dimension | Test Suites & Files | Test Cases | Result | Key Verification Points |
 |---|---|---|---|---|
-| **Full Error Code Alignment** | `gateway-go/internal/x402/conformance_test.go`<br>`python/tests/unit/test_protocol_conformance_vectors.py` | 18 | **PASS** | Validates HTTP status, Domain, Message, and canonical Wire Format Envelope across all 17 Canonical Error Codes |
-| **Dual-Path Protocol Vectors** | `specs/test-vectors/dual-path-protocol.json`<br>`gateway-go/internal/x402/conformance_test.go` | 6 | **PASS** | Vector-driven tests `TC_PROTO_01` – `TC_PROTO_06` covering challenges, routing, anti-downgrade, arrears, and idempotency conflicts |
-| **State Machine Matrix & Guards** | `gateway-go/internal/statemachine/engine_test.go`<br>`python/tests/unit/test_state_machine_matrix.py` | 42 | **PASS** | 35 valid transitions, invalid transition rejection, terminal state immutability, dual-rail dispatch guards, unknown submit guards, and composite view mappings |
-| **Config Publishing Conformance** | `specs/test-vectors/config-publishing.json`<br>`gateway-go/internal/rcu/snapshot_test.go`<br>`python/tests/unit/test_config_publishing.py` | 5 | **PASS** | `TC_CFG_01` – `TC_CFG_05` static validation matrix, Canonical SHA-256 fingerprint computation, version rollback, and fail-safe degradation |
-| **Live Inter-Process HTTP Interop** | `python/tests/integration/test_cross_language_conformance.py` | 6 | **PASS** | Real Python client issuing HTTP calls against a standalone Go Gateway process: challenge parsing, wallet deduction, header tracing, idempotency, and fault injection |
+| **Full Error Code Alignment** | `services/gateway/internal/x402/conformance_test.go`<br>`sdk/python/tests/unit/test_protocol_conformance_vectors.py` | 18 | **PASS** | Validates HTTP status, Domain, Message, and canonical Wire Format Envelope across all 17 Canonical Error Codes |
+| **Dual-Path Protocol Vectors** | `specs/test-vectors/dual-path-protocol.json`<br>`services/gateway/internal/x402/conformance_test.go` | 6 | **PASS** | Vector-driven tests `TC_PROTO_01` – `TC_PROTO_06` covering challenges, routing, anti-downgrade, arrears, and idempotency conflicts |
+| **State Machine Matrix & Guards** | `services/gateway/internal/statemachine/engine_test.go`<br>`sdk/python/tests/unit/test_state_machine_matrix.py` | 42 | **PASS** | 35 valid transitions, invalid transition rejection, terminal state immutability, dual-rail dispatch guards, unknown submit guards, and composite view mappings |
+| **Config Publishing Conformance** | `specs/test-vectors/config-publishing.json`<br>`services/gateway/internal/rcu/snapshot_test.go`<br>`sdk/python/tests/unit/test_config_publishing.py` | 5 | **PASS** | `TC_CFG_01` – `TC_CFG_05` static validation matrix, Canonical SHA-256 fingerprint computation, version rollback, and fail-safe degradation |
+| **Live Inter-Process HTTP Interop** | `sdk/python/tests/integration/test_cross_language_conformance.py` | 6 | **PASS** | Real Python client issuing HTTP calls against a standalone Go Gateway process: challenge parsing, wallet deduction, header tracing, idempotency, and fault injection |
 
 ---
 
@@ -74,7 +74,7 @@ All 17 error codes achieve 100% cross-language parity in HTTP status, domain cla
 
 ### 3.3 State Machine Matrix & Safety Guard Alignment
 
-The `gateway-go/internal/statemachine` engine was validated against `specs/conformance/state-machine.json`:
+The `services/gateway/internal/statemachine` engine was validated against `specs/conformance/state-machine.json`:
 1. **Valid Transition Matrix**: All 35 `(from, event, to)` state transitions produce identical target states in Go and Python.
 2. **Terminal Immutability**: `settlement: confirmed/failed/released`, `fulfillment: succeeded/failed`, and `payment_intent: settled/failed` strictly reject any subsequent mutation events.
 3. **Dual-Rail Dispatch Guard (`INV_1_DISPATCH_GUARD`)**:
@@ -92,7 +92,7 @@ During conformance testing, the following discrepancies were identified and fixe
 
 1. **Canonical Error Taxonomy Naming & Backward-Compatible Aliases**:
    - *Discrepancy*: The Go Gateway previously defined `ERR_NONCE_ALREADY_USED` and `ERR_UPSTREAM_BAD_GATEWAY`, whereas the specification defines `ERR_NONCE_REPLAY` (409, SETTLEMENT) and `ERR_UPSTREAM_FAILED` (502, GATEWAY), and lacked `ERR_HOLD_EXPIRED` and `ERR_CONFIG_VERSION_EXPIRED`.
-   - *Fix*: Updated `gateway-go/internal/x402/errors.go` to include all 17 canonical error codes and actionable metadata fields while retaining backward-compatible aliases for existing modules.
+   - *Fix*: Updated `services/gateway/internal/x402/errors.go` to include all 17 canonical error codes and actionable metadata fields while retaining backward-compatible aliases for existing modules.
 2. **Dynamic Challenge Network Selection & Fallback**:
    - *Discrepancy*: The Go Gateway previously hardcoded `"eip155:84532"` when issuing 402 challenges instead of reading `route.Network` from the route definition.
    - *Fix*: Added the `Network` field to `rcu.RouteConfig` and `config.RouteDefinition`, prioritizing `route.Network` when issuing challenges and falling back to global `cfg.Settlement.DefaultNetwork` (e.g., `eip155:421614` Arbitrum Sepolia) when unset.
@@ -100,7 +100,7 @@ During conformance testing, the following discrepancies were identified and fixe
    - *Discrepancy*: Case-sensitive dictionary lookups in Python caused intermittent misses on `x-agentpay-config-version`, and EVM address comparisons normalized to lowercase in Python while preserving mixed case in Go.
    - *Fix*: Standardized both E2E tests and client SDK logic on RFC 7230 case-insensitive header extraction and case-insensitive Ethereum address comparison.
 4. **Pre-Configured Test Wallets & Isolation**:
-   - *Improvement*: Built active, insufficient-balance, and `frozen_arrears` preset test accounts into `gateway-go/internal/server` default initialization for out-of-the-box local development and cross-language E2E testing.
+   - *Improvement*: Built active, insufficient-balance, and `frozen_arrears` preset test accounts into `services/gateway/internal/server` default initialization for out-of-the-box local development and cross-language E2E testing.
 
 ---
 

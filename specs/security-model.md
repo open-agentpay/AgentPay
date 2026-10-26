@@ -2,7 +2,7 @@
 
 > **Specification Version:** 1.1.0 (Public Threat Model v0)  
 > **Status:** Production Specification  
-> **Target Runtimes:** Python SDK (`agentpay`), Go Gateway (`gateway-go`)  
+> **Target Runtimes:** Python SDK (`agentpay`), Go Gateway (`services/gateway`)  
 
 ---
 

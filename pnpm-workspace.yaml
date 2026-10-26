@@ -2,6 +2,6 @@ packages:
   - 'packages/*'
   - 'services/*'
   - 'examples/*'
-  - 'console'
-  - 'marketplace-web'
+  - 'apps/console'
+  - 'apps/marketplace-web'
 

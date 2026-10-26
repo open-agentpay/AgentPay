@@ -40,8 +40,8 @@
 | **垂直越权 (RBAC 提权)** | `test_tenant_isolation_penetration.py`<br>`test_vertical_rbac_privilege_escalation_blocked` | Member RBAC Matrix | 403 Forbidden / `ERR_PERMISSION_DENIED` | **PASS** | Viewer 无法创建项目、密钥、路由、策略 |
 | **REST API 路径载荷混淆** | `test_tenant_isolation_penetration.py`<br>`test_api_rest_idor_and_spoofing_matrix` | REST API Endpoints | 403 Forbidden | **PASS** | 拦截 Path tenant 与 Body project/agent 不一致注入 |
 | **最后 Owner 保护守卫** | `test_member_rbac.py` | Tenant Member | 400 Bad Request / CannotRemoveLastOwner | **PASS** | 严禁删除、降级或禁用租户唯一活跃 Owner |
-| **数据面网关路由隔离** | `gateway-go/internal/rcu/rcu_test.go`<br>`TestRCUMultiTenantRouteIsolation` | Go Gateway RCU Router | `MatchRouteForTenant` 返回 false | **PASS** | Tenant Beta 绝对无法命中 Tenant Alpha 的路由 |
-| **虚拟钱包与金融账本隔离** | `gateway-go/tests/wallet_isolation_test.go`<br>`TestMultiTenantWalletIsolation` | Virtual Wallet & Ledger | 余额无干扰，账本互不可见，对账 100% 独立 | **PASS** | Alpha 的冻结扣费完全不影响 Beta 的可用余额 |
+| **数据面网关路由隔离** | `services/gateway/internal/rcu/rcu_test.go`<br>`TestRCUMultiTenantRouteIsolation` | Go Gateway RCU Router | `MatchRouteForTenant` 返回 false | **PASS** | Tenant Beta 绝对无法命中 Tenant Alpha 的路由 |
+| **虚拟钱包与金融账本隔离** | `services/gateway/tests/wallet_isolation_test.go`<br>`TestMultiTenantWalletIsolation` | Virtual Wallet & Ledger | 余额无干扰，账本互不可见，对账 100% 独立 | **PASS** | Alpha 的冻结扣费完全不影响 Beta 的可用余额 |
 
 ---
 

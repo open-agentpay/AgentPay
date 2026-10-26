@@ -117,7 +117,7 @@ pip install open-agentpay agentpay-gateway
 git clone https://github.com/open-agentpay/AgentPay.git
 cd AgentPay
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e python/packages/agentpay -e python/packages/agentpay-gateway
+pip install -e sdk/python/packages/agentpay -e sdk/python/packages/agentpay-gateway
 ```
 
 ### 2. 运行内置演示
@@ -303,28 +303,29 @@ AgentPay 原生支持两种不同的系统部署拓扑，以适应不同阶段�
 
 ```text
 AgentPay/
-├── gateway-go/                      # 生产级云原生 Go 反向代理网关
-│   ├── cmd/gateway/                 # 网关主程序入口
-│   ├── internal/                    # 核心模块 (RCU 热加载、x402、双轨钱包、多租户 RBAC、状态机)
-│   ├── tests/                       # E2E 链路与并发测试套件
-│   └── Makefile                     # Go 构建、测试与清理目标
+├── services/
+│   ├── gateway/                     # 生产级云原生 Go 反向代理网关
+│   │   ├── cmd/gateway/             # 网关主程序入口
+│   │   ├── internal/                # 核心模块 (RCU 热加载、x402、双轨钱包、多租户 RBAC、状态机)
+│   │   ├── tests/                   # E2E 链路与并发测试套件
+│   │   └── Makefile                 # Go 构建、测试与清理目标
+│   └── facilitator/                 # Go Facilitator 结算节点 (EIP-712/3009)
 │
-├── console/                         # 多租户可视化 Web 管理控制台 (Vue 3 + Element Plus)
-│   ├── src/                         # 控制台视图（仪表盘、路由管理、智能体、钱包对账）
-│   └── package.json                 # Web 控制台工作区
+├── apps/
+│   ├── console/                     # 多租户可视化 Web 管理控制台 (Vue 3 + Element Plus)
+│   │   ├── src/                     # 控制台视图（仪表盘、路由管理、智能体、钱包对账）
+│   │   └── package.json             # Web 控制台工作区
+│   └── marketplace-web/             # AgentPay 市场与文档前端门户 (Next.js 15)
 │
-├── python/packages/
-│   ├── agentpay/                    # 买方 SDK 与财务防火墙
-│   │   ├── client/                  # 透明 HTTP 402 拦截重试中间件 (httpx)
-│   │   ├── policy/                  # SQLite 财务防火墙与熔断器引擎
-│   │   ├── evm/                     # EIP-712 / EIP-3009 编解码与 EvmRpcClient
-│   │   └── integrations/langchain/  # @paid_tool LangChain 智能体工具装饰器
-│   │
-│   └── agentpay-gateway/            # Python 参考反向代理网关与 Facilitator
-│       ├── proxy/                   # 流式正向代理与 ASGI 网关服务
-│       ├── payment/                 # PaymentVerifier 与后台 AsyncSettlementWorker
-│       ├── facilitator/             # EvmFacilitatorService (EIP-1559 清算)
-│       └── state/                   # GatewayStateCoordinator 与 SQLite 幂等状态机
+├── sdk/
+│   └── python/                      # Python Monorepo
+│       └── packages/
+│           ├── agentpay/            # 买方 SDK 与财务防火墙
+│           │   ├── client/          # 透明 HTTP 402 拦截重试中间件 (httpx)
+│           │   ├── policy/          # SQLite 财务防火墙与熔断器引擎
+│           │   ├── evm/             # EIP-712 / EIP-3009 编解码与 EvmRpcClient
+│           │   └── integrations/langchain/ # @paid_tool LangChain 智能体工具装饰器
+│           └── agentpay-gateway/    # Python 参考反向代理网关与 Facilitator
 │
 ├── examples/
 │   ├── runaway-agent/               # T6.4 失控智能体与熔断器一键演示 Demo
@@ -372,8 +373,8 @@ AgentPay/
 | **Python 买方 SDK (`agentpay`)**                  | 🟢 已完成 |  v0.1.0 (2026)   | 透明 402 自动重试、EIP-712/3009 本地签名                          |
 | **财务防火墙（策略引擎 Policy Engine）**          | 🟢 已完成 |  v0.1.0 (2026)   | 单笔上限、滚动预算、白名单、RPM 熔断器                            |
 | **LangChain 付费工具（`@paid_tool`）**            | 🟢 已完成 |  v0.1.0 (2026)   | 1 行代码武装 Agent 付费工具调用                                   |
-| **Go 高性能云原生网关 (`gateway-go`)**            | 🟢 已完成 |  v0.1.0 (2026)   | Go 原生高性能反向代理、RCU 零停机热加载、多租户治理与双轨钱包账本 |
-| **多租户可视化控制台 (`console`)**                | 🟢 已完成 |  v0.1.0 (2026)   | Vue 3 + Element Plus 多租户可视化仪表盘、路由与密钥管理           |
+| **Go 高性能云原生网关 (`services/gateway`)**            | 🟢 已完成 |  v0.1.0 (2026)   | Go 原生高性能反向代理、RCU 零停机热加载、多租户治理与双轨钱包账本 |
+| **多租户可视化控制台 (`apps/console`)**                | 🟢 已完成 |  v0.1.0 (2026)   | Vue 3 + Element Plus 多租户可视化仪表盘、路由与密钥管理           |
 | **Python 参考网关（`agentpay-gateway`）**         | 🟢 已完成 |  v0.1.0 (2026)   | 轻量级路由转发、402 质询管理、状态协调                            |
 | **Arbitrum Sepolia 链上结算与履约**               | 🟢 已完成 |  v0.1.0 (2026)   | Circle USDC 合约、EIP-1559 广播、1.5x BaseFee 缓冲                |
 | **失控循环熔断演示 Demo**                         | 🟢 已完成 |  v0.1.0 (2026)   | `make demo` (本地极速仿真) 与 `make demo-live` (公网)             |

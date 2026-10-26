@@ -131,8 +131,8 @@ sequenceDiagram
 在满足不同运行时需求的同时保证协议行为严格一致：
 
 ### 5.1 当前实现（v0.1.x 基线）
-* **Go 反向代理网关 (`gateway-go/`)：** 高吞吐云原生反向代理、内嵌策略引擎、多租户虚拟钱包与账本、低延迟 EIP-712 验签（`geth/crypto`）、结构化日志与极小容器镜像体积。
-* **Python 客户端 SDK (`python/packages/agentpay`)：** 面向主流 AI Agent 与 LLM 框架生态（LangChain、CrewAI、AutoGen、LlamaIndex），提供透明 HTTP 拦截器（`httpx`、`aiohttp`）与原生 MCP 工具封装。
+* **Go 反向代理网关 (`services/gateway/`)：** 高吞吐云原生反向代理、内嵌策略引擎、多租户虚拟钱包与账本、低延迟 EIP-712 验签（`geth/crypto`）、结构化日志与极小容器镜像体积。
+* **Python 客户端 SDK (`sdk/python/packages/agentpay`)：** 面向主流 AI Agent 与 LLM 框架生态（LangChain、CrewAI、AutoGen、LlamaIndex），提供透明 HTTP 拦截器（`httpx`、`aiohttp`）与原生 MCP 工具封装。
 
 ### 5.2 多语言路线图（2027+）
 * **TypeScript / Node.js 技术栈：** 面向 JS/TS AI Agent（浏览器、Bun、MCP Server）及 Next.js / Express 微服务。

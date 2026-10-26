@@ -5,7 +5,7 @@ description: Containerized deployment, cloud orchestration, environment variable
 
 # Deployment Guide
 
-This guide explains how to deploy the core AgentPay stack — **Go Gateway (`gateway-go`)**, **Go Facilitator (`facilitator-go`)**, **Management Console (`console`)**, **Marketplace & GEO Portal (`marketplace-web`)**, and **PostgreSQL** — using Docker Compose on a local machine or cloud server (AWS EC2, Alibaba Cloud ECS, Tencent Cloud CVM, DigitalOcean, etc.).
+This guide explains how to deploy the core AgentPay stack — **Go Gateway (`services/gateway`)**, **Go Facilitator (`services/facilitator`)**, **Management Console (`apps/console`)**, **Marketplace & GEO Portal (`apps/marketplace-web`)**, and **PostgreSQL** — using Docker Compose on a local machine or cloud server (AWS EC2, Alibaba Cloud ECS, Tencent Cloud CVM, DigitalOcean, etc.).
 
 ::: warning Experimental Release Notice
 Version 0.1.x is an experimental open-source release and has **not** undergone an independent third-party security audit. Deploy only on testnets (such as Arbitrum Sepolia or Base Sepolia) using test tokens (Circle testnet USDC). **Do not connect it to mainnet funds.**
@@ -161,18 +161,18 @@ Only 4 configuration files are required on the server:
 ├── docker-compose.yml               # Copied from local docker-compose.prod.yml
 ├── .env                             # Copied and customized from .env.example
 ├── infra/postgres/schema.sql        # PostgreSQL initialization DDL (mounted read-only)
-└── gateway-go/configs/gateway.yaml  # Go gateway bootstrap config (mounted read-only)
+└── services/gateway/configs/gateway.yaml  # Go gateway bootstrap config (mounted read-only)
 ```
 
 From your workstation, copy these files to the server (replace `user@your-server-ip` with your server address):
 
 ```bash
-ssh user@your-server-ip "mkdir -p ~/agentpay/infra/postgres ~/agentpay/gateway-go/configs"
+ssh user@your-server-ip "mkdir -p ~/agentpay/infra/postgres ~/agentpay/services/gateway/configs"
 
 scp docker-compose.prod.yml user@your-server-ip:~/agentpay/docker-compose.yml
 scp .env.example user@your-server-ip:~/agentpay/.env
 scp infra/postgres/schema.sql user@your-server-ip:~/agentpay/infra/postgres/
-scp gateway-go/configs/gateway.yaml user@your-server-ip:~/agentpay/gateway-go/configs/
+scp services/gateway/configs/gateway.yaml user@your-server-ip:~/agentpay/services/gateway/configs/
 ```
 
 ### Step 3: Configure Production `.env`
@@ -275,7 +275,7 @@ On startup, `agentpay-gateway` loads `-config /etc/agentpay/gateway.yaml` and th
 | `AGENTPAY_LOG_LEVEL` | `logger.level` | `debug`, `info`, `warn`, or `error` |
 | `AGENTPAY_LOG_FORMAT` | `logger.format` | `json` (recommended for log aggregation) or `text` |
 
-::: details Full `gateway-go/configs/gateway.yaml` Production Template
+::: details Full `services/gateway/configs/gateway.yaml` Production Template
 ```yaml
 version: "2.0.0"
 

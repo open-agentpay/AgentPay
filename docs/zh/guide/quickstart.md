@@ -65,7 +65,7 @@ docker compose ps
 打开**第二个终端**（网关会在前台运行）并启动：
 
 ```bash
-cd AgentPay/gateway-go
+cd AgentPay/services/gateway
 go run ./cmd/gateway
 ```
 
@@ -123,7 +123,7 @@ curl -si "http://127.0.0.1:8080/weather/current?city=SanFrancisco" \
 python3 -m venv .venv
 source .venv/bin/activate          # Windows（WSL）同上；PowerShell：.venv\Scripts\Activate.ps1
 
-pip install -e python/packages/agentpay
+pip install -e sdk/python/packages/agentpay
 python -c "import agentpay; print('agentpay OK')"
 ```
 
