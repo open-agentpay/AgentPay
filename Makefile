@@ -69,10 +69,8 @@ marketplace-dev:
 	pnpm --prefix apps/marketplace-web run dev
 
 marketplace-build:
-	@if [ ! -d apps/marketplace-web/public/docs ] || [ ! -f apps/marketplace-web/public/docs/index.html ]; then \
-		echo "Building and bundling docs into apps/marketplace-web/public/docs..."; \
-		node scripts/sync-specs.mjs && DOCS_BASE=/docs/ npx vitepress build docs && rm -rf apps/marketplace-web/public/docs && cp -r docs/.vitepress/dist apps/marketplace-web/public/docs; \
-	fi
+	@echo "Building and bundling docs into apps/marketplace-web/public/docs..."
+	node scripts/sync-specs.mjs && DOCS_BASE=/docs/ npx vitepress build docs && rm -rf apps/marketplace-web/public/docs && cp -r docs/.vitepress/dist apps/marketplace-web/public/docs
 	pnpm --prefix apps/marketplace-web run build
 
 marketplace-lint:
