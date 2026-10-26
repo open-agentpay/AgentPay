@@ -9,8 +9,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Cache package dependencies
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json ./
+RUN npm install
 
 # Copy source code and build production bundle
 COPY . .
