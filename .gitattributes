@@ -1,0 +1,5 @@
+# GitHub Linguist language detection overrides
+# Exclude pre-compiled static HTML documentation from repository language statistics
+apps/marketplace-web/public/docs/** linguist-documentation
+apps/marketplace-web/public/docs/** linguist-vendored
+apps/marketplace-web/public/docs/** linguist-generated
