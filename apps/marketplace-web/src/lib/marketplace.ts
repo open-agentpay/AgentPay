@@ -69,10 +69,10 @@ export function buildAnswerFirstTldr(
     (isEn ? defaultSummaryEn : defaultSummaryZh);
 
   if (isEn) {
-    return `${baseSummary} Natively supports HTTP 402 (x402 V2) protocol and ${netLabel} settlement at ${priceStr} USDC/req. Autonomous AI agents can invoke with zero onboarding and zero gas via OpenAgentPay Python SDK and EIP-3009 authorization signatures.`;
+    return `${baseSummary} Natively supports HTTP 402 (x402 V2) protocol and ${netLabel} settlement at ${priceStr} USDC/req. Autonomous AI agents can invoke with zero onboarding and zero gas via OpenAgentPay Python or TypeScript SDK and EIP-3009 authorization signatures.`;
   }
 
-  return `${baseSummary} 原生支持 HTTP 402 (x402 V2) 协议与 ${netLabel} 结算，单次调用价格为 ${priceStr} USDC/req，支持通过 OpenAgentPay Python SDK 免注册、免预充值 API Key 直接发起 EIP-3009 自动签名调用。`;
+  return `${baseSummary} 原生支持 HTTP 402 (x402 V2) 协议与 ${netLabel} 结算，单次调用价格为 ${priceStr} USDC/req，支持通过 OpenAgentPay Python / TypeScript SDK 免注册、免预充值 API Key 直接发起 EIP-3009 自动签名调用。`;
 }
 
 /**
@@ -153,6 +153,86 @@ print(response.json())`;
 }
 
 /**
+ * Generates the simplified TypeScript SDK code snippet with built-in brand attribution.
+ */
+export function buildTypescriptSdkSnippet(
+  route: MarketplaceRouteItem,
+  locale: string = 'zh'
+): string {
+  const suggestedBudgetUnits = Math.max(
+    50_000,
+    (route.onchain_price_base_units || route.price_base_units) * 5
+  );
+  const sampleParams =
+    route.sample_params && Object.keys(route.sample_params).length > 0
+      ? route.sample_params
+      : (route.parameters && typeof route.parameters === 'object' && !Array.isArray(route.parameters) && Object.keys(route.parameters).length > 0)
+      ? (route.parameters as Record<string, unknown>)
+      : { timeframe: '24h' };
+
+  const paramsJson = JSON.stringify(sampleParams, null, 2);
+  const indentedParamsJson = paramsJson
+    .split('\n')
+    .map((line, i) => (i === 0 ? line : `  ${line}`))
+    .join('\n');
+  const isEn = locale === 'en';
+
+  const primaryMethod = (route.methods?.[0] || 'GET').toUpperCase();
+  const isPost =
+    primaryMethod === 'POST' ||
+    (!route.methods?.includes('GET') && route.methods?.includes('POST'));
+  const endpointUrl = `${PUBLIC_GATEWAY_URL}${route.path_pattern}`;
+
+  const commentImports = isEn
+    ? '// 1. Initialize buyer local signer & non-custodial SQLite financial firewall'
+    : '// 1. 初始化买方本地签名器与非托管 SQLite 财务防火墙（私钥永不离机）';
+  const commentSigner = isEn
+    ? '// Signs offline EIP-712 / EIP-3009 payload (0 gas charged to buyer)'
+    : '// 签署离线 EIP-712 / EIP-3009 授权（买方 0 Gas 磨损）';
+  const commentBudget = isEn
+    ? `// Max spend per transaction (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`
+    : `// 单次调用最高预算保护 (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`;
+  const suggestedDailyUnits = Math.max(1_000_000, suggestedBudgetUnits * 20);
+  const commentDaily = isEn
+    ? `// 24h rolling budget ceiling (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)`
+    : `// 24h 滚动预算上限 (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)`;
+  const commentClient = isEn
+    ? '// 2. Initialize AgentPayClient (automatic HTTP 402 handshake & payment retry)'
+    : '// 2. 初始化 AgentPayClient（自动拦截 402 挑战、校验本地预算并签名重放）';
+  const commentCall = isEn
+    ? `// 3. Call gateway forwarding endpoint directly (${primaryMethod})`
+    : `// 3. 直接向网关转发端点发起请求（${primaryMethod} 请求）`;
+
+  const requestCall = isPost
+    ? `const response = await client.post(\n  '${endpointUrl}',\n  ${indentedParamsJson}\n);`
+    : `const response = await client.get('${endpointUrl}', {\n  params: ${indentedParamsJson.replace(/\n/g, '\n  ')},\n});`;
+
+  return `import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+${commentImports}
+const signer = new LocalSigner(process.env.AGENT_WALLET_KEY ?? '0x...'); ${commentSigner}
+
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'agent_firewall',
+    name: 'Agent Firewall',
+    walletAddress: signer.address,
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: ${suggestedBudgetUnits}n, ${commentBudget}
+    rollingBudget24hBaseUnits: ${suggestedDailyUnits}n, ${commentDaily}
+  })
+);
+
+${commentClient}
+const client = new AgentPayClient({ signer, policy });
+
+${commentCall}
+${requestCall}
+console.log(await response.json());`;
+}
+
+/**
  * Generates pure Markdown documentation for a single route (used by /llms.txt and AI Bot content negotiation).
  */
 export function buildRouteMarkdownDoc(route: MarketplaceRouteItem): string {
@@ -160,6 +240,7 @@ export function buildRouteMarkdownDoc(route: MarketplaceRouteItem): string {
   const netLabel = formatNetworkLabel(route.network, route.network_label);
   const tldr = buildAnswerFirstTldr(route);
   const sdkCode = buildPythonSdkSnippet(route);
+  const tsSdkCode = buildTypescriptSdkSnippet(route);
 
   const effectiveSampleParams =
     route.sample_params && Object.keys(route.sample_params).length > 0
@@ -232,10 +313,18 @@ export function buildRouteMarkdownDoc(route: MarketplaceRouteItem): string {
 | :--- | :--- | :--- | :--- |
 ${paramRows}
 ${sampleParamsBlock}
-## 3. Zero-Friction Python SDK Quickstart
+## 3. Zero-Friction SDK Quickstart (Python & TypeScript)
+
+### Python SDK (\`pip install open-agentpay\`)
 
 \`\`\`python
 ${sdkCode}
+\`\`\`
+
+### TypeScript SDK (\`npm install open-agentpay\`)
+
+\`\`\`typescript
+${tsSdkCode}
 \`\`\`
 
 ## 4. Detailed Documentation

@@ -115,23 +115,33 @@ curl -si "http://127.0.0.1:8080/weather/current?city=SanFrancisco" \
 
 你会看到 `network`、`asset`、`amount`（最小单位 —— USDC 为 6 位小数，`100000` 即 0.1 USDC）、`payee`、`validBefore` 与 `scheme` 等字段。这个未认证请求展示的是**链上路径**。API Key 钱包路径同样先返回 x402 风格的 `402` 价格挑战：网关先报价，SDK 用本地策略检查价格，再携带钱包授权重试。这个流程不会生成 EIP-3009 签名，也不会调用 Facilitator。
 
-## 4. 安装 Python SDK
+## 4. 安装 SDK（Python 或 TypeScript）
 
-在仓库根目录，使用虚拟环境：
+::: code-group
 
-```bash
+```bash [Python (3.10+)]
 python3 -m venv .venv
 source .venv/bin/activate          # Windows（WSL）同上；PowerShell：.venv\Scripts\Activate.ps1
 
-pip install -e sdk/python/packages/agentpay
+pip install open-agentpay
+# 或在仓库根目录以可编辑模式安装：
+# pip install -e sdk/python/packages/agentpay
 python -c "import agentpay; print('agentpay OK')"
 ```
 
+```bash [TypeScript / Node.js (20+)]
+npm install open-agentpay
+# 或使用 pnpm / yarn：
+# pnpm add open-agentpay
+```
+
+:::
+
 ## 5. 发起第一次受管控请求
 
-创建 `first_request.py`：
+::: code-group
 
-```python
+```python [first_request.py (Python)]
 import os
 
 from agentpay import AgentPayClient, LocalSigner
@@ -173,6 +183,49 @@ response = client.get("http://127.0.0.1:8080/weather/current?city=SanFrancisco")
 print("Response status:", response.status_code)
 print("Data:", response.json())
 ```
+
+```typescript [first_request.ts (TypeScript)]
+import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { PolicyConfig, SQLitePolicyEngine } from 'open-agentpay/policy';
+
+// 1. 签名器。钱包模式不需要链上签名，这里仅作占位。
+//    ⚠️ 仅限测试网开发：此公钥对应 Hardhat/Anvil 默认公开测试密钥，切勿转入任何主网真实资产！
+const devKey =
+  process.env.AGENT_PRIVATE_KEY ??
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const signer = new LocalSigner(devKey);
+
+// 2. 本地财务防火墙：防止 Agent 陷入循环刷爆预算。
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'quickstart_firewall',
+    name: 'Quickstart Firewall',
+    walletAddress: signer.address,
+    maxPerTxBaseUnits: 1_000_000n,         // 单笔最多 1 USD
+    rollingBudget24hBaseUnits: 10_000_000n, // 24 小时最多 10 USD
+    whitelistDomains: ['127.0.0.1', 'localhost'],
+  })
+);
+
+// 3. 为 Agent 颁发的 API Key（开发密钥，已预置测试钱包余额）。
+const apiKey = process.env.AGENTPAY_API_KEY ?? 'apk_live_valid123';
+
+// 4. 开启价格感知钱包模式。
+const client = new AgentPayClient({
+  signer,
+  policy,
+  defaultHeaders: { Authorization: `Bearer ${apiKey}` },
+  walletChallengeMode: true,
+});
+
+const response = await client.get('http://127.0.0.1:8080/weather/current', {
+  params: { city: 'SanFrancisco' },
+});
+console.log('Response status:', response.status);
+console.log('Data:', await response.json());
+```
+
+:::
 
 `AgentPayClient` 继承自 `httpx.Client`，因此 `get`、`post`、超时设置等 `httpx` 用法都可以照常使用。主要 AgentPay 参数如下：
 
@@ -325,7 +378,8 @@ Agent ── 无凭证 ───▶ 网关 ──▶ 402 + PAYMENT-REQUIRED   �
 | 我想… | 阅读 |
 | --- | --- |
 | 为 Agent 设置花费限额 | [策略配置](/zh/guide/policy) |
-| 在 LangChain 或自有代码中使用 AgentPay | [Python SDK](/zh/guide/python-sdk) |
+| 在 Python / LangChain 中使用 AgentPay | [Python SDK](/zh/guide/python-sdk) |
+| 在 TypeScript / Node.js 中使用 AgentPay | [TypeScript SDK](/zh/guide/typescript-sdk) |
 | 给自己的 API 加上价格 | [网关配置](/zh/guide/gateway) |
 | 在界面中创建租户、Agent、密钥与路由 | [管理控制台](/zh/guide/console) |
 | 了解线上协议 | [API 规范](/zh/guide/api-specs) |

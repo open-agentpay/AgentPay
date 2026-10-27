@@ -115,23 +115,33 @@ curl -si "http://127.0.0.1:8080/weather/current?city=SanFrancisco" \
 
 You will see fields such as `network`, `asset`, `amount` (in the smallest unit — USDC has 6 decimals, so `100000` is 0.1 USDC), `payee`, `validBefore` and `scheme`. This unauthenticated request shows the **on-chain path**. The API-key wallet path also uses an x402-style `402` challenge: the gateway first quotes its price, the SDK checks it against local policy, then retries with a wallet authorization. It does not create an EIP-3009 signature or call a facilitator.
 
-## 4. Install the Python SDK
+## 4. Install the SDK (Python or TypeScript)
 
-From the repository root, in a virtual environment:
+::: code-group
 
-```bash
+```bash [Python (3.10+)]
 python3 -m venv .venv
 source .venv/bin/activate          # Windows (WSL): same; PowerShell: .venv\Scripts\Activate.ps1
 
-pip install -e sdk/python/packages/agentpay
+pip install open-agentpay
+# Or in editable mode from repository root:
+# pip install -e sdk/python/packages/agentpay
 python -c "import agentpay; print('agentpay OK')"
 ```
 
+```bash [TypeScript / Node.js (20+)]
+npm install open-agentpay
+# Or with pnpm / yarn:
+# pnpm add open-agentpay
+```
+
+:::
+
 ## 5. Make your first governed request
 
-Create `first_request.py`:
+::: code-group
 
-```python
+```python [first_request.py (Python)]
 import os
 
 from agentpay import AgentPayClient, LocalSigner
@@ -173,6 +183,49 @@ response = client.get("http://127.0.0.1:8080/weather/current?city=SanFrancisco")
 print("Response status:", response.status_code)
 print("Data:", response.json())
 ```
+
+```typescript [first_request.ts (TypeScript)]
+import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { PolicyConfig, SQLitePolicyEngine } from 'open-agentpay/policy';
+
+// 1. Signer. In wallet mode no on-chain signature is made, so this is only a placeholder.
+//    ⚠️ TESTNET DEVELOPMENT ONLY: This is a well-known public Hardhat key. NEVER deposit real funds!
+const devKey =
+  process.env.AGENT_PRIVATE_KEY ??
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const signer = new LocalSigner(devKey);
+
+// 2. Local financial firewall: protects you from an agent looping and burning budget.
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'quickstart_firewall',
+    name: 'Quickstart Firewall',
+    walletAddress: signer.address,
+    maxPerTxBaseUnits: 1_000_000n,         // at most 1 USD per request
+    rollingBudget24hBaseUnits: 10_000_000n, // at most 10 USD per 24 hours
+    whitelistDomains: ['127.0.0.1', 'localhost'],
+  })
+);
+
+// 3. API key issued for your agent (development key seeded with a test wallet balance).
+const apiKey = process.env.AGENTPAY_API_KEY ?? 'apk_live_valid123';
+
+// 4. Enable price-aware wallet mode.
+const client = new AgentPayClient({
+  signer,
+  policy,
+  defaultHeaders: { Authorization: `Bearer ${apiKey}` },
+  walletChallengeMode: true,
+});
+
+const response = await client.get('http://127.0.0.1:8080/weather/current', {
+  params: { city: 'SanFrancisco' },
+});
+console.log('Response status:', response.status);
+console.log('Data:', await response.json());
+```
+
+:::
 
 `AgentPayClient` extends `httpx.Client`, so `get`, `post`, timeouts and the rest of the `httpx` API work as usual. The main AgentPay options are:
 
@@ -325,7 +378,8 @@ If you are still stuck, [open an issue](https://github.com/open-agentpay/AgentPa
 | I want to… | Read |
 | --- | --- |
 | Give my agent spending limits | [Policy Configuration](/guide/policy) |
-| Use AgentPay from LangChain or my own code | [Python SDK](/guide/python-sdk) |
+| Use AgentPay from Python / LangChain | [Python SDK](/guide/python-sdk) |
+| Use AgentPay from TypeScript / Node.js | [TypeScript SDK](/guide/typescript-sdk) |
 | Put my own API behind a price | [Gateway Configuration](/guide/gateway) |
 | Create tenants, agents, keys and routes in a UI | [Management Console](/guide/console) |
 | Understand the wire protocol | [API Specs](/guide/api-specs) |

@@ -1,0 +1,42 @@
+{
+  "name": "agentpay-core",
+  "version": "0.2.7",
+  "description": "Core payment infrastructure for AI agents (Official alias for open-agentpay)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "x402",
+    "usdc",
+    "eip-712",
+    "financial-firewall",
+    "arbitrum"
+  ],
+  "author": "AgentPay Contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/open-agentpay/AgentPay.git"
+  },
+  "homepage": "https://openagentpay.dev/",
+  "bugs": {
+    "url": "https://github.com/open-agentpay/AgentPay/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "dependencies": {
+    "open-agentpay": "^0.2.7"
+  }
+}

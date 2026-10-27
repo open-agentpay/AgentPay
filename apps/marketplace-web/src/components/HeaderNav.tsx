@@ -1,10 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   ExternalLink,
+  Menu,
   Terminal,
+  X,
 } from 'lucide-react';
 import {
   PUBLIC_CONSOLE_URL,
@@ -49,27 +52,33 @@ function DiscordIcon({ className = 'h-4 w-4' }: { className?: string }) {
 
 export function HeaderNav() {
   const { t, locale } = useI18n();
+  const pathname = usePathname();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/85 dark:border-slate-800/80 dark:bg-[#070B14]/85 backdrop-blur-xl transition-colors duration-200">
-      <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8 xl:px-10">
+    <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white/85 dark:border-slate-800/80 dark:bg-[#070B14]/85 backdrop-blur-xl transition-colors duration-200">
+      <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-2 px-3 py-3 sm:gap-4 sm:px-6 lg:px-8 xl:px-10">
         {/* Left: Brand Logo & Navigation Links */}
-        <div className="flex items-center gap-4 lg:gap-6 xl:gap-8 shrink-0">
-          <Link href="/" className="flex items-center gap-3 group shrink-0">
+        <div className="flex min-w-0 items-center gap-3 lg:gap-6 xl:gap-8">
+          <Link href="/" className="flex min-w-0 items-center gap-2.5 sm:gap-3 group">
             {/* Real AgentPay Official Logo */}
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-1 shadow-sm transition-transform group-hover:scale-105 dark:border-indigo-500/40 dark:bg-slate-900/80 shrink-0">
+            <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-1 shadow-sm transition-transform group-hover:scale-105 dark:border-indigo-500/40 dark:bg-slate-900/80 shrink-0">
               <img
                 src="/logo.png"
                 alt="AgentPay Logo"
-                className="h-8 w-8 object-contain"
+                className="h-7 w-7 sm:h-8 sm:w-8 object-contain"
               />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-sm sm:text-base font-extrabold tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
                   AgentPay
                 </span>
-                <span className="rounded-md border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 whitespace-nowrap">
+                <span className="hidden sm:inline-block rounded-md border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 whitespace-nowrap">
                   {t.nav.hubTitle}
                 </span>
               </div>
@@ -108,7 +117,7 @@ export function HeaderNav() {
         </div>
 
         {/* Right: Controls & Actions */}
-        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           <div className="hidden 2xl:flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100/70 px-3 py-1.5 font-mono text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-400 whitespace-nowrap">
             <span className="h-2 w-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
             <span>{t.nav.gatewayStatus}</span>
@@ -117,8 +126,8 @@ export function HeaderNav() {
             </span>
           </div>
 
-          {/* Social Links: GitHub, X, Discord */}
-          <div className="flex items-center gap-1.5">
+          {/* Social Links: GitHub, X, Discord (hidden on narrow mobile, shown in mobile menu and >= md) */}
+          <div className="hidden md:flex items-center gap-1.5">
             <a
               href={PUBLIC_GITHUB_URL}
               target="_blank"
@@ -158,14 +167,136 @@ export function HeaderNav() {
             href={PUBLIC_CONSOLE_URL}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-indigo-500 whitespace-nowrap"
+            className="hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-indigo-500 whitespace-nowrap"
           >
             <Terminal className="h-3.5 w-3.5 shrink-0" />
             <span>{t.nav.consoleBtn}</span>
             <ExternalLink className="h-3 w-3 opacity-80 shrink-0" />
           </a>
+
+          {/* Mobile Hamburger Menu Button (< lg) */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            className="flex lg:hidden h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:text-white"
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={mobileMenuOpen}
+          >
+            {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </button>
         </div>
       </div>
+
+      {/* Mobile Collapsible Navigation Menu (< lg) */}
+      {mobileMenuOpen && (
+        <div className="lg:hidden border-t border-slate-200/80 bg-white/95 px-4 py-4 shadow-lg backdrop-blur-xl dark:border-slate-800/80 dark:bg-[#070B14]/95">
+          <nav className="flex flex-col space-y-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <Link
+              href="/"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`rounded-xl px-3 py-2.5 transition-colors ${
+                pathname === '/'
+                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300'
+                  : 'hover:bg-slate-100 dark:hover:bg-slate-900'
+              }`}
+            >
+              {t.nav.home}
+            </Link>
+            <Link
+              href="/marketplace"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`rounded-xl px-3 py-2.5 transition-colors ${
+                pathname?.startsWith('/marketplace')
+                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300'
+                  : 'hover:bg-slate-100 dark:hover:bg-slate-900'
+              }`}
+            >
+              {t.nav.storefront}
+            </Link>
+            <Link
+              href="/hub/solana-smart-money-tracker-x402-api"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`rounded-xl px-3 py-2.5 transition-colors ${
+                pathname?.startsWith('/hub/')
+                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300'
+                  : 'hover:bg-slate-100 dark:hover:bg-slate-900'
+              }`}
+            >
+              {t.nav.exampleRoute}
+            </Link>
+            <a
+              href={PUBLIC_DOCS_URL}
+              onClick={() => setMobileMenuOpen(false)}
+              className="rounded-xl px-3 py-2.5 transition-colors hover:bg-slate-100 dark:hover:bg-slate-900"
+            >
+              {t.nav.docs}
+            </a>
+          </nav>
+
+          {/* Gateway Status & Social / Console Actions in Mobile Drawer */}
+          <div className="mt-4 space-y-3 border-t border-slate-200/80 pt-4 dark:border-slate-800/80">
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-100/70 px-3 py-2 font-mono text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-400">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+                <span className="shrink-0">{t.nav.gatewayStatus}</span>
+                <span className="truncate text-slate-800 dark:text-slate-200 font-medium">
+                  {PUBLIC_GATEWAY_URL.replace(/^https?:\/\//, '')}
+                </span>
+              </div>
+              <span className="rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 shrink-0">
+                {t.nav.hubTitle}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <a
+                  href={PUBLIC_GITHUB_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:border-slate-300 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:text-white"
+                  title="GitHub"
+                  aria-label="GitHub Repository"
+                >
+                  <GithubIcon className="h-4 w-4" />
+                </a>
+                <a
+                  href={PUBLIC_TWITTER_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:border-slate-300 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:text-white"
+                  title="X (Twitter)"
+                  aria-label="Follow @OpenAgentPay on X"
+                >
+                  <XIcon className="h-3.5 w-3.5" />
+                </a>
+                <a
+                  href={PUBLIC_DISCORD_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:border-slate-300 hover:text-[#5865F2] dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:text-[#5865F2]"
+                  title="Discord"
+                  aria-label="Join AgentPay Discord"
+                >
+                  <DiscordIcon className="h-4 w-4" />
+                </a>
+              </div>
+
+              <a
+                href={PUBLIC_CONSOLE_URL}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setMobileMenuOpen(false)}
+                className="inline-flex flex-1 sm:flex-initial items-center justify-center gap-1.5 rounded-xl border border-indigo-500/40 bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-indigo-500 whitespace-nowrap"
+              >
+                <Terminal className="h-3.5 w-3.5 shrink-0" />
+                <span>{t.nav.consoleBtn}</span>
+                <ExternalLink className="h-3 w-3 opacity-80 shrink-0" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

@@ -1,7 +1,7 @@
 packages:
   - 'packages/*'
+  - 'sdk/typescript/packages/*'
   - 'services/*'
   - 'examples/*'
   - 'apps/console'
   - 'apps/marketplace-web'
-

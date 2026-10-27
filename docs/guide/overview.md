@@ -177,13 +177,14 @@ Read the full [Threat Model](/specs/) for what is and isn't defended.
 
 ## Current Status and Roadmap
 
-**Available today (v0.1.x)**
+**Available today (v0.1.x / v0.2.x)**
 
 - Python SDK with `httpx` interceptor, local firewall (SQLite atomic reservation, circuit breaker), EIP-712 / EIP-3009 signer and LangChain paid-tool wrapper
+- TypeScript / Node.js SDK (`open-agentpay`) with native `fetch` interceptor, `better-sqlite3` local firewall, `viem`-backed EIP-3009 signer, and integrations for LangChain.js, Vercel AI SDK, and MCP
 - Go gateway: reverse proxy, x402 handling, wallet path, idempotency & recovery, agent-level policy, kill switch, audit timeline
 - Multi-tenant control plane: tenants, projects, RBAC, agents, API keys, wallet & admin grants, routes & policies
 - Management console: routes and upstream auth, config publishing and rollback, wallet, agents, payment audit
-- PostgreSQL 15+ schema, Python / Go cross-language conformance vectors
+- PostgreSQL 15+ schema, Python / Go / TypeScript cross-language conformance vectors
 - Arbitrum Sepolia testnet settlement and a one-command **runaway-loop demo**
 
 **In progress / next**
@@ -197,7 +198,7 @@ Read the full [Threat Model](/specs/) for what is and isn't defended.
 - **Gas model 2 (v0.2.0):** dynamic gas surcharge folded into the USDC amount
 - **Gas model 3 (v0.3.0):** batched / state-channel settlement for per-token micro-payments
 - On-chain and fiat wallet top-ups
-- TypeScript / Node.js SDK and Express / Fastify middleware
+- Express / Fastify seller middleware for TypeScript
 - Java / Spring Boot starter
 - Anomaly detection and alerting (alert-only by default)
 - Multi-node distributed gateway clusters, KMS / HSM signers
@@ -209,7 +210,8 @@ Read the full [Threat Model](/specs/) for what is and isn't defended.
 | I want to… | Read |
 | --- | --- |
 | Run it in five minutes | [5-Minute Quickstart](/guide/quickstart) |
-| Wire an agent up | [Python SDK](/guide/python-sdk) |
+| Wire a Python agent up | [Python SDK](/guide/python-sdk) |
+| Wire a TypeScript / Node.js agent up | [TypeScript SDK](/guide/typescript-sdk) |
 | Monetize an API | [Gateway Configuration](/guide/gateway) |
 | Set spending limits | [Policy Configuration](/guide/policy) |
 | Manage tenants, keys and routes | [Management Console](/guide/console) |

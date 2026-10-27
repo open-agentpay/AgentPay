@@ -89,15 +89,13 @@ AgentPay provides two deterministic payment rails:
 
 ---
 
-## 4. Python SDK Quickstart
+## 4. SDK Quickstart (Python & TypeScript)
 
-### Installation
+### Python SDK
 
 \`\`\`bash
 pip install open-agentpay
 \`\`\`
-
-### 5-Line LangChain & Agent Protection Example
 
 \`\`\`python
 import os
@@ -125,6 +123,38 @@ response = client.get(
     params={"timeframe": "24h"}
 )
 print("Observation from paid tool:", response.json())
+\`\`\`
+
+### TypeScript / Node.js SDK
+
+\`\`\`bash
+npm install open-agentpay
+\`\`\`
+
+\`\`\`typescript
+import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+// 1. Initialize client with non-custodial local financial firewall
+const signer = new LocalSigner(process.env.AGENT_WALLET_KEY ?? '0x...');
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'agent_firewall',
+    name: 'Agent Firewall',
+    walletAddress: signer.address,
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: 50_000n,           // Maximum allowed spend per request ($0.05 USDC)
+    rollingBudget24hBaseUnits: 1_000_000n, // 24-hour rolling budget ceiling ($1.00 USDC)
+    circuitMaxRpm: 10,                    // Trip circuit breaker if tool exceeds 10 calls/minute
+  })
+);
+const client = new AgentPayClient({ signer, policy });
+
+// 2. Invoke any paid X402 service discovered in the marketplace
+const response = await client.get('${PUBLIC_GATEWAY_URL}/v1/solana/smart-money', {
+  params: { timeframe: '24h' },
+});
+console.log('Observation from paid tool:', await response.json());
 \`\`\`
 
 ---

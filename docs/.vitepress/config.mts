@@ -52,6 +52,7 @@ export default withMermaid(
                 text: 'Usage & Integration',
                 items: [
                   { text: 'Python SDK', link: '/guide/python-sdk' },
+                  { text: 'TypeScript SDK', link: '/guide/typescript-sdk' },
                   { text: 'Gateway Configuration', link: '/guide/gateway' },
                   { text: 'Policy Configuration', link: '/guide/policy' },
                   { text: 'Management Console', link: '/guide/console' },
@@ -219,6 +220,7 @@ export default withMermaid(
                 text: '使用',
                 items: [
                   { text: 'Python SDK', link: '/zh/guide/python-sdk' },
+                  { text: 'TypeScript SDK', link: '/zh/guide/typescript-sdk' },
                   { text: '网关配置', link: '/zh/guide/gateway' },
                   { text: '策略配置', link: '/zh/guide/policy' },
                   { text: '管理控制台', link: '/zh/guide/console' },

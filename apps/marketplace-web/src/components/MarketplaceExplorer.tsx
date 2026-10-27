@@ -30,6 +30,7 @@ import {
   formatNetworkLabel,
   formatUsdcPrice,
   buildPythonSdkSnippet,
+  buildTypescriptSdkSnippet,
 } from '@/lib/marketplace';
 import type { MarketplaceRouteItem } from '@/types/marketplace';
 import { CopyButton } from '@/components/CopyButton';
@@ -45,6 +46,7 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedNetwork, setSelectedNetwork] = useState<string>('all');
   const [activeQuickPreviewSlug, setActiveQuickPreviewSlug] = useState<string | null>(null);
+  const [sdkLang, setSdkLang] = useState<'python' | 'typescript'>('python');
 
   const filteredRoutes = useMemo(() => {
     return initialRoutes.filter((route) => {
@@ -94,7 +96,7 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
     return initialRoutes.find((r) => r.slug === activeQuickPreviewSlug) || null;
   }, [initialRoutes, activeQuickPreviewSlug]);
 
-  const sampleQuickVerifySnippet = useMemo(() => {
+  const sampleQuickVerifyPythonSnippet = useMemo(() => {
     const isEn = locale === 'en';
     const comment1 = isEn
       ? '# 1. Import SDK and setup non-custodial local firewall (private key never leaves machine)'
@@ -139,6 +141,62 @@ response = client.get(
 )
 print(response.json())`;
   }, [locale]);
+
+  const sampleQuickVerifyTsSnippet = useMemo(() => {
+    const isEn = locale === 'en';
+    const comment1 = isEn
+      ? '// 1. Import TypeScript SDK and setup non-custodial local firewall (private key never leaves machine)'
+      : '// 1. 导入 TypeScript SDK 并配置买方本地非托管财务防火墙（私钥永不离机）';
+    const comment2 = isEn
+      ? '// Per-request cap (0.05 USDC), local policy engine blocks execution outside prompt context'
+      : '// 单次最高预算保护 (0.05 USDC)，超额直接由本地策略引擎在 prompt 之外拦截';
+    const commentDaily = isEn
+      ? '// 24h rolling budget ceiling (1.00 USDC)'
+      : '// 24h 滚动预算上限 (1.00 USDC)';
+    const comment3 = isEn
+      ? '// 2. Initialize AgentPayClient (native fetch interceptor)'
+      : '// 2. 初始化 AgentPayClient（原生 fetch 402 支付拦截器）';
+    const comment4 = isEn
+      ? '// 3. Send standard GET/POST request to gateway forwarding endpoint with automatic 402 negotiation'
+      : '// 3. 直接向网关转发端点发起标准 HTTP 请求，自动完成 402 握手与 EIP-3009 离线签名';
+
+    return `import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+${comment1}
+const signer = new LocalSigner(process.env.AGENT_WALLET_KEY ?? '0x...');
+
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'firewall',
+    name: 'Agent Firewall',
+    walletAddress: signer.address,
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: 50_000n, ${comment2}
+    rollingBudget24hBaseUnits: 1_000_000n, ${commentDaily}
+  })
+);
+
+${comment3}
+const client = new AgentPayClient({ signer, policy });
+
+${comment4}
+const response = await client.get('${PUBLIC_GATEWAY_URL}/v1/solana/smart-money', {
+  params: { timeframe: '24h' },
+});
+console.log(await response.json());`;
+  }, [locale]);
+
+  const sampleQuickVerifySnippet =
+    sdkLang === 'python' ? sampleQuickVerifyPythonSnippet : sampleQuickVerifyTsSnippet;
+  const activeInstallCmd =
+    sdkLang === 'python' ? 'pip install open-agentpay' : 'npm install open-agentpay';
+  const previewSdkSnippet = useMemo(() => {
+    if (!previewRoute) return '';
+    return sdkLang === 'python'
+      ? buildPythonSdkSnippet(previewRoute, locale)
+      : buildTypescriptSdkSnippet(previewRoute, locale);
+  }, [previewRoute, sdkLang, locale]);
 
   return (
     <div className="space-y-12">
@@ -363,8 +421,32 @@ print(response.json())`;
                   {t.agentPayIntro.codeSnippetDesc}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-indigo-300">pip install open-agentpay</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setSdkLang('python')}
+                    className={`rounded-md px-2.5 py-1 font-mono font-medium transition ${
+                      sdkLang === 'python'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Python
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSdkLang('typescript')}
+                    className={`rounded-md px-2.5 py-1 font-mono font-medium transition ${
+                      sdkLang === 'typescript'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    TypeScript
+                  </button>
+                </div>
+                <span className="font-mono text-xs text-indigo-300">{activeInstallCmd}</span>
                 <CopyButton text={sampleQuickVerifySnippet} label={t.preview.copyCode} />
               </div>
             </div>
@@ -479,8 +561,32 @@ print(response.json())`;
                   .replace('{slug}', previewRoute.slug)}
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <CopyButton text={buildPythonSdkSnippet(previewRoute)} label={t.preview.copyCode} />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSdkLang('python')}
+                  className={`rounded-md px-2.5 py-1 font-mono font-medium transition ${
+                    sdkLang === 'python'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Python
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSdkLang('typescript')}
+                  className={`rounded-md px-2.5 py-1 font-mono font-medium transition ${
+                    sdkLang === 'typescript'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  TypeScript
+                </button>
+              </div>
+              <CopyButton text={previewSdkSnippet} label={t.preview.copyCode} />
               <Link
                 href={`/hub/${previewRoute.slug}`}
                 className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500"
@@ -497,8 +603,14 @@ print(response.json())`;
               </button>
             </div>
           </div>
-          <pre className="mt-4 overflow-x-auto rounded-xl border border-slate-800 bg-[#050811] p-4 font-mono text-xs leading-relaxed text-slate-200">
-            <code>{buildPythonSdkSnippet(previewRoute)}</code>
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+            <span className="font-mono">$ {activeInstallCmd}</span>
+            <span className="font-mono text-indigo-300">
+              {sdkLang === 'python' ? 'Python 3.10+' : 'Node.js 20+ / TypeScript'}
+            </span>
+          </div>
+          <pre className="mt-2 overflow-x-auto rounded-xl border border-slate-800 bg-[#050811] p-4 font-mono text-xs leading-relaxed text-slate-200">
+            <code>{previewSdkSnippet}</code>
           </pre>
         </section>
       )}

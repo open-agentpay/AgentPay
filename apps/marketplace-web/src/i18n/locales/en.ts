@@ -95,13 +95,13 @@ export const en: Translations = {
     terminalDemoTitle: 'Built-in Terminal Simulation Demo',
     terminalDemoSubtitle: 'Run `make demo` in under 10 seconds with zero network overhead to see firewall & circuit breaker in action',
     quickstartTitle: '5-Minute Quickstart',
-    quickstartSubtitle: 'Clean, elegant Python code to protect agent spending or monetize existing APIs',
+    quickstartSubtitle: 'Clean, elegant Python & TypeScript code to protect agent spending or monetize existing APIs',
     buyerQuickstartTitle: 'Buyer: 5 Lines of Code to Add an Airbag to Agent Tools',
     sellerQuickstartTitle: 'Seller: Monetize Any Existing API in 1 Minute',
     marketplaceCtaBadge: 'Open Playground',
     marketplaceCtaTitle: 'Test & Validate: Explore the API Marketplace',
     marketplaceCtaDesc:
-      'We built the public API Marketplace as an open testing ground to experience and validate the full end-to-end capabilities of the AgentPay SDK. Discover live Solana, AI inference, and scraper APIs with real-time gateway SLA telemetry.',
+      'We built the public API Marketplace as an open testing ground to experience and validate the full end-to-end capabilities of the AgentPay SDK (Python & TypeScript). Discover live Solana, AI inference, and scraper APIs with real-time gateway SLA telemetry.',
     marketplaceCtaBtn: 'Go to API Marketplace 🛍️',
   },
   footer: {
@@ -119,7 +119,7 @@ export const en: Translations = {
     titlePre: 'Discover',
     titleHighlight: 'Pay-Per-Request X402 APIs for AI Agents',
     description:
-      'Say goodbye to tedious account signups, credit cards, and monthly subscriptions. One line of Python SDK code lets your autonomous Agent complete Search → Decide → 402 Pay & Call, backed by real-time Go gateway SLAs and local financial firewall protection.',
+      'Say goodbye to tedious account signups, credit cards, and monthly subscriptions. One line of Python or TypeScript SDK code lets your autonomous Agent complete Search → Decide → 402 Pay & Call, backed by real-time Go gateway SLAs and local financial firewall protection.',
     searchPlaceholder:
       'Search X402 routes, keywords (e.g. Solana Smart Money, DeepSeek Reasoning, Markdown Scraper, SEC 10-Q)...',
     clear: 'Clear',
@@ -137,19 +137,19 @@ export const en: Translations = {
     marketplaceRoleBadge: 'About This Storefront',
     marketplaceRoleTitle: 'An Open Ecosystem to Test & Validate AgentPay SDK',
     marketplaceRoleDesc:
-      'This "API Marketplace" is officially built as an open playground to test, experience, and validate the full end-to-end capabilities of the AgentPay SDK! Featuring live verified x402 endpoints, developers can immediately run zero-signup, zero-gas, and budget-protected requests with one line of SDK code.',
+      'This "API Marketplace" is officially built as an open playground to test, experience, and validate the full end-to-end capabilities of the AgentPay Python & TypeScript SDKs! Featuring live verified x402 endpoints, developers can immediately run zero-signup, zero-gas, and budget-protected requests with one line of SDK code.',
     pillar1Title: 'Non-Custodial Local Financial Firewall',
     pillar1Desc:
       'Wallet private keys strictly stay in the buyer environment. The embedded local policy engine enforces per-request maximum caps (max_budget_usdc), 24h rolling quotas, and circuit breakers against runaway agent loops.',
     pillar2Title: 'HTTP 402 Native Machine Payments (x402 V2)',
     pillar2Desc:
       'Natively implements the HTTP 402 Payment Required handshake standard with Circle USDC on Base and Arbitrum via EIP-3009, enabling zero gas overhead, sub-second latency, and virtual ledger dual-path channels.',
-    pillar3Title: 'Zero-Friction 1-Line SDK Integration',
+    pillar3Title: 'Zero-Friction 1-Line SDK Integration (Python & TS)',
     pillar3Desc:
-      'Just install open-agentpay and use client.get() or client.post() directly on the gateway endpoint. The SDK automatically orchestrates 402 challenges, local budget evaluations, and offline signing under the hood.',
+      'Just install open-agentpay via pip or npm and use client.get() or client.post() directly on the gateway endpoint. The SDK automatically orchestrates 402 challenges, local budget evaluations, and offline signing under the hood.',
     codeSnippetTitle: 'Experience AgentPay SDK Automated Payment with 1 Line of Code',
     codeSnippetDesc:
-      'The Python code below invokes any live API in this marketplace with automated 402 handshake and local budget firewall protection:',
+      'Choose Python or TypeScript below to invoke any live API in this marketplace with automated 402 handshake and local budget firewall protection:',
   },
   marketplaceHeader: {
     badge: 'SDK Playground & Service Discovery',
@@ -177,9 +177,9 @@ export const en: Translations = {
     },
   },
   preview: {
-    sdkTitle: 'Zero-Friction Python SDK Integration',
+    sdkTitle: 'Zero-Friction SDK Integration (Python & TypeScript)',
     sdkSubtitle: 'Copy the snippet below to invoke this service via the gateway forwarding endpoint, automatically completing HTTP 402 handshake and EIP-3009 offline signing.',
-    copyCode: 'Copy Python Snippet',
+    copyCode: 'Copy SDK Snippet',
     viewDetails: 'View Full GEO Details',
     close: 'Close',
   },
@@ -202,7 +202,7 @@ export const en: Translations = {
   architecture: {
     box1Title: '1. Zero-Friction Developer Integration (Storefront)',
     box1Desc:
-      'Every /hub/[slug] detail page adopts an Answer-First structure with dynamically generated Python SDK snippets and native HTML parameter tables. Zero onboarding, no API keys needed.',
+      'Every /hub/[slug] detail page adopts an Answer-First structure with dynamically generated Python & TypeScript SDK snippets and native HTML parameter tables. Zero onboarding, no API keys needed.',
     box2Title: '2. Real Gateway SLA Credit Endorsement',
     box2Desc:
       'All machine traffic flows through the core gateway. 24h 200 OK rates and P95 latency are tracked live, automatically flagging degraded routes to protect buyer agent capital.',
@@ -232,9 +232,9 @@ export const en: Translations = {
     timeoutNote: 'Timeout: {timeout}s',
     paidCalls24h: '24h Paid Calls',
     totalCallsNote: 'Total Calls: {total}',
-    codeSectionTitle: 'Python SDK Zero-Friction Code (Copy & Run)',
+    codeSectionTitle: 'Zero-Friction SDK Code (Python & TypeScript)',
     codeSectionSubtitle: 'Built-in HTTP 402 handshake, EIP-3009 offline signing, and budget protection',
-    copySdkCode: 'Copy Python SDK',
+    copySdkCode: 'Copy SDK Code',
     tableSpecsTitle: 'Route Technical Specs & X402 Settlement Parameters',
     tableSpecsSubtitle: 'Semantic native HTML table for easy human review and precise LLM extraction',
     paramCol: 'Parameter',

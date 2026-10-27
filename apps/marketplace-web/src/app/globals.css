@@ -10,6 +10,11 @@ html.dark {
   color-scheme: dark;
 }
 
+html,
+body {
+  overflow-x: hidden;
+}
+
 body {
   @apply bg-[#F8FAFC] text-slate-900 dark:bg-[#070B14] dark:text-slate-100 antialiased selection:bg-indigo-500/20 selection:text-indigo-600 dark:selection:bg-indigo-500/30 dark:selection:text-indigo-200 transition-colors duration-200;
   background-image:

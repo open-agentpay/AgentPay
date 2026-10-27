@@ -95,13 +95,13 @@ export const zh: Translations = {
     terminalDemoTitle: '内置终端仿真验证 (Terminal Demo)',
     terminalDemoSubtitle: '只需一行 make demo，10 秒内即可亲身体验 3 阶段财务防火墙与死循环熔断保护',
     quickstartTitle: '5 分钟极速上手 (Quickstart)',
-    quickstartSubtitle: '简单优雅的代码集成，无论是为 Agent 注入安全防护，还是对外变现现有 API',
+    quickstartSubtitle: '支持 Python 与 TypeScript SDK 极简集成，无论是为 Agent 注入安全防护，还是对外变现现有 API',
     buyerQuickstartTitle: '买方 (Buyer)：5 行代码给 Agent 工具装上安全防火墙',
     sellerQuickstartTitle: '卖方 (Seller)：1 分钟将已有 API 变现为 X402 接口',
     marketplaceCtaBadge: '开放验证生态',
     marketplaceCtaTitle: '体验与验证：探索 API 功能商店 (Marketplace)',
     marketplaceCtaDesc:
-      '为了辅助开发者与研究员端到端体验并验证 AgentPay SDK 的微支付与预算拦截能力，我们打造了官方开放的 API 功能商店。精选 Solana 聪明钱、AI 推理、实时搜索等真实接口，并提供 24h 网关真实 SLA 探活。',
+      '为了辅助开发者与研究员端到端体验并验证 AgentPay SDK（Python & TypeScript）的微支付与预算拦截能力，我们打造了官方开放的 API 功能商店。精选 Solana 聪明钱、AI 推理、实时搜索等真实接口，并提供 24h 网关真实 SLA 探活。',
     marketplaceCtaBtn: '立即前往 API 功能商店 🛍️',
   },
   footer: {
@@ -119,7 +119,7 @@ export const zh: Translations = {
     titlePre: '发现面向 AI Agent 的',
     titleHighlight: '按次微支付 X402 API',
     description:
-      '告别繁琐的账号注册、信用卡绑定与月度订阅。一行 Python SDK 代码，让你的自主 Agent 自动完成 Search → Decide → 402 Pay & Call 闭环，由 Go 核心网关提供实时 SLA 背书与本地财务防火墙保护。',
+      '告别繁琐的账号注册、信用卡绑定与月度订阅。一行 Python 或 TypeScript SDK 代码，让你的自主 Agent 自动完成 Search → Decide → 402 Pay & Call 闭环，由 Go 核心网关提供实时 SLA 背书与本地财务防火墙保护。',
     searchPlaceholder:
       '搜索 X402 路由、业务关键词（如 Solana 聪明钱、DeepSeek 推理、网页 Markdown 抓取、SEC 财报）...',
     clear: '清除',
@@ -137,19 +137,19 @@ export const zh: Translations = {
     marketplaceRoleBadge: '关于本商店与 SDK 验证',
     marketplaceRoleTitle: '辅助验证 AgentPay SDK 的官方开放生态',
     marketplaceRoleDesc:
-      '本「API 功能商店」正是为了辅助开发者与研究员快速体验、端到端验证 AgentPay SDK 而打造的开放验证场！商店中汇聚了精选的真实 x402 接口，你只需引入 AgentPay SDK，即可立即体验无需注册账号、免预充值、带有本地严格预算防护的完整调用闭环。',
+      '本「API 功能商店」正是为了辅助开发者与研究员快速体验、端到端验证 AgentPay Python 与 TypeScript SDK 而打造的开放验证场！商店中汇聚了精选的真实 x402 接口，你只需引入 AgentPay SDK，即可立即体验无需注册账号、免预充值、带有本地严格预算防护的完整调用闭环。',
     pillar1Title: '非托管本地财务防火墙 (Firewall)',
     pillar1Desc:
       '钱包私钥 100% 留在买方本地环境，零托管风险。内置本地策略引擎，可配置单次调用最高限额、24h 滚动预算与逃逸调用熔断器（Circuit Breaker），确保 Agent 绝不失控超支。',
     pillar2Title: 'HTTP 402 原生机器支付 (x402 V2)',
     pillar2Desc:
       '原生实现 HTTP 402 Payment Required 握手协议，支持 Base / Arbitrum 链上 Circle USDC 结合 EIP-3009 授权，做到零 Gas 磨损、毫秒级确认；同时支持虚拟钱包混合通道与双向结算。',
-    pillar3Title: '极简 1 行代码集成 (AgentPay SDK)',
+    pillar3Title: '极简 1 行代码集成 (Python & TS SDK)',
     pillar3Desc:
-      '只需 pip install open-agentpay 并像普通 httpx/requests 一样直接调用网关端点，SDK 自动在底层完成 402 握手拦截、本地预算检查与零 Gas 离线签名，开发者只需专注 Agent 业务逻辑。',
+      '支持 pip install open-agentpay (Python) 与 npm install open-agentpay (TypeScript)，像普通 HTTP 客户端一样直接调用网关端点，SDK 自动在底层完成 402 握手拦截、本地预算检查与零 Gas 离线签名。',
     codeSnippetTitle: '一行代码体验 AgentPay SDK 自动支付闭环',
     codeSnippetDesc:
-      '以下代码即可在本地调用本商店中任意上架 API，亲身体验财务防火墙与零 Gas 微支付：',
+      '支持切换 Python 或 TypeScript SDK，在本地直接调用本商店中任意上架 API，亲身体验财务防火墙与零 Gas 微支付：',
   },
   marketplaceHeader: {
     badge: 'SDK 验证场 & 服务发现',
@@ -177,9 +177,9 @@ export const zh: Translations = {
     },
   },
   preview: {
-    sdkTitle: 'Python SDK 零摩擦集成',
+    sdkTitle: 'SDK 零摩擦集成 (Python & TypeScript)',
     sdkSubtitle: '复制下方代码即可直接向网关转发端点发起调用，自动完成 HTTP 402 握手与 EIP-3009 签名。',
-    copyCode: '复制 Python 调用代码',
+    copyCode: '复制 SDK 调用代码',
     viewDetails: '查看完整 GEO 详情页',
     close: '关闭',
   },
@@ -202,7 +202,7 @@ export const zh: Translations = {
   architecture: {
     box1Title: '1. 人类开发者零摩擦集成 (Storefront)',
     box1Desc:
-      '每个 /hub/[slug] 详情页均采用 Answer-First 结构，内置动态生成的 Python SDK 调用代码与原生 HTML 参数表，复制即用，无需注册上游 API Key。',
+      '每个 /hub/[slug] 详情页均采用 Answer-First 结构，内置动态生成的 Python 与 TypeScript SDK 调用代码及原生 HTML 参数表，复制即用，无需注册上游 API Key。',
     box2Title: '2. Go 核心网关真实 SLA 信用背书',
     box2Desc:
       '所有机器流量经过网关，平台实时统计过去 24h 200 OK 成功率与 P95 延迟，连续失败自动标记维护中，防止买方 Agent 浪费资金。',
@@ -232,9 +232,9 @@ export const zh: Translations = {
     timeoutNote: '超时阈值: {timeout}s',
     paidCalls24h: '24h 付费调用次数',
     totalCallsNote: '累计总调用: {total}',
-    codeSectionTitle: 'Python SDK 零摩擦调用代码 (Copy & Run)',
+    codeSectionTitle: 'SDK 零摩擦调用代码 (Python & TypeScript)',
     codeSectionSubtitle: '内置 HTTP 402 自动握手、EIP-3009 离线签名支付与单次最高预算防火墙保护',
-    copySdkCode: '复制 Python SDK 代码',
+    copySdkCode: '复制 SDK 代码',
     tableSpecsTitle: '路由技术规格与 X402 结算参数表 (Core Specification)',
     tableSpecsSubtitle: '采用语义化原生 HTML 表格呈现，方便人类开发者查阅与大模型搜索引擎精准抽取',
     paramCol: '参数维度 (Parameter)',

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -33,8 +33,9 @@ import { CopyButton } from '@/components/CopyButton';
 
 export function HomePageView() {
   const { t, locale } = useI18n();
+  const [buyerSdkLang, setBuyerSdkLang] = useState<'python' | 'typescript'>('python');
 
-  const buyerCodeSnippet = useMemo(() => {
+  const buyerPythonSnippet = useMemo(() => {
     if (locale === 'en') {
       return `import os
 from agentpay import AgentPayClient, LocalSigner
@@ -92,6 +93,83 @@ def fetch_crypto_intel(token: str) -> dict:
 result = fetch_crypto_intel.invoke({"token": "SOL"})
 print(result)`;
   }, [locale]);
+
+  const buyerTsSnippet = useMemo(() => {
+    if (locale === 'en') {
+      return `import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { createPaidTool } from 'open-agentpay/langchain';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+// 1. Initialize client & configure local financial firewall (private key never leaves local machine)
+const signer = new LocalSigner(process.env.AGENT_WALLET_KEY ?? '0x...');
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'agent_firewall',
+    name: 'Agent Firewall',
+    walletAddress: signer.address,
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: 50_000n,          // Per-call maximum budget protection ($0.05 USDC)
+    rollingBudget24hBaseUnits: 1_000_000n, // 24h rolling budget protection ($1.00 USDC)
+    circuitMaxRpm: 5,                    // Abnormal frequency auto-trips circuit breaker
+  })
+);
+const client = new AgentPayClient({ signer, policy });
+
+// 2. Wrap any LangChain.js / Vercel AI / MCP tool: automatic 402 handshake & EIP-3009 zero-gas signing
+const fetchCryptoIntel = createPaidTool({
+  name: 'fetch_crypto_intel',
+  description: 'Fetch real-time Solana smart-money flow',
+  client,
+  func: async ({ token }: { token: string }, ctx) => {
+    const resp = await ctx!.client!.get('${PUBLIC_GATEWAY_URL}/v1/solana/smart-money', {
+      params: { token },
+    });
+    return await resp.json();
+  },
+});
+
+const result = await fetchCryptoIntel.invoke({ token: 'SOL' });
+console.log(result);`;
+    }
+    return `import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { createPaidTool } from 'open-agentpay/langchain';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+// 1. 初始化客户端，配置本地财务防火墙（私钥永不离机）
+const signer = new LocalSigner(process.env.AGENT_WALLET_KEY ?? '0x...');
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'agent_firewall',
+    name: 'Agent Firewall',
+    walletAddress: signer.address,
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: 50_000n,          // 单次调用最高预算保护 ($0.05 USDC)
+    rollingBudget24hBaseUnits: 1_000_000n, // 24h 滚动预算保护 ($1.00 USDC)
+    circuitMaxRpm: 5,                    // 异常频次自动触发熔断器
+  })
+);
+const client = new AgentPayClient({ signer, policy });
+
+// 2. 封装任何 LangChain.js / Vercel AI / MCP 工具，自动完成 402 握手与 EIP-3009 零 Gas 签名
+const fetchCryptoIntel = createPaidTool({
+  name: 'fetch_crypto_intel',
+  description: '获取实时 Solana 聪明钱动向',
+  client,
+  func: async ({ token }: { token: string }, ctx) => {
+    const resp = await ctx!.client!.get('${PUBLIC_GATEWAY_URL}/v1/solana/smart-money', {
+      params: { token },
+    });
+    return await resp.json();
+  },
+});
+
+const result = await fetchCryptoIntel.invoke({ token: 'SOL' });
+console.log(result);`;
+  }, [locale]);
+
+  const buyerCodeSnippet = buyerSdkLang === 'python' ? buyerPythonSnippet : buyerTsSnippet;
+  const buyerInstallCmd =
+    buyerSdkLang === 'python' ? 'pip install open-agentpay' : 'npm install open-agentpay';
 
   const sellerYamlSnippet = `version: "1.0"
 server:
@@ -180,10 +258,24 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
               <Terminal className="h-4 w-4 text-indigo-500" />
               <span>{t.homePage.btnReadDocs}</span>
             </a>
+          </div>
 
-            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 font-mono text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-300">
+          {/* SDK Install Pills (Python & TypeScript) */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 font-mono text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-300">
+              <span className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+                Python
+              </span>
               <span>pip install open-agentpay</span>
               <CopyButton text="pip install open-agentpay" />
+            </div>
+
+            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 font-mono text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-300">
+              <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700 dark:text-cyan-400">
+                TypeScript
+              </span>
+              <span>npm install open-agentpay</span>
+              <CopyButton text="npm install open-agentpay" />
             </div>
           </div>
         </div>
@@ -271,8 +363,8 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
             </h4>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
               {locale === 'zh'
-                ? '即插即用的 Python SDK，自动完成 402 挑战协商、离线签名与预算防护，绝不让大模型碰触私钥。'
-                : 'Drop-in Python client that handles HTTP 402, enforces spending limits, and never lets models touch private keys.'}
+                ? '即插即用的 Python 与 TypeScript SDK，自动完成 402 挑战协商、离线签名与预算防护，绝不让大模型碰触私钥。'
+                : 'Drop-in Python & TypeScript clients that handle HTTP 402, enforce spending limits, and never let models touch private keys.'}
             </p>
           </div>
 
@@ -455,13 +547,43 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Buyer SDK Integration */}
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-            <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
               <span className="text-sm font-bold text-slate-900 dark:text-white">
                 {t.homePage.buyerQuickstartTitle}
               </span>
-              <CopyButton text={buyerCodeSnippet} />
+              <div className="flex items-center gap-2">
+                <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs dark:border-slate-800 dark:bg-slate-950">
+                  <button
+                    type="button"
+                    onClick={() => setBuyerSdkLang('python')}
+                    className={`rounded-md px-2.5 py-1 font-mono font-medium transition ${
+                      buyerSdkLang === 'python'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                    }`}
+                  >
+                    Python
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBuyerSdkLang('typescript')}
+                    className={`rounded-md px-2.5 py-1 font-mono font-medium transition ${
+                      buyerSdkLang === 'typescript'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                    }`}
+                  >
+                    TypeScript
+                  </button>
+                </div>
+                <CopyButton text={buyerCodeSnippet} />
+              </div>
             </div>
-            <pre className="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-200">
+            <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 font-mono text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-300">
+              <span>$ {buyerInstallCmd}</span>
+              <CopyButton text={buyerInstallCmd} />
+            </div>
+            <pre className="mt-3 overflow-x-auto rounded-xl bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-200">
               <code>{buyerCodeSnippet}</code>
             </pre>
           </div>

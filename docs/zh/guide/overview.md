@@ -177,13 +177,14 @@ AgentPay 明确声明**不做**什么：
 
 ## 当前状态与路线图
 
-**当前已具备（v0.1.x）**
+**当前已具备（v0.1.x / v0.2.x）**
 
 - Python SDK：`httpx` 拦截器、本地防火墙（SQLite 原子预留、熔断器）、EIP-712 / EIP-3009 签名器、LangChain 付费工具封装
+- TypeScript / Node.js SDK（`open-agentpay`）：原生 `fetch` 拦截器、`better-sqlite3` 本地防火墙、基于 `viem` 的 EIP-3009 签名器，以及 LangChain.js、Vercel AI SDK 与 MCP 集成
 - Go 网关：反向代理、x402 处理、钱包路径、幂等与故障恢复、Agent 级策略、Kill Switch、审计时间线
 - 多租户控制面：租户、项目、RBAC、Agent、API Key、钱包与管理员发放、路由与策略
 - 管理控制台：路由与上游鉴权、配置发布与回滚、钱包、Agent、支付审计
-- PostgreSQL 15+ 数据模型，Python / Go 跨语言一致性测试向量
+- PostgreSQL 15+ 数据模型，Python / Go / TypeScript 跨语言一致性测试向量
 - Arbitrum Sepolia 测试网结算，以及一条命令复现的**失控循环 Demo**
 
 **进行中 / 下一步**
@@ -197,7 +198,7 @@ AgentPay 明确声明**不做**什么：
 - **Gas 模式 2（v0.2.0）：** 动态 Gas 加价分摊，并入 USDC 金额
 - **Gas 模式 3（v0.3.0）：** 批量聚合 / 状态通道结算，支持逐 token 微支付
 - 链上充值与法币充值
-- TypeScript / Node.js SDK 与 Express / Fastify 中间件
+- Express / Fastify 卖方中间件
 - Java / Spring Boot Starter
 - 异常检测与告警（默认仅告警）
 - 多节点分布式网关集群、KMS / HSM 签名器
@@ -209,7 +210,8 @@ AgentPay 明确声明**不做**什么：
 | 我想… | 阅读 |
 | --- | --- |
 | 五分钟跑起来 | [5 分钟快速开始](/zh/guide/quickstart) |
-| 接入 Agent | [Python SDK](/zh/guide/python-sdk) |
+| 接入 Python Agent | [Python SDK](/zh/guide/python-sdk) |
+| 接入 TypeScript / Node.js Agent | [TypeScript SDK](/zh/guide/typescript-sdk) |
 | 把 API 变成付费 API | [网关配置](/zh/guide/gateway) |
 | 设置花费限额 | [策略配置](/zh/guide/policy) |
 | 管理租户、密钥与路由 | [管理控制台](/zh/guide/console) |

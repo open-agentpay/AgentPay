@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import {
   Activity,
@@ -23,6 +23,7 @@ import {
   PUBLIC_SITE_URL,
   buildAnswerFirstTldr,
   buildPythonSdkSnippet,
+  buildTypescriptSdkSnippet,
   formatNetworkLabel,
   formatUsdcPrice,
 } from '@/lib/marketplace';
@@ -86,6 +87,7 @@ interface RouteDetailViewProps {
 
 export function RouteDetailView({ route, relatedRoutes }: RouteDetailViewProps) {
   const { t, locale } = useI18n();
+  const [sdkLang, setSdkLang] = useState<'python' | 'typescript'>('python');
 
   const priceStr = formatUsdcPrice(
     route.onchain_price_base_units || route.price_base_units
@@ -93,6 +95,10 @@ export function RouteDetailView({ route, relatedRoutes }: RouteDetailViewProps) 
   const netLabel = formatNetworkLabel(route.network, route.network_label);
   const tldr = buildAnswerFirstTldr(route, locale);
   const pythonSnippet = buildPythonSdkSnippet(route, locale);
+  const tsSnippet = buildTypescriptSdkSnippet(route, locale);
+  const activeSnippet = sdkLang === 'python' ? pythonSnippet : tsSnippet;
+  const activeInstallCmd =
+    sdkLang === 'python' ? 'pip install open-agentpay' : 'npm install open-agentpay';
   const fullEndpoint = `${PUBLIC_GATEWAY_URL}${route.path_pattern}`;
   const isHealthy = route.sla.health_status === 'healthy';
   const categoryLabel = t.filter.categories[route.category] || route.category;
@@ -241,7 +247,7 @@ curl -H "Accept: text/markdown" "${PUBLIC_SITE_URL}/hub/${route.slug}"`;
       {/* Main Two-Column Content: Left (Code & Native HTML Tables), Right (Architecture & Firewall Guarantee) */}
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <div className="space-y-8 lg:col-span-2">
-          {/* 1. Zero-Friction Python SDK Code Block (Always dark for crystal syntax) */}
+          {/* 1. Zero-Friction SDK Code Block (Python & TypeScript) */}
           <section className="rounded-2xl border border-slate-200 bg-slate-900 p-6 shadow-sm dark:border-slate-800/90 dark:bg-slate-900/60 text-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2.5">
@@ -258,16 +264,47 @@ curl -H "Accept: text/markdown" "${PUBLIC_SITE_URL}/hub/${route.slug}"`;
                 </div>
               </div>
 
-              <CopyButton text={pythonSnippet} label={t.detail.copySdkCode} />
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setSdkLang('python')}
+                    className={`rounded-md px-2.5 py-1 font-mono font-medium transition ${
+                      sdkLang === 'python'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Python
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSdkLang('typescript')}
+                    className={`rounded-md px-2.5 py-1 font-mono font-medium transition ${
+                      sdkLang === 'typescript'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    TypeScript
+                  </button>
+                </div>
+                <CopyButton text={activeSnippet} label={t.detail.copySdkCode} />
+              </div>
             </div>
 
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-                <span className="font-mono">pip install open-agentpay</span>
-                <span className="font-mono text-indigo-300">Python 3.10+</span>
+                <div className="flex items-center gap-2 font-mono">
+                  <span>$ {activeInstallCmd}</span>
+                  <CopyButton text={activeInstallCmd} />
+                </div>
+                <span className="font-mono text-indigo-300">
+                  {sdkLang === 'python' ? 'Python 3.10+' : 'Node.js 20+ / TypeScript'}
+                </span>
               </div>
               <pre className="overflow-x-auto rounded-xl border border-slate-800 bg-[#050811] p-4 font-mono text-xs leading-relaxed text-slate-100 sm:text-sm">
-                <code>{pythonSnippet}</code>
+                <code>{activeSnippet}</code>
               </pre>
             </div>
           </section>
