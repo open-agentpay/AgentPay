@@ -43,7 +43,9 @@
 ## 3. Dual-Rail Settlement & Fulfillment State Flows
 
 ### 3.1 On-Chain Settlement Path
-Follows **Scheme A (Settle Before Fulfill)**:
+Supports two configurable execution modes depending on route latency vs. finality requirements:
+
+1. **Scheme A — Synchronous Finality (Settle Before Fulfill)**:
 ```text
 authorized ──▶ submit ──▶ [submitted] ──▶ [pending] ──▶ [confirmed]
                                                              │ (dispatch)
@@ -53,6 +55,11 @@ authorized ──▶ submit ──▶ [submitted] ──▶ [pending] ──▶ 
                                                              ├─ 4xx ─▶ refund_required
                                                              └─ 5xx ─▶ needs_review
 ```
+
+2. **Scheme B — Low-Latency Off-Chain Verify + Asynchronous Settlement (`Verify & Reserve Nonce -> Fulfill -> Async Settle & Reconcile`, Gateway Default)**:
+   - The Gateway verifies the EIP-712 / EIP-3009 authorization and atomically records the `(network, asset, payer, nonce)` tuple before forwarding to the upstream API.
+   - If upstream returns `4xx`, the Gateway aborts on-chain settlement broadcast so the buyer is not charged on-chain.
+   - If upstream returns `2xx`, the Gateway dispatches `POST /v1/settle` to the Facilitator. While the Facilitator transaction is `submitted` or `pending`, the Gateway settlement status remains `submitted`/`pending` (composite status `SETTLEMENT_IN_PROGRESS`) and only transitions to `confirmed` (`COMPLETED`) once the background reconciliation worker confirms the on-chain receipt (`GET /v1/settle/{id}`). If the on-chain transaction reverts (`FAILED`), the settlement transitions to `failed` and flags the intent as `needs_review` (`RECOVERY_REQUIRED`).
 
 ### 3.2 Internal Virtual Wallet Path
 Follows the **"Hold → Fulfill → Capture / Release"** closed loop:
@@ -130,9 +137,12 @@ authorized ──▶ hold ──▶ [held] ──(dispatch)──▶ [fulfillmen
 |---|---|---|---|
 | `held` | `not_started` / `in_progress` | `WALLET_HOLD_PROCESSING` | Wallet quota reserved; upstream service call in progress |
 | `unknown` / `pending` / `submitted` | `not_started` | `SETTLEMENT_IN_PROGRESS` | On-chain payment settlement in progress |
+| `pending` / `submitted` | `in_progress` / `succeeded` | `SETTLEMENT_IN_PROGRESS` | Upstream fulfilled; async on-chain transaction broadcast awaiting receipt confirmation |
+| `unknown` | `in_progress` / `succeeded` / `unknown` | `RECOVERY_REQUIRED` | On-chain settlement status ambiguous; background reconciliation worker querying Facilitator |
 | `confirmed` | `in_progress` | `FULFILLMENT_IN_PROGRESS` | Payment confirmed; upstream service delivery in progress |
 | `confirmed` | `succeeded` | `COMPLETED` | Transaction and fulfillment completed successfully |
 | `confirmed` | `failed` | `SETTLED_FULFILLMENT_FAILED_REFUND_REQUIRED` | On-chain payment settled but fulfillment failed; refund required |
 | `confirmed` | `unknown` | `SETTLED_FULFILLMENT_UNKNOWN_NEEDS_REVIEW` | Payment confirmed, but fulfillment outcome is ambiguous and needs review |
-| `released` | `failed` | `RELEASED_UNBILLED` | Wallet hold released; zero funds deducted |
-| `failed` | `not_started` | `PAYMENT_FAILED` | Payment failed prior to fulfillment; zero funds deducted |
+| `released` | `failed` / `unknown` / `not_started` | `RELEASED_UNBILLED` | Wallet hold released or expired; zero funds deducted |
+| `failed` | `not_started` / `failed` | `PAYMENT_FAILED` | Payment failed prior to or alongside fulfillment; zero funds deducted |
+| `failed` | `succeeded` / `in_progress` | `RECOVERY_REQUIRED` | On-chain transaction reverted after upstream dispatch; flagged for operator review |

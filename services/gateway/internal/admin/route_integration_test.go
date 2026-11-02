@@ -20,7 +20,7 @@ func setupRouteTest(t *testing.T) (*MemoryService, http.Handler, *auth.JWTManage
 
 	ctx := context.Background()
 	// Register tenant
-	tenant, owner, err := svc.CreateTenant(ctx, "Route Org", "owner@route.io", "Password123!")
+	tenant, owner, err := svc.CreateTenant(ctx, "Route Org", "ten_route", "owner@route.io")
 	if err != nil {
 		t.Fatalf("failed to create tenant: %v", err)
 	}
@@ -37,8 +37,8 @@ func setupRouteTest(t *testing.T) (*MemoryService, http.Handler, *auth.JWTManage
 		t.Fatalf("failed to add viewer: %v", err)
 	}
 
-	ownerToken, _ := jwtMgr.GenerateToken(owner.MemberID, tenant.TenantID, string(owner.Role), owner.Email)
-	viewerToken, _ := jwtMgr.GenerateToken(viewer.MemberID, tenant.TenantID, string(viewer.Role), viewer.Email)
+	ownerToken, _ := jwtMgr.GenerateToken(owner.MemberID, owner.Email, tenant.TenantID, string(owner.Role))
+	viewerToken, _ := jwtMgr.GenerateToken(viewer.MemberID, viewer.Email, tenant.TenantID, string(viewer.Role))
 
 	return svc, handler, jwtMgr, tenant.TenantID, prj.ProjectID, ownerToken, viewerToken
 }
@@ -250,4 +250,3 @@ func TestTenantCurrencyAndDualPricing(t *testing.T) {
 		t.Fatalf("expected 409 Conflict when currency is locked by existing routes, got %d: %s", w.Code, w.Body.String())
 	}
 }
-

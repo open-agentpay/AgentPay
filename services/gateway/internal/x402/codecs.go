@@ -37,6 +37,7 @@ func DecodeWalletAuthorization(headerVal string) (*WalletAuthorization, error) {
 	if err := json.Unmarshal(raw, &auth); err != nil {
 		return nil, fmt.Errorf("%w: json parse error: %v", ErrMalformedHeader, err)
 	}
+	auth.Nonce = strings.ToLower(strings.TrimSpace(auth.Nonce))
 	if auth.Version != DefaultVersion || auth.ChallengeID == "" || auth.Scheme != WalletScheme || auth.Amount == "" || auth.ResourceURI == "" || auth.RequestBinding == "" || !walletNoncePattern.MatchString(auth.Nonce) || auth.ValidBefore <= auth.ValidAfter {
 		return nil, fmt.Errorf("%w: invalid agentpay-wallet authorization fields", ErrMissingRequiredField)
 	}
@@ -173,6 +174,10 @@ func DecodeAuthorization(headerVal string) (*PaymentAuthorization, error) {
 	if auth.ChallengeID == "" {
 		return nil, fmt.Errorf("%w: challengeId", ErrMissingRequiredField)
 	}
+	// SECURITY-REVIEW: normalize payer address and nonce to lowercase to prevent
+	// case-variant replay bypasses across x402 authorization headers (P0-4).
+	auth.Payer = strings.ToLower(strings.TrimSpace(auth.Payer))
+	auth.Nonce = strings.ToLower(strings.TrimSpace(auth.Nonce))
 	if auth.Payer == "" {
 		return nil, fmt.Errorf("%w: payer", ErrMissingRequiredField)
 	}

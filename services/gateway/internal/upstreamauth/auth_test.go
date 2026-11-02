@@ -3,6 +3,8 @@ package upstreamauth
 import (
 	"context"
 	"encoding/base64"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,37 +34,108 @@ func TestRegistrationAndSchemas(t *testing.T) {
 	}
 }
 
-func TestAESGCMSecretEncryption(t *testing.T) {
+func TestAESGCMSecretEncryptionAndKeyRotation(t *testing.T) {
+	ResetKeyRing()
+	t.Setenv("AGENTPAY_UPSTREAM_MASTER_KEY", "")
+
 	secrets := map[string]string{
 		"api_key":       "sk-live-9876543210abcdef",
 		"client_secret": "cs_top_secret_xyz",
 	}
 
-	enc, err := EncryptSecrets(secrets, nil)
+	// 1. Fail-closed when master key is not configured
+	if _, err := EncryptSecrets(secrets, nil); !errors.Is(err, ErrMasterKeyNotConfigured) {
+		t.Fatalf("expected ErrMasterKeyNotConfigured when key not configured, got: %v", err)
+	}
+
+	// 2. Configure v1 key and encrypt
+	keyV1 := "0123456789abcdef0123456789abcdef"
+	if err := ConfigureKeyRing(1, keyV1, nil); err != nil {
+		t.Fatalf("ConfigureKeyRing v1 failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = ConfigureKeyRing(1, keyV1, nil)
+	})
+
+	encV1, ver1, err := EncryptSecretsVersioned(secrets)
 	if err != nil {
 		t.Fatalf("encryption failed: %v", err)
 	}
-	if len(enc) == 0 {
-		t.Fatal("empty ciphertext")
+	if ver1 != 1 || len(encV1) == 0 {
+		t.Fatalf("expected version 1 and non-empty ciphertext, got ver=%d len=%d", ver1, len(encV1))
 	}
 
-	dec, err := DecryptSecrets(enc, nil)
+	dec, err := DecryptSecrets(encV1, nil)
 	if err != nil {
 		t.Fatalf("decryption failed: %v", err)
 	}
-
-	if dec["api_key"] != secrets["api_key"] {
-		t.Errorf("expected api_key %s, got %s", secrets["api_key"], dec["api_key"])
-	}
-	if dec["client_secret"] != secrets["client_secret"] {
-		t.Errorf("expected client_secret %s, got %s", secrets["client_secret"], dec["client_secret"])
+	if dec["api_key"] != secrets["api_key"] || dec["client_secret"] != secrets["client_secret"] {
+		t.Errorf("decrypted secrets mismatch: %+v", dec)
 	}
 
-	// Tampered ciphertext check
-	enc[len(enc)-1] ^= 0xFF
-	_, err = DecryptSecrets(enc, nil)
-	if err == nil {
+	// 3. Rotate to v2 key while retaining v1 in keyring
+	keyV2 := "fedcba9876543210fedcba9876543210"
+	if err := ConfigureKeyRing(2, keyV2, map[int]string{1: keyV1}); err != nil {
+		t.Fatalf("ConfigureKeyRing v2 failed: %v", err)
+	}
+
+	// Old v1 ciphertext must still be readable
+	decFromV1, err := DecryptSecretsVersioned(encV1, 1)
+	if err != nil {
+		t.Fatalf("expected v1 ciphertext to be decryptable after rotation to v2: %v", err)
+	}
+	if decFromV1["api_key"] != secrets["api_key"] {
+		t.Errorf("expected %s, got %s", secrets["api_key"], decFromV1["api_key"])
+	}
+
+	// Re-encrypting upgrades ciphertext to v2
+	encV2, ver2, err := ReencryptSecrets(encV1, 1)
+	if err != nil {
+		t.Fatalf("ReencryptSecrets failed: %v", err)
+	}
+	if ver2 != 2 {
+		t.Fatalf("expected re-encrypted version 2, got %d", ver2)
+	}
+
+	// Verify v2 ciphertext cannot be decrypted with v1 key alone
+	if _, err := DecryptSecrets(encV2, []byte(keyV1)); err == nil {
+		t.Fatal("expected v2 ciphertext decryption with v1 key to fail")
+	}
+
+	// 4. Tampered ciphertext check
+	encV2[len(encV2)-1] ^= 0xFF
+	if _, err := DecryptSecrets(encV2, nil); err == nil {
 		t.Fatal("expected decryption error on tampered ciphertext, got nil")
+	}
+}
+
+func TestSSRFValidationBlocksInternalAndMetadataTargets(t *testing.T) {
+	t.Setenv("AGENTPAY_ALLOW_PRIVATE_UPSTREAM", "false")
+
+	blockedURLs := []string{
+		"http://127.0.0.1:8080/admin",
+		"http://localhost:8000/api",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://10.0.0.1/internal",
+		"http://172.16.5.4/secret",
+		"http://192.168.1.1/router",
+		"http://[::1]:8080/loopback",
+		"http://0.0.0.0:8000/",
+		"http://metadata.google.internal/computeMetadata/v1/",
+	}
+
+	for _, u := range blockedURLs {
+		if err := ValidateUpstreamURL(u); !errors.Is(err, ErrSSRFBlocked) {
+			t.Errorf("expected ErrSSRFBlocked for %s, got: %v", u, err)
+		}
+	}
+
+	// Public HTTPS URL should pass static validation
+	if err := ValidateUpstreamURL("https://api.openai.com/v1/chat/completions"); err != nil {
+		t.Errorf("expected public URL to pass ValidateUpstreamURL, got: %v", err)
+	}
+	if !IsBlockedIP(net.ParseIP("100.64.0.1")) {
+		t.Errorf("expected CGNAT IP 100.64.0.1 to be blocked")
 	}
 }
 

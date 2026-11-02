@@ -43,7 +43,9 @@
 ## 3. 双轨结算与履约状态流转
 
 ### 3.1 链上结算路径 (On-Chain Path)
-遵循 **方案 A（先结算后履约）**：
+支持根据路由延迟与最终性要求配置两种执行模式：
+
+1. **方案 A —— 同步强确认模式（先链上结算确认、后履约）**：
 ```text
 authorized ──▶ submit ──▶ [submitted] ──▶ [pending] ──▶ [confirmed]
                                                              │ (dispatch)
@@ -53,6 +55,11 @@ authorized ──▶ submit ──▶ [submitted] ──▶ [pending] ──▶ 
                                                              ├─ 4xx ─▶ refund_required
                                                              └─ 5xx ─▶ needs_review
 ```
+
+2. **方案 B —— 低延迟预校验 + 异步链上结算模式（`Verify & Reserve Nonce -> Fulfill -> Async Settle & Reconcile`，网关默认模式）**：
+   - 网关先完成 EIP-712 / EIP-3009 签名校验并原子持久化消费 `(network, asset, payer, nonce)`，随后向上游发起调用。
+   - 若上游返回 `4xx`，网关直接终止链上广播，避免买方产生无效链上扣费。
+   - 若上游返回 `2xx`，网关异步调用 Facilitator `POST /v1/settle` 广播交易；在 Facilitator 返回 `submitted`/`pending` 期间，网关结算状态严格保持 `submitted`/`pending`（组合状态为 `SETTLEMENT_IN_PROGRESS`），仅在后台对账器通过 `GET /v1/settle/{id}` 核实链上回执达到 `CONFIRMED` 后才迁移至 `confirmed`（`COMPLETED`）；若链上回执 Revert（`FAILED`），则迁移至 `failed` 并标记意图为 `needs_review`（`RECOVERY_REQUIRED`）。
 
 ### 3.2 虚拟钱包结算路径 (Internal Wallet Path)
 遵循 **“冻结 → 履约 → 确认扣费/释放”** 闭环：
@@ -130,9 +137,12 @@ authorized ──▶ hold ──▶ [held] ──(dispatch)──▶ [fulfillmen
 |---|---|---|---|
 | `held` | `not_started` / `in_progress` | `WALLET_HOLD_PROCESSING` | 钱包已预留额度，正在调用上游服务 |
 | `unknown` / `pending` / `submitted` | `not_started` | `SETTLEMENT_IN_PROGRESS` | 链上支付确认中 |
+| `pending` / `submitted` | `in_progress` / `succeeded` | `SETTLEMENT_IN_PROGRESS` | 上游已履约，异步链上交易已广播等待区块最终确认 |
+| `unknown` | `in_progress` / `succeeded` / `unknown` | `RECOVERY_REQUIRED` | 链上结算状态未知，后台对账任务正在向 Facilitator 查询确认 |
 | `confirmed` | `in_progress` | `FULFILLMENT_IN_PROGRESS` | 扣费已确认，服务交付中 |
 | `confirmed` | `succeeded` | `COMPLETED` | 交易成功完成 |
 | `confirmed` | `failed` | `SETTLED_FULFILLMENT_FAILED_REFUND_REQUIRED` | 链上已扣款但履约失败，待补偿退款 |
 | `confirmed` | `unknown` | `SETTLED_FULFILLMENT_UNKNOWN_NEEDS_REVIEW` | 扣款已确认，履约异常待排查 |
-| `released` | `failed` | `RELEASED_UNBILLED` | 钱包额度已释放，未产生任何实际扣款 |
-| `failed` | `not_started` | `PAYMENT_FAILED` | 支付失败，未扣款 |
+| `released` | `failed` / `unknown` / `not_started` | `RELEASED_UNBILLED` | 钱包额度已释放或过期解冻，未产生任何实际扣款 |
+| `failed` | `not_started` / `failed` | `PAYMENT_FAILED` | 支付失败，未扣款 |
+| `failed` | `succeeded` / `in_progress` | `RECOVERY_REQUIRED` | 链上交易回滚失败但上游已触发调用，需人工复核与追偿 |

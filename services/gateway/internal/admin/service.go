@@ -2,11 +2,7 @@ package admin
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -210,6 +206,49 @@ func (s *MemoryService) recordAudit(tenantID, operatorID, action, targetType, ta
 	s.auditEvents = append(s.auditEvents, ev)
 }
 
+func (s *MemoryService) checkPermissionLocked(tenantID, actorMemberID string, perm Permission) error {
+	if actorMemberID == "" {
+		return ErrPermissionDenied
+	}
+	actor, ok := s.members[actorMemberID]
+	if !ok || actor.TenantID != tenantID {
+		return ErrPermissionDenied
+	}
+	return EnforcePermission(actor, perm)
+}
+
+func (s *MemoryService) checkPermissionRLock(tenantID, actorMemberID string, perm Permission) error {
+	if actorMemberID == "" {
+		return ErrPermissionDenied
+	}
+	s.mu.RLock()
+	actor, ok := s.members[actorMemberID]
+	s.mu.RUnlock()
+	if !ok || actor.TenantID != tenantID {
+		return ErrPermissionDenied
+	}
+	return EnforcePermission(actor, perm)
+}
+
+func (s *MemoryService) initMasterWalletLocked(tid, curr string) {
+	if s.walletSvc == nil {
+		return
+	}
+	if memWlt, ok := s.walletSvc.(*wallet.MemoryService); ok {
+		memWlt.RegisterWallet(&wallet.Wallet{
+			WalletID:       fmt.Sprintf("wlt_%s", tid),
+			TenantID:       tid,
+			Asset:          curr,
+			Status:         wallet.StatusActive,
+			Version:        1,
+			AvailableCache: 0,
+			HeldCache:      0,
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+		})
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Auth
 // ----------------------------------------------------------------------------
@@ -278,37 +317,18 @@ func (s *MemoryService) Register(ctx context.Context, tenantName, email, passwor
 		UpdatedAt:    now,
 	}
 	s.members[ownerMember.MemberID] = ownerMember
+	s.initMasterWalletLocked(tid, curr)
 
-	// Initialize master wallet with tenant's selected base currency
-	if s.walletSvc != nil {
-		memWlt, ok := s.walletSvc.(*wallet.MemoryService)
-		if ok {
-			memWlt.RegisterWallet(&wallet.Wallet{
-				WalletID:       fmt.Sprintf("wlt_%s", tid),
-				TenantID:       tid,
-				Asset:          curr,
-				Status:         wallet.StatusActive,
-				Version:        1,
-				AvailableCache: 0,
-				HeldCache:      0,
-				CreatedAt:      time.Now(),
-				UpdatedAt:      time.Now(),
-			})
-		}
-	}
-
-	// Initialize default project for new tenant
 	defaultPrjID := GenerateProjectID()
-	defaultProject := &Project{
+	s.projects[defaultPrjID] = &Project{
 		ProjectID:          defaultPrjID,
 		TenantID:           tid,
 		Name:               "默认项目 (Default)",
-		BudgetCapBaseUnits: 1000000000, // 1000 units in tenant base currency
+		BudgetCapBaseUnits: 1000000000,
 		Status:             ProjectStatusActive,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	s.projects[defaultPrjID] = defaultProject
 
 	s.recordAudit(tid, ownerMember.MemberID, "auth.register", "Tenant", tid, nil, map[string]interface{}{"email": cleanEmail, "tenant": cleanName, "currency": curr, "project_id": defaultPrjID}, "127.0.0.1")
 	return t, ownerMember, nil
@@ -329,7 +349,6 @@ func (s *MemoryService) Login(ctx context.Context, email, password string) (*Mem
 	if matchedMember == nil {
 		return nil, nil, ErrInvalidCredentials
 	}
-
 	if matchedMember.Status != MemberStatusActive {
 		return nil, nil, ErrMemberDisabled
 	}
@@ -338,11 +357,9 @@ func (s *MemoryService) Login(ctx context.Context, email, password string) (*Mem
 	if !ok || tenant.Status != TenantStatusActive {
 		return nil, nil, ErrTenantSuspended
 	}
-
 	if matchedMember.PasswordHash == "" || !auth.VerifyPassword(password, matchedMember.PasswordHash) {
 		return nil, nil, ErrInvalidCredentials
 	}
-
 	return matchedMember, tenant, nil
 }
 
@@ -353,8 +370,7 @@ func (s *MemoryService) GetMemberByEmail(ctx context.Context, email string) (*Me
 
 	for _, m := range s.members {
 		if strings.EqualFold(m.Email, cleanEmail) {
-			t := s.tenants[m.TenantID]
-			return m, t, nil
+			return m, s.tenants[m.TenantID], nil
 		}
 	}
 	return nil, nil, ErrMemberNotFound
@@ -439,24 +455,7 @@ func (s *MemoryService) CreateTenant(ctx context.Context, name string, tenantID 
 		s.members[ownerMember.MemberID] = ownerMember
 	}
 
-	// Initialize master wallet with tenant's selected base currency
-	if s.walletSvc != nil {
-		memWlt, ok := s.walletSvc.(*wallet.MemoryService)
-		if ok {
-			memWlt.RegisterWallet(&wallet.Wallet{
-				WalletID:       fmt.Sprintf("wlt_%s", tid),
-				TenantID:       tid,
-				Asset:          curr,
-				Status:         wallet.StatusActive,
-				Version:        1,
-				AvailableCache: 0,
-				HeldCache:      0,
-				CreatedAt:      time.Now(),
-				UpdatedAt:      time.Now(),
-			})
-		}
-	}
-
+	s.initMasterWalletLocked(tid, curr)
 	s.recordAudit(tid, "system", "tenant.created", "Tenant", tid, nil, map[string]interface{}{"name": cleanName, "currency": curr}, "127.0.0.1")
 	return t, ownerMember, nil
 }
@@ -497,15 +496,8 @@ func (s *MemoryService) UpdateTenant(ctx context.Context, tenantID string, name 
 	if !ok {
 		return nil, ErrTenantNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionTenantUpdate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionTenantUpdate); err != nil {
+		return nil, err
 	}
 
 	cleanName := strings.TrimSpace(name)
@@ -529,15 +521,8 @@ func (s *MemoryService) UpdateTenantCurrency(ctx context.Context, tenantID strin
 	if !ok {
 		return nil, ErrTenantNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionTenantUpdate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionTenantUpdate); err != nil {
+		return nil, err
 	}
 
 	curr, err := NormalizeCurrency(strings.TrimSpace(currency))
@@ -545,7 +530,6 @@ func (s *MemoryService) UpdateTenantCurrency(ctx context.Context, tenantID strin
 		return nil, err
 	}
 
-	// Enforce C2 immutability: cannot change currency once routes exist or ledger entries exist
 	for _, r := range s.routes {
 		if r.TenantID == tenantID {
 			return nil, ErrCurrencyLocked
@@ -586,12 +570,14 @@ func (s *MemoryService) UpdateTenantStatus(ctx context.Context, tenantID string,
 	if !ok {
 		return nil, ErrTenantNotFound
 	}
-
 	if t.Status == TenantStatusTerminated && status != TenantStatusTerminated {
 		return nil, ErrInvalidStatusTransition
 	}
-
-	if actorMemberID != "" {
+	if actorMemberID == "" {
+		if !auth.IsSystemContext(ctx) {
+			return nil, ErrPermissionDenied
+		}
+	} else {
 		actor, ok := s.members[actorMemberID]
 		if !ok || actor.TenantID != tenantID || actor.Role != RoleOwner {
 			return nil, ErrPermissionDenied
@@ -624,22 +610,14 @@ func (s *MemoryService) CreateProject(ctx context.Context, tenantID, name string
 	if tenant.Status == TenantStatusTerminated {
 		return nil, ErrTenantTerminated
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionProjectCreate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionProjectCreate); err != nil {
+		return nil, err
 	}
 
 	cleanName := strings.TrimSpace(name)
 	if cleanName == "" {
 		return nil, fmt.Errorf("project name cannot be empty")
 	}
-
 	for _, p := range s.projects {
 		if p.TenantID == tenantID && p.Name == cleanName {
 			return nil, ErrProjectAlreadyExists
@@ -705,19 +683,11 @@ func (s *MemoryService) UpdateProject(ctx context.Context, tenantID, projectID s
 	if p.TenantID != tenantID {
 		return nil, ErrProjectTenantMismatch
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionProjectUpdate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionProjectUpdate); err != nil {
+		return nil, err
 	}
 
 	before := map[string]interface{}{"name": p.Name, "budget_cap": p.BudgetCapBaseUnits, "status": string(p.Status)}
-
 	if name != "" {
 		cleanName := strings.TrimSpace(name)
 		for _, other := range s.projects {
@@ -750,15 +720,8 @@ func (s *MemoryService) DeleteProject(ctx context.Context, tenantID, projectID s
 	if p.TenantID != tenantID {
 		return ErrProjectTenantMismatch
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionProjectDelete); err != nil {
-			return err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionProjectDelete); err != nil {
+		return err
 	}
 
 	delete(s.projects, projectID)
@@ -778,15 +741,8 @@ func (s *MemoryService) AddMember(ctx context.Context, tenantID, email string, r
 	if cleanEmail == "" {
 		return nil, fmt.Errorf("email cannot be empty")
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionMemberCreate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionMemberCreate); err != nil {
+		return nil, err
 	}
 
 	for _, m := range s.members {
@@ -835,6 +791,16 @@ func (s *MemoryService) ListMembers(ctx context.Context, tenantID string) ([]*Me
 	return res, nil
 }
 
+func (s *MemoryService) countActiveOwnersLocked(tenantID string) int {
+	activeOwners := 0
+	for _, other := range s.members {
+		if other.TenantID == tenantID && other.Role == RoleOwner && other.Status == MemberStatusActive {
+			activeOwners++
+		}
+	}
+	return activeOwners
+}
+
 func (s *MemoryService) UpdateMember(ctx context.Context, tenantID, memberID string, role *MemberRole, status *MemberStatus, actorMemberID string) (*Member, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -843,26 +809,12 @@ func (s *MemoryService) UpdateMember(ctx context.Context, tenantID, memberID str
 	if !ok || m.TenantID != tenantID {
 		return nil, ErrMemberNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionMemberUpdate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionMemberUpdate); err != nil {
+		return nil, err
 	}
 
-	// Last owner protection
 	if m.Role == RoleOwner && (role != nil && *role != RoleOwner || status != nil && *status == MemberStatusDisabled) {
-		activeOwners := 0
-		for _, other := range s.members {
-			if other.TenantID == tenantID && other.Role == RoleOwner && other.Status == MemberStatusActive {
-				activeOwners++
-			}
-		}
-		if activeOwners <= 1 {
+		if s.countActiveOwnersLocked(tenantID) <= 1 {
 			return nil, ErrCannotDemoteLastOwner
 		}
 	}
@@ -888,27 +840,11 @@ func (s *MemoryService) RemoveMember(ctx context.Context, tenantID, memberID str
 	if !ok || m.TenantID != tenantID {
 		return ErrMemberNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionMemberDelete); err != nil {
-			return err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionMemberDelete); err != nil {
+		return err
 	}
-
-	if m.Role == RoleOwner {
-		activeOwners := 0
-		for _, other := range s.members {
-			if other.TenantID == tenantID && other.Role == RoleOwner && other.Status == MemberStatusActive {
-				activeOwners++
-			}
-		}
-		if activeOwners <= 1 {
-			return ErrCannotRemoveLastOwner
-		}
+	if m.Role == RoleOwner && s.countActiveOwnersLocked(tenantID) <= 1 {
+		return ErrCannotRemoveLastOwner
 	}
 
 	delete(s.members, memberID)
@@ -931,22 +867,14 @@ func (s *MemoryService) CreateAgent(ctx context.Context, tenantID, projectID, na
 	if proj.Status == ProjectStatusArchived {
 		return nil, ErrProjectArchived
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionAgentCreate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionAgentCreate); err != nil {
+		return nil, err
 	}
 
 	cleanName := strings.TrimSpace(name)
 	if cleanName == "" {
 		return nil, fmt.Errorf("agent name cannot be empty")
 	}
-
 	for _, a := range s.agents {
 		if a.ProjectID == projectID && a.Name == cleanName {
 			return nil, ErrAgentAlreadyExists
@@ -971,7 +899,6 @@ func (s *MemoryService) CreateAgent(ctx context.Context, tenantID, projectID, na
 	}
 	s.agents[aid] = ag
 
-	// Register in data plane registry
 	if s.agentRegistry != nil {
 		s.agentRegistry.RegisterAgent(&agent.AgentIdentity{
 			AgentID:   aid,
@@ -1031,15 +958,8 @@ func (s *MemoryService) UpdateAgent(ctx context.Context, tenantID, agentID strin
 	if ag.Status == AgentStatusRevoked {
 		return nil, ErrAgentRevoked
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionAgentUpdate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionAgentUpdate); err != nil {
+		return nil, err
 	}
 
 	before := map[string]interface{}{"name": ag.Name, "policy_config": ag.PolicyConfig}
@@ -1069,32 +989,22 @@ func (s *MemoryService) UpdateAgentStatus(ctx context.Context, tenantID, agentID
 	if !ok || ag.TenantID != tenantID {
 		return nil, ErrAgentNotFound
 	}
-
 	if ag.Status == AgentStatusRevoked && status != AgentStatusRevoked {
 		return nil, ErrInvalidStatusTransition
 	}
 
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if status == AgentStatusRevoked || status == AgentStatusSuspended {
-			if err := EnforcePermission(actor, PermissionAgentKill); err != nil {
-				return nil, err
-			}
-		} else {
-			if err := EnforcePermission(actor, PermissionAgentUpdate); err != nil {
-				return nil, err
-			}
-		}
+	reqPerm := PermissionAgentUpdate
+	if status == AgentStatusRevoked || status == AgentStatusSuspended {
+		reqPerm = PermissionAgentKill
+	}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, reqPerm); err != nil {
+		return nil, err
 	}
 
 	before := map[string]interface{}{"status": string(ag.Status)}
 	ag.Status = status
 	ag.UpdatedAt = time.Now().Unix()
 
-	// Invalidate keys if revoked
 	if status == AgentStatusRevoked {
 		for _, k := range s.apiKeys {
 			if k.AgentID == agentID && k.Status == APIKeyStatusActive {
@@ -1103,8 +1013,6 @@ func (s *MemoryService) UpdateAgentStatus(ctx context.Context, tenantID, agentID
 			}
 		}
 	}
-
-	// Update data plane registry
 	if s.agentRegistry != nil {
 		s.agentRegistry.SetAgentStatus(agentID, agent.AgentStatus(status))
 	}
@@ -1129,15 +1037,10 @@ func (s *MemoryService) KillAgent(ctx context.Context, tenantID, agentID, reason
 	if ag.Status == AgentStatusRevoked {
 		return nil, nil, ErrInvalidStatusTransition
 	}
-
 	if actorMemberID == "" {
 		return nil, nil, ErrPermissionDenied
 	}
-	actor, ok := s.members[actorMemberID]
-	if !ok || actor.TenantID != tenantID {
-		return nil, nil, ErrPermissionDenied
-	}
-	if err := EnforcePermission(actor, PermissionAgentKill); err != nil {
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionAgentKill); err != nil {
 		return nil, nil, err
 	}
 
@@ -1151,7 +1054,6 @@ func (s *MemoryService) KillAgent(ctx context.Context, tenantID, agentID, reason
 	ag.Status = targetStatus
 	ag.UpdatedAt = now
 
-	// Cascade revocation of active keys
 	revokedKeys := make([]string, 0)
 	for _, k := range s.apiKeys {
 		if k.AgentID == agentID && k.Status == APIKeyStatusActive {
@@ -1161,7 +1063,6 @@ func (s *MemoryService) KillAgent(ctx context.Context, tenantID, agentID, reason
 		}
 	}
 
-	// Direct fast-path in Go Registry (nanosecond level!)
 	if s.agentRegistry != nil {
 		s.agentRegistry.SetAgentStatus(agentID, agent.AgentStatus(targetStatus))
 	}
@@ -1173,7 +1074,6 @@ func (s *MemoryService) KillAgent(ctx context.Context, tenantID, agentID, reason
 		"revoke":       revoke,
 	}
 	s.recordAudit(tenantID, actorMemberID, "agent.control", "Agent", agentID, before, after, clientIP)
-
 	return ag, revokedKeys, nil
 }
 
@@ -1185,18 +1085,10 @@ func (s *MemoryService) DeleteAgent(ctx context.Context, tenantID, agentID, acto
 	if !ok || ag.TenantID != tenantID {
 		return ErrAgentNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionAgentKill); err != nil {
-			return err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionAgentKill); err != nil {
+		return err
 	}
 
-	// Invalidate keys
 	for _, k := range s.apiKeys {
 		if k.AgentID == agentID {
 			k.Status = APIKeyStatusRevoked
@@ -1220,15 +1112,8 @@ func (s *MemoryService) CreateAPIKey(ctx context.Context, tenantID, projectID, a
 	if !ok || ag.TenantID != tenantID || ag.ProjectID != projectID {
 		return nil, ErrAgentNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionAPIKeyCreate); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionAPIKeyCreate); err != nil {
+		return nil, err
 	}
 
 	rawKey, keyHash, keyPrefix := GenerateRawAPIKey()
@@ -1238,28 +1123,26 @@ func (s *MemoryService) CreateAPIKey(ctx context.Context, tenantID, projectID, a
 	}
 
 	k := &APIKey{
-		KeyID:      GenerateAPIKeyID(),
-		TenantID:   tenantID,
-		ProjectID:  projectID,
-		AgentID:    agentID,
-		Name:       strings.TrimSpace(name),
-		KeyHash:    keyHash,
-		KeyPrefix:  keyPrefix,
-		Scopes:     scopes,
-		Status:     APIKeyStatusActive,
-		ExpiresAt:  expiresAt,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		KeyID:     GenerateAPIKeyID(),
+		TenantID:  tenantID,
+		ProjectID: projectID,
+		AgentID:   agentID,
+		Name:      strings.TrimSpace(name),
+		KeyHash:   keyHash,
+		KeyPrefix: keyPrefix,
+		Scopes:    scopes,
+		Status:    APIKeyStatusActive,
+		ExpiresAt: expiresAt,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	s.apiKeys[k.KeyID] = k
 
-	// Bind in registry and memory wallet
 	if s.agentRegistry != nil {
 		s.agentRegistry.BindAPIKeyHash(keyHash, agentID)
 	}
 	if s.walletSvc != nil {
-		memWlt, ok := s.walletSvc.(*wallet.MemoryService)
-		if ok {
+		if memWlt, ok := s.walletSvc.(*wallet.MemoryService); ok {
 			memWlt.RegisterAPIKey(rawKey, tenantID, projectID, agentID)
 		}
 	}
@@ -1304,15 +1187,8 @@ func (s *MemoryService) RevokeAPIKey(ctx context.Context, tenantID, keyID, actor
 	if !ok || k.TenantID != tenantID {
 		return nil, ErrAPIKeyNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionAPIKeyRevoke); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionAPIKeyRevoke); err != nil {
+		return nil, err
 	}
 
 	k.Status = APIKeyStatusRevoked
@@ -1338,26 +1214,8 @@ func (s *MemoryService) CreateRoute(ctx context.Context, r *Route, actorMemberID
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != r.TenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionRouteWrite); err != nil {
-			return nil, err
-		}
-	}
-
-	cleanPath := strings.TrimSpace(r.PathPattern)
-	if cleanPath == "" {
-		return nil, fmt.Errorf("path_pattern cannot be empty")
-	}
-	if !strings.HasPrefix(cleanPath, "/") {
-		return nil, fmt.Errorf("path_pattern must begin with /")
-	}
-	cleanUpstream := strings.TrimSpace(r.UpstreamURL)
-	if cleanUpstream == "" {
-		return nil, fmt.Errorf("upstream_url cannot be empty")
+	if err := s.checkPermissionLocked(r.TenantID, actorMemberID, PermissionRouteWrite); err != nil {
+		return nil, err
 	}
 
 	if r.ProjectID != "" {
@@ -1367,98 +1225,22 @@ func (s *MemoryService) CreateRoute(ctx context.Context, r *Route, actorMemberID
 		}
 	}
 
+	cleanPath := strings.TrimSpace(r.PathPattern)
 	for _, existing := range s.routes {
 		if existing.TenantID == r.TenantID && existing.PathPattern == cleanPath {
 			return nil, ErrRouteAlreadyExists
 		}
 	}
 
-	if r.RouteID == "" {
-		r.RouteID = GenerateRouteID()
+	var tenantCurrency string
+	if t, ok := s.tenants[r.TenantID]; ok {
+		tenantCurrency = t.Currency
 	}
-	r.PathPattern = cleanPath
-	r.UpstreamURL = cleanUpstream
-	r.Slug = NormalizeSlug(r.Slug, cleanPath)
-	r.Title = DefaultTitleFromSlug(r.Title, r.Slug, cleanPath)
-	if strings.TrimSpace(r.Category) == "" {
-		r.Category = "AI & LLM"
-	} else {
-		r.Category = strings.TrimSpace(r.Category)
-	}
-	if strings.TrimSpace(r.Network) == "" {
-		r.Network = "eip155:421614"
-	} else {
-		r.Network = strings.TrimSpace(r.Network)
-	}
-	if len(r.Methods) == 0 {
-		r.Methods = []string{"POST"}
-	}
-	if r.Tags == nil {
-		r.Tags = []string{}
-	}
-	if r.Parameters == nil {
-		r.Parameters = []MarketplaceParameter{}
-	}
-	if r.SampleParams == nil {
-		r.SampleParams = map[string]interface{}{}
-	}
-	if r.SampleResponse == nil {
-		r.SampleResponse = map[string]interface{}{}
-	}
-	if r.TimeoutMs <= 0 {
-		r.TimeoutMs = 30000
-	}
-	if r.AllowedPaymentMethods == "" {
-		r.AllowedPaymentMethods = "both"
-	}
-	if r.RateLimitRPM <= 0 {
-		r.RateLimitRPM = 600
-	}
-	if r.Asset == "" {
-		if r.AllowedPaymentMethods == "onchain" {
-			r.Asset = "USDC"
-		} else if t, ok := s.tenants[r.TenantID]; ok && t.Currency != "" && (r.AllowedPaymentMethods == "wallet" || t.Currency != "USD") {
-			r.Asset = t.Currency
-		} else {
-			r.Asset = "USDC"
-		}
-	}
-	if r.OnchainAsset == "" && r.AllowedPaymentMethods != "wallet" {
-		r.OnchainAsset = "USDC"
-	}
-	if r.Status == "" {
-		r.Status = RouteStatusActive
-	}
-	r.PayeeAddress = strings.ToLower(strings.TrimSpace(r.PayeeAddress))
-
-	now := time.Now().Unix()
-	r.CreatedAt = now
-	r.UpdatedAt = now
-
-	if r.UpstreamAuth != nil {
-		if r.UpstreamAuth.Type == "" {
-			r.UpstreamAuth.Type = "none"
-		}
-		if auth, ok := upstreamauth.Get(r.UpstreamAuth.Type); ok {
-			if err := auth.Validate(r.UpstreamAuth.Params, r.UpstreamAuth.Secrets); err != nil {
-				return nil, fmt.Errorf("upstream_auth validation error: %w", err)
-			}
-		}
-		if len(r.UpstreamAuth.Secrets) > 0 {
-			enc, err := upstreamauth.EncryptSecrets(r.UpstreamAuth.Secrets, nil)
-			if err != nil {
-				return nil, fmt.Errorf("failed to encrypt upstream secrets: %w", err)
-			}
-			r.UpstreamAuth.SecretEnc = enc
-			r.UpstreamAuth.HasSecret = true
-			r.UpstreamAuth.KeyVersion = 1
-			r.UpstreamAuth.Secrets = nil
-		}
-		r.UpstreamAuth.UpdatedAt = now
+	if err := normalizeNewRoute(r, tenantCurrency, time.Now().Unix()); err != nil {
+		return nil, err
 	}
 
 	s.routes[r.RouteID] = r
-
 	s.recordAudit(r.TenantID, actorMemberID, "route.created", "Route", r.RouteID, nil, map[string]interface{}{
 		"path":         r.PathPattern,
 		"slug":         r.Slug,
@@ -1503,15 +1285,8 @@ func (s *MemoryService) UpdateRoute(ctx context.Context, input *UpdateRouteInput
 	if !ok || existing.TenantID != input.TenantID {
 		return nil, ErrRouteNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != input.TenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionRouteWrite); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionLocked(input.TenantID, actorMemberID, PermissionRouteWrite); err != nil {
+		return nil, err
 	}
 
 	before := map[string]interface{}{
@@ -1545,72 +1320,6 @@ func (s *MemoryService) UpdateRoute(ctx context.Context, input *UpdateRouteInput
 		existing.PathPattern = cleanPath
 	}
 
-	if input.Slug != nil {
-		existing.Slug = NormalizeSlug(*input.Slug, existing.PathPattern)
-	} else if existing.Slug == "" {
-		existing.Slug = NormalizeSlug("", existing.PathPattern)
-	}
-
-	if input.Title != nil {
-		existing.Title = DefaultTitleFromSlug(*input.Title, existing.Slug, existing.PathPattern)
-	}
-
-	if input.Summary != nil {
-		existing.Summary = strings.TrimSpace(*input.Summary)
-	}
-
-	if input.ProviderName != nil {
-		existing.ProviderName = strings.TrimSpace(*input.ProviderName)
-	}
-
-	if input.Methods != nil {
-		existing.Methods = input.Methods
-	}
-
-	if input.NetworkLabel != nil {
-		existing.NetworkLabel = strings.TrimSpace(*input.NetworkLabel)
-	}
-
-	if input.Parameters != nil {
-		existing.Parameters = input.Parameters
-	}
-
-	if input.SampleParams != nil {
-		existing.SampleParams = input.SampleParams
-	}
-
-	if input.SampleResponse != nil {
-		existing.SampleResponse = input.SampleResponse
-	}
-
-	if input.IsPublic != nil {
-		existing.IsPublic = *input.IsPublic
-	}
-
-	if input.Category != nil {
-		existing.Category = strings.TrimSpace(*input.Category)
-	}
-
-	if input.Tags != nil {
-		existing.Tags = input.Tags
-	}
-
-	if input.DescriptionMD != nil {
-		existing.DescriptionMD = *input.DescriptionMD
-	}
-
-	if input.Network != nil && strings.TrimSpace(*input.Network) != "" {
-		existing.Network = strings.TrimSpace(*input.Network)
-	}
-
-	if input.UpstreamURL != nil {
-		cleanUpstream := strings.TrimSpace(*input.UpstreamURL)
-		if cleanUpstream == "" {
-			return nil, fmt.Errorf("upstream_url cannot be empty")
-		}
-		existing.UpstreamURL = cleanUpstream
-	}
-
 	if input.ProjectID != nil {
 		pID := strings.TrimSpace(*input.ProjectID)
 		if pID != "" {
@@ -1622,84 +1331,9 @@ func (s *MemoryService) UpdateRoute(ctx context.Context, input *UpdateRouteInput
 		existing.ProjectID = pID
 	}
 
-	if input.PriceBaseUnits != nil {
-		if *input.PriceBaseUnits < 0 {
-			return nil, fmt.Errorf("price_base_units cannot be negative")
-		}
-		existing.PriceBaseUnits = *input.PriceBaseUnits
+	if err := applyRouteUpdateFields(existing, input, time.Now().Unix()); err != nil {
+		return nil, err
 	}
-
-	if input.Asset != nil {
-		existing.Asset = strings.TrimSpace(*input.Asset)
-	}
-
-	if input.OnchainPriceBaseUnits != nil {
-		if *input.OnchainPriceBaseUnits < 0 {
-			return nil, fmt.Errorf("onchain_price_base_units cannot be negative")
-		}
-		val := *input.OnchainPriceBaseUnits
-		existing.OnchainPriceBaseUnits = &val
-	}
-
-	if input.OnchainAsset != nil {
-		existing.OnchainAsset = strings.TrimSpace(*input.OnchainAsset)
-	}
-
-	if input.PayeeAddress != nil {
-		existing.PayeeAddress = strings.ToLower(strings.TrimSpace(*input.PayeeAddress))
-	}
-
-	if input.AllowedPaymentMethods != nil {
-		method := strings.TrimSpace(*input.AllowedPaymentMethods)
-		if method == "wallet" || method == "onchain" || method == "both" {
-			existing.AllowedPaymentMethods = method
-		}
-	}
-
-	if input.RateLimitRPM != nil && *input.RateLimitRPM > 0 {
-		existing.RateLimitRPM = *input.RateLimitRPM
-	}
-
-	if input.TimeoutMs != nil && *input.TimeoutMs > 0 {
-		existing.TimeoutMs = *input.TimeoutMs
-	}
-
-	if input.Status != nil {
-		existing.Status = *input.Status
-	}
-
-	if input.UpstreamAuth != nil {
-		authCfg := input.UpstreamAuth
-		if authCfg.Type == "" {
-			authCfg.Type = "none"
-		}
-		if auth, ok := upstreamauth.Get(authCfg.Type); ok {
-			if err := auth.Validate(authCfg.Params, authCfg.Secrets); err != nil {
-				return nil, fmt.Errorf("upstream_auth validation error: %w", err)
-			}
-		}
-		if len(authCfg.Secrets) > 0 {
-			enc, err := upstreamauth.EncryptSecrets(authCfg.Secrets, nil)
-			if err != nil {
-				return nil, fmt.Errorf("failed to encrypt upstream secrets: %w", err)
-			}
-			authCfg.SecretEnc = enc
-			authCfg.HasSecret = true
-			authCfg.KeyVersion = 1
-			if existing.UpstreamAuth != nil {
-				authCfg.KeyVersion = existing.UpstreamAuth.KeyVersion + 1
-			}
-			authCfg.Secrets = nil
-		} else if existing.UpstreamAuth != nil && existing.UpstreamAuth.Type == authCfg.Type {
-			authCfg.SecretEnc = existing.UpstreamAuth.SecretEnc
-			authCfg.HasSecret = existing.UpstreamAuth.HasSecret
-			authCfg.KeyVersion = existing.UpstreamAuth.KeyVersion
-		}
-		authCfg.UpdatedAt = time.Now().Unix()
-		existing.UpstreamAuth = authCfg
-	}
-
-	existing.UpdatedAt = time.Now().Unix()
 
 	s.recordAudit(input.TenantID, actorMemberID, "route.updated", "Route", input.RouteID, before, map[string]interface{}{
 		"path_pattern":            existing.PathPattern,
@@ -1725,19 +1359,11 @@ func (s *MemoryService) DeleteRoute(ctx context.Context, tenantID, routeID, acto
 	if !ok || existing.TenantID != tenantID {
 		return ErrRouteNotFound
 	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionRouteWrite); err != nil {
-			return err
-		}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionRouteWrite); err != nil {
+		return err
 	}
 
 	delete(s.routes, routeID)
-
 	s.recordAudit(tenantID, actorMemberID, "route.deleted", "Route", routeID, map[string]interface{}{"path": existing.PathPattern}, nil, "127.0.0.1")
 	_ = s.syncRCULocked()
 	return nil
@@ -1746,6 +1372,13 @@ func (s *MemoryService) DeleteRoute(ctx context.Context, tenantID, routeID, acto
 func (s *MemoryService) CreatePolicy(ctx context.Context, pol *Policy, actorMemberID string) (*Policy, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if pol == nil {
+		return nil, fmt.Errorf("policy cannot be nil")
+	}
+	if err := s.checkPermissionLocked(pol.TenantID, actorMemberID, PermissionPolicyWrite); err != nil {
+		return nil, err
+	}
 
 	if pol.PolicyID == "" {
 		pol.PolicyID = GeneratePolicyID()
@@ -1796,6 +1429,13 @@ func (s *MemoryService) UpdatePolicy(ctx context.Context, pol *Policy, actorMemb
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if pol == nil {
+		return nil, fmt.Errorf("policy cannot be nil")
+	}
+	if err := s.checkPermissionLocked(pol.TenantID, actorMemberID, PermissionPolicyWrite); err != nil {
+		return nil, err
+	}
+
 	existing, ok := s.policies[pol.PolicyID]
 	if !ok || existing.TenantID != pol.TenantID {
 		return nil, ErrPolicyNotFound
@@ -1812,6 +1452,9 @@ func (s *MemoryService) DeletePolicy(ctx context.Context, tenantID, policyID, ac
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionPolicyWrite); err != nil {
+		return err
+	}
 	existing, ok := s.policies[policyID]
 	if !ok || existing.TenantID != tenantID {
 		return ErrPolicyNotFound
@@ -1896,46 +1539,7 @@ func (s *MemoryService) syncRCULocked() error {
 		}
 	}
 
-	curr := s.rcuMgr.Current()
-	if curr != nil {
-		if len(routes) == 0 && len(policies) == 0 {
-			return nil
-		}
-		existingRoutes := make(map[string]bool)
-		for _, r := range routes {
-			existingRoutes[r.PathPattern] = true
-		}
-		for _, br := range curr.Routes {
-			if !existingRoutes[br.PathPattern] && br.Status == "active" {
-				routes = append(routes, br)
-			}
-		}
-
-		existingPolicies := make(map[string]bool)
-		for _, p := range policies {
-			existingPolicies[p.PolicyID] = true
-		}
-		for _, bp := range curr.Policies {
-			if !existingPolicies[bp.PolicyID] && bp.IsActive {
-				policies = append(policies, bp)
-			}
-		}
-	} else if len(routes) == 0 && len(policies) == 0 {
-		return nil
-	}
-
-	newSnap := &rcu.ConfigSnapshot{
-		SchemaVersion: "2.0.0",
-		TenantID:      "global",
-		VersionID:     fmt.Sprintf("ver_sync_%d", time.Now().UnixNano()),
-		VersionNumber: time.Now().Unix(),
-		PublishedAt:   time.Now().Unix(),
-		PublishedBy:   "admin_memory_sync",
-		Routes:        routes,
-		Policies:      policies,
-	}
-
-	return s.rcuMgr.Update(newSnap)
+	return mergeAndApplyRCUSnapshot(s.rcuMgr, routes, policies, "admin_memory_sync")
 }
 
 // ----------------------------------------------------------------------------
@@ -1950,17 +1554,8 @@ func (s *MemoryService) AdminGrantWallet(ctx context.Context, tenantID string, a
 	if amount <= 0 {
 		return ErrInvalidAmount
 	}
-
-	if actorMemberID != "" {
-		s.mu.RLock()
-		actor, ok := s.members[actorMemberID]
-		s.mu.RUnlock()
-		if !ok || actor.TenantID != tenantID {
-			return ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionWalletAdjust); err != nil {
-			return err
-		}
+	if err := s.checkPermissionRLock(tenantID, actorMemberID, PermissionWalletAdjust); err != nil {
+		return err
 	}
 
 	w, err := s.walletSvc.GetWalletByTenant(ctx, tenantID)
@@ -1968,8 +1563,9 @@ func (s *MemoryService) AdminGrantWallet(ctx context.Context, tenantID string, a
 		return ErrWalletNotFound
 	}
 
+	now := time.Now()
 	order := &wallet.TopUpOrder{
-		TopUpID:     fmt.Sprintf("ord_%s_%d", tenantID, time.Now().UnixNano()),
+		TopUpID:     fmt.Sprintf("ord_%s_%d", tenantID, now.UnixNano()),
 		WalletID:    w.WalletID,
 		TenantID:    tenantID,
 		Channel:     wallet.ChannelAdminGrant,
@@ -1978,10 +1574,9 @@ func (s *MemoryService) AdminGrantWallet(ctx context.Context, tenantID string, a
 		ExternalRef: idempotencyKey,
 		Reason:      cleanReason,
 		Status:      wallet.TopUpStatusConfirmed,
-		CreatedAt:   time.Now(),
-		ConfirmedAt: time.Now(),
+		CreatedAt:   now,
+		ConfirmedAt: now,
 	}
-
 	if err := s.walletSvc.CreditTopUp(ctx, order); err != nil {
 		return err
 	}
@@ -2000,19 +1595,9 @@ func (s *MemoryService) AdjustWallet(ctx context.Context, walletID string, amoun
 	if err != nil {
 		return ErrWalletNotFound
 	}
-
-	if actorMemberID != "" {
-		s.mu.RLock()
-		actor, ok := s.members[actorMemberID]
-		s.mu.RUnlock()
-		if !ok || actor.TenantID != w.TenantID {
-			return ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionWalletAdjust); err != nil {
-			return err
-		}
+	if err := s.checkPermissionRLock(w.TenantID, actorMemberID, PermissionWalletAdjust); err != nil {
+		return err
 	}
-
 	if err := s.walletSvc.AdjustBalance(ctx, walletID, amount, cleanReason, idempotencyKey, actorMemberID); err != nil {
 		return err
 	}
@@ -2031,19 +1616,9 @@ func (s *MemoryService) FreezeWallet(ctx context.Context, walletID string, reaso
 	if err != nil {
 		return ErrWalletNotFound
 	}
-
-	if actorMemberID != "" {
-		s.mu.RLock()
-		actor, ok := s.members[actorMemberID]
-		s.mu.RUnlock()
-		if !ok || actor.TenantID != w.TenantID {
-			return ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionWalletAdjust); err != nil {
-			return err
-		}
+	if err := s.checkPermissionRLock(w.TenantID, actorMemberID, PermissionWalletAdjust); err != nil {
+		return err
 	}
-
 	if err := s.walletSvc.SetWalletStatus(ctx, walletID, wallet.StatusFrozen); err != nil {
 		return err
 	}
@@ -2062,23 +1637,12 @@ func (s *MemoryService) UnfreezeWallet(ctx context.Context, walletID string, rea
 	if err != nil {
 		return ErrWalletNotFound
 	}
-
-	if actorMemberID != "" {
-		s.mu.RLock()
-		actor, ok := s.members[actorMemberID]
-		s.mu.RUnlock()
-		if !ok || actor.TenantID != w.TenantID {
-			return ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionWalletAdjust); err != nil {
-			return err
-		}
+	if err := s.checkPermissionRLock(w.TenantID, actorMemberID, PermissionWalletAdjust); err != nil {
+		return err
 	}
-
 	if w.Status == wallet.StatusFrozenArrears && w.AvailableCache < 0 {
 		return fmt.Errorf("cannot unfreeze wallet in arrears")
 	}
-
 	if err := s.walletSvc.SetWalletStatus(ctx, walletID, wallet.StatusActive); err != nil {
 		return err
 	}
@@ -2088,17 +1652,14 @@ func (s *MemoryService) UnfreezeWallet(ctx context.Context, walletID string, rea
 }
 
 func (s *MemoryService) RecalculateWallet(ctx context.Context, walletID string, actorMemberID string) (map[string]interface{}, error) {
-	rep, err := s.walletSvc.ReconcileBalance(ctx, walletID)
+	w, err := s.walletSvc.GetWallet(ctx, walletID)
 	if err != nil {
+		return nil, ErrWalletNotFound
+	}
+	if err := s.checkPermissionRLock(w.TenantID, actorMemberID, PermissionWalletRead); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{
-		"wallet_id":   walletID,
-		"cached":      rep.AvailableCache,
-		"calculated":  rep.SumLedgerEntries,
-		"consistent":  rep.IsBalanced,
-		"is_balanced": rep.IsBalanced,
-	}, nil
+	return recalculateWalletBalanceMap(ctx, s.walletSvc, walletID)
 }
 
 func (s *MemoryService) GetWallet(ctx context.Context, tenantID string) (*wallet.Wallet, error) {
@@ -2146,177 +1707,38 @@ func (s *MemoryService) ListAuditEvents(ctx context.Context, tenantID, targetTyp
 }
 
 // ----------------------------------------------------------------------------
-// Config Draft & Validation (T4.3)
+// Config Draft, Validation, Publishing & Rollback (T4.3 & T4.4)
 // ----------------------------------------------------------------------------
 
-var ethAddressValidationRegex = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
-var caip2ValidationRegex = regexp.MustCompile(`^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$`)
-
-func (s *MemoryService) ValidateConfig(ctx context.Context, tenantID string, actorMemberID string) (*ValidationResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, ok := s.tenants[tenantID]
-	if !ok {
-		return nil, ErrTenantNotFound
-	}
-
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionRouteRead); err != nil {
-			return nil, err
-		}
-	}
-
-	errorsList := make([]ValidationError, 0)
-
-	// Collect tenant routes and policies
+func (s *MemoryService) tenantRoutesAndPoliciesLocked(tenantID string) ([]*Route, []*Policy) {
 	routes := make([]*Route, 0)
 	for _, r := range s.routes {
 		if r.TenantID == tenantID {
 			routes = append(routes, r)
 		}
 	}
-
 	policies := make([]*Policy, 0)
 	for _, p := range s.policies {
 		if p.TenantID == tenantID {
 			policies = append(policies, p)
 		}
 	}
+	return routes, policies
+}
 
-	// 1. Route validation
-	seenPatterns := make(map[string]string)
-	for _, r := range routes {
-		// 1.1 URI scheme
-		if !strings.HasPrefix(r.UpstreamURL, "http://") && !strings.HasPrefix(r.UpstreamURL, "https://") {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "upstream_url",
-				Code:       "INVALID_UPSTREAM_URL",
-				Message:    fmt.Sprintf("上游地址 '%s' 非法，必须以 http:// 或 https:// 开头", r.UpstreamURL),
-			})
-		}
+func (s *MemoryService) ValidateConfig(ctx context.Context, tenantID string, actorMemberID string) (*ValidationResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-		// 1.2 Path pattern
-		cleanPath := strings.TrimSpace(r.PathPattern)
-		if cleanPath == "" || !strings.HasPrefix(cleanPath, "/") {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "path_pattern",
-				Code:       "INVALID_PATH_PATTERN",
-				Message:    fmt.Sprintf("路由暴露路径 '%s' 非法，必须以 / 开头", r.PathPattern),
-			})
-		} else {
-			if existingID, seen := seenPatterns[cleanPath]; seen {
-				errorsList = append(errorsList, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "path_pattern",
-					Code:       "DUPLICATE_PATH_PATTERN",
-					Message:    fmt.Sprintf("路由路径 '%s' 与路由 %s 重复冲突", cleanPath, existingID),
-				})
-			} else {
-				seenPatterns[cleanPath] = r.RouteID
-			}
-		}
-
-		// 1.3 Payee address for onchain/both
-		if r.AllowedPaymentMethods != "wallet" {
-			if r.PayeeAddress == "" {
-				errorsList = append(errorsList, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "payee_address",
-					Code:       "MISSING_PAYEE_ADDRESS",
-					Message:    "支持链上结算时必须指定收款地址",
-				})
-			} else if !ethAddressValidationRegex.MatchString(r.PayeeAddress) {
-				errorsList = append(errorsList, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "payee_address",
-					Code:       "INVALID_PAYEE_ADDRESS",
-					Message:    fmt.Sprintf("收款地址 '%s' 格式错误，必须为 42 位 0x 开头的有效 EVM 地址", r.PayeeAddress),
-				})
-			}
-		}
-
-		// 1.4 Pricing non-negative
-		if r.PriceBaseUnits < 0 {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "price_base_units",
-				Code:       "NEGATIVE_PRICE_UNITS",
-				Message:    "单次调用单价不能为负数",
-			})
-		}
-
-		// 1.5 Payment methods option
-		if r.AllowedPaymentMethods != "wallet" && r.AllowedPaymentMethods != "onchain" && r.AllowedPaymentMethods != "both" {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "allowed_payment_methods",
-				Code:       "INVALID_PAYMENT_METHOD_OPTION",
-				Message:    fmt.Sprintf("支付通道选项 '%s' 无效，必须为 wallet、onchain 或 both", r.AllowedPaymentMethods),
-			})
-		}
+	if _, ok := s.tenants[tenantID]; !ok {
+		return nil, ErrTenantNotFound
+	}
+	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionRouteRead); err != nil {
+		return nil, err
 	}
 
-	// 2. Policy validation
-	for _, p := range policies {
-		if p.Rolling24hBudgetCap > 0 && p.MaxAmountPerRequest > p.Rolling24hBudgetCap {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Policy",
-				TargetID:   p.PolicyID,
-				Field:      "max_amount_per_request",
-				Code:       "MAX_AMOUNT_EXCEEDS_ROLLING_BUDGET",
-				Message:    fmt.Sprintf("单笔限额 (%d) 超出了 24 小时滚动预算上限 (%d)", p.MaxAmountPerRequest, p.Rolling24hBudgetCap),
-			})
-		}
-
-		if p.CircuitBreakerMaxRPM < 0 {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Policy",
-				TargetID:   p.PolicyID,
-				Field:      "circuit_breaker_max_rpm",
-				Code:       "INVALID_CIRCUIT_BREAKER_RPM",
-				Message:    "熔断阈值 RPM 不能小于 0",
-			})
-		}
-
-		for _, net := range p.WhitelistedNetworks {
-			if !caip2ValidationRegex.MatchString(net) {
-				errorsList = append(errorsList, ValidationError{
-					TargetType: "Policy",
-					TargetID:   p.PolicyID,
-					Field:      "whitelisted_networks",
-					Code:       "INVALID_NETWORK_IDENTIFIER",
-					Message:    fmt.Sprintf("网络标识符 '%s' 不符合 CAIP-2 规范 (如 eip155:1 或 eip155:42161)", net),
-				})
-			}
-		}
-	}
-
-	now := time.Now().Unix()
-	res := &ValidationResult{
-		Valid:  len(errorsList) == 0,
-		Errors: errorsList,
-		Summary: ValidationSummary{
-			TotalRoutes:   len(routes),
-			TotalPolicies: len(policies),
-			ErrorCount:    len(errorsList),
-			WarningCount:  0,
-		},
-		ValidatedAt: now,
-	}
+	routes, policies := s.tenantRoutesAndPoliciesLocked(tenantID)
+	res := evaluateConfigValidation(routes, policies)
 
 	if s.lastValidation == nil {
 		s.lastValidation = make(map[string]*ValidationResult)
@@ -2325,7 +1747,7 @@ func (s *MemoryService) ValidateConfig(ctx context.Context, tenantID string, act
 
 	s.recordAudit(tenantID, actorMemberID, "config.validated", "Tenant", tenantID, nil, map[string]interface{}{
 		"valid":       res.Valid,
-		"error_count": len(errorsList),
+		"error_count": len(res.Errors),
 	}, "127.0.0.1")
 
 	return res, nil
@@ -2335,291 +1757,66 @@ func (s *MemoryService) GetDraftSummary(ctx context.Context, tenantID string) (*
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	routesCount := 0
-	for _, r := range s.routes {
-		if r.TenantID == tenantID {
-			routesCount++
-		}
-	}
-
-	policiesCount := 0
-	for _, p := range s.policies {
-		if p.TenantID == tenantID {
-			policiesCount++
-		}
-	}
-
+	routes, policies := s.tenantRoutesAndPoliciesLocked(tenantID)
 	var lastRes *ValidationResult
-	var lastTime *int64
-	isValidated := false
 	if s.lastValidation != nil {
-		if res, ok := s.lastValidation[tenantID]; ok {
-			lastRes = res
-			lastTime = &res.ValidatedAt
-			isValidated = res.Valid
-		}
+		lastRes = s.lastValidation[tenantID]
 	}
-
-	return &ConfigDraftSummary{
-		TenantID:        tenantID,
-		PendingChanges:  routesCount + policiesCount,
-		RoutesCount:     routesCount,
-		PoliciesCount:   policiesCount,
-		LastValidatedAt: lastTime,
-		IsValidated:     isValidated,
-		LastResult:      lastRes,
-	}, nil
+	return buildDraftSummary(tenantID, len(routes), len(policies), lastRes), nil
 }
 
 func (s *MemoryService) GetDraftDiff(ctx context.Context, tenantID string) (*ConfigDraftDiff, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	routeDiffs := make([]RouteDiffItem, 0)
-	for _, r := range s.routes {
-		if r.TenantID == tenantID {
-			routeDiffs = append(routeDiffs, RouteDiffItem{
-				RouteID:     r.RouteID,
-				Action:      "added",
-				PathPattern: r.PathPattern,
-				After: map[string]interface{}{
-					"path_pattern":            r.PathPattern,
-					"upstream_url":            r.UpstreamURL,
-					"price_base_units":        r.PriceBaseUnits,
-					"allowed_payment_methods": r.AllowedPaymentMethods,
-					"status":                  string(r.Status),
-				},
-			})
-		}
-	}
-
-	policyDiffs := make([]PolicyDiffItem, 0)
-	for _, p := range s.policies {
-		if p.TenantID == tenantID {
-			policyDiffs = append(policyDiffs, PolicyDiffItem{
-				PolicyID: p.PolicyID,
-				Action:   "added",
-				After: map[string]interface{}{
-					"max_amount_per_request": p.MaxAmountPerRequest,
-					"rolling_24h_budget_cap": p.Rolling24hBudgetCap,
-					"is_active":              p.IsActive,
-				},
-			})
-		}
-	}
-
-	return &ConfigDraftDiff{
-		TenantID:    tenantID,
-		HasChanges:  len(routeDiffs) > 0 || len(policyDiffs) > 0,
-		RouteDiffs:  routeDiffs,
-		PolicyDiffs: policyDiffs,
-	}, nil
+	routes, policies := s.tenantRoutesAndPoliciesLocked(tenantID)
+	return buildDraftDiff(tenantID, routes, policies), nil
 }
 
-// ----------------------------------------------------------------------------
-// Config Publishing, Versions & Rollback (T4.4)
-// ----------------------------------------------------------------------------
+func (s *MemoryService) resolvePublisherEmailLocked(tenantID, actorMemberID string) (string, error) {
+	if actorMemberID == "" {
+		return "", ErrPermissionDenied
+	}
+	actor, ok := s.members[actorMemberID]
+	if !ok || actor.TenantID != tenantID {
+		return "", ErrPermissionDenied
+	}
+	if err := EnforcePermission(actor, PermissionRouteWrite); err != nil {
+		return "", err
+	}
+	return actor.Email, nil
+}
+
+func (s *MemoryService) nextVersionNumberLocked(tenantID string) int64 {
+	var maxVerNum int64
+	for _, v := range s.configVersionHistory[tenantID] {
+		if v.VersionNumber > maxVerNum {
+			maxVerNum = v.VersionNumber
+		}
+	}
+	return maxVerNum + 1
+}
 
 func (s *MemoryService) PublishConfig(ctx context.Context, tenantID string, changeSummary string, actorMemberID string) (*ConfigVersion, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, ok := s.tenants[tenantID]
-	if !ok {
+	if _, ok := s.tenants[tenantID]; !ok {
 		return nil, ErrTenantNotFound
 	}
-
-	var publisherEmail string
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionRouteWrite); err != nil {
-			return nil, err
-		}
-		publisherEmail = actor.Email
-	} else {
-		publisherEmail = "admin@agentpay.io"
+	publisherEmail, err := s.resolvePublisherEmailLocked(tenantID, actorMemberID)
+	if err != nil {
+		return nil, err
 	}
 
-	// 1. Enforce static validation matrix (T4.3 Gate)
-	valErrors := make([]ValidationError, 0)
-	routes := make([]*Route, 0)
-	for _, r := range s.routes {
-		if r.TenantID == tenantID {
-			routes = append(routes, r)
-		}
-	}
-	policies := make([]*Policy, 0)
-	for _, p := range s.policies {
-		if p.TenantID == tenantID {
-			policies = append(policies, p)
-		}
-	}
-
-	seenPatterns := make(map[string]string)
-	for _, r := range routes {
-		if !strings.HasPrefix(r.UpstreamURL, "http://") && !strings.HasPrefix(r.UpstreamURL, "https://") {
-			valErrors = append(valErrors, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "upstream_url",
-				Code:       "INVALID_UPSTREAM_URL",
-				Message:    fmt.Sprintf("上游地址 '%s' 非法，必须以 http:// 或 https:// 开头", r.UpstreamURL),
-			})
-		}
-		cleanPath := strings.TrimSpace(r.PathPattern)
-		if cleanPath == "" || !strings.HasPrefix(cleanPath, "/") {
-			valErrors = append(valErrors, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "path_pattern",
-				Code:       "INVALID_PATH_PATTERN",
-				Message:    fmt.Sprintf("路由暴露路径 '%s' 非法，必须以 / 开头", r.PathPattern),
-			})
-		} else {
-			if existingID, seen := seenPatterns[cleanPath]; seen {
-				valErrors = append(valErrors, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "path_pattern",
-					Code:       "DUPLICATE_PATH_PATTERN",
-					Message:    fmt.Sprintf("路由路径 '%s' 与路由 %s 重复冲突", cleanPath, existingID),
-				})
-			} else {
-				seenPatterns[cleanPath] = r.RouteID
-			}
-		}
-
-		if r.AllowedPaymentMethods != "wallet" {
-			if r.PayeeAddress == "" {
-				valErrors = append(valErrors, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "payee_address",
-					Code:       "MISSING_PAYEE_ADDRESS",
-					Message:    "支持链上结算时必须指定收款地址",
-				})
-			} else if !ethAddressValidationRegex.MatchString(r.PayeeAddress) {
-				valErrors = append(valErrors, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "payee_address",
-					Code:       "INVALID_PAYEE_ADDRESS",
-					Message:    fmt.Sprintf("收款地址 '%s' 格式错误，必须为 42 位 0x 开头的有效 EVM 地址", r.PayeeAddress),
-				})
-			}
-		}
-
-		if r.PriceBaseUnits < 0 {
-			valErrors = append(valErrors, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "price_base_units",
-				Code:       "NEGATIVE_PRICE_UNITS",
-				Message:    "单次调用单价不能为负数",
-			})
-		}
-
-		if r.AllowedPaymentMethods != "wallet" && r.AllowedPaymentMethods != "onchain" && r.AllowedPaymentMethods != "both" {
-			valErrors = append(valErrors, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "allowed_payment_methods",
-				Code:       "INVALID_PAYMENT_METHOD_OPTION",
-				Message:    fmt.Sprintf("支付通道选项 '%s' 无效，必须为 wallet、onchain 或 both", r.AllowedPaymentMethods),
-			})
-		}
-	}
-
-	for _, p := range policies {
-		if p.Rolling24hBudgetCap > 0 && p.MaxAmountPerRequest > p.Rolling24hBudgetCap {
-			valErrors = append(valErrors, ValidationError{
-				TargetType: "Policy",
-				TargetID:   p.PolicyID,
-				Field:      "max_amount_per_request",
-				Code:       "MAX_AMOUNT_EXCEEDS_ROLLING_BUDGET",
-				Message:    fmt.Sprintf("单笔限额 (%d) 超出了 24 小时滚动预算上限 (%d)", p.MaxAmountPerRequest, p.Rolling24hBudgetCap),
-			})
-		}
-
-		if p.CircuitBreakerMaxRPM < 0 {
-			valErrors = append(valErrors, ValidationError{
-				TargetType: "Policy",
-				TargetID:   p.PolicyID,
-				Field:      "circuit_breaker_max_rpm",
-				Code:       "INVALID_CIRCUIT_BREAKER_RPM",
-				Message:    "熔断阈值 RPM 不能小于 0",
-			})
-		}
-
-		for _, net := range p.WhitelistedNetworks {
-			if !caip2ValidationRegex.MatchString(net) {
-				valErrors = append(valErrors, ValidationError{
-					TargetType: "Policy",
-					TargetID:   p.PolicyID,
-					Field:      "whitelisted_networks",
-					Code:       "INVALID_NETWORK_IDENTIFIER",
-					Message:    fmt.Sprintf("网络标识符 '%s' 不符合 CAIP-2 规范 (如 eip155:1 或 eip155:42161)", net),
-				})
-			}
-		}
-	}
-
-	if len(valErrors) > 0 {
+	routes, policies := s.tenantRoutesAndPoliciesLocked(tenantID)
+	if valRes := evaluateConfigValidation(routes, policies); !valRes.Valid {
 		return nil, ErrConfigValidationFailed
 	}
 
-	// 2. Build compiled RCU route and policy structs
-	rcuRoutes := make([]rcu.RouteConfig, 0, len(routes))
-	for _, r := range routes {
-		rcuRoutes = append(rcuRoutes, rcu.RouteConfig{
-			RouteID:               r.RouteID,
-			ProjectID:             r.ProjectID,
-			Network:               r.Network,
-			PathPattern:           r.PathPattern,
-			UpstreamURL:           r.UpstreamURL,
-			PriceBaseUnits:        r.PriceBaseUnits,
-			Asset:                 r.Asset,
-			OnchainPriceBaseUnits: r.OnchainPriceBaseUnits,
-			OnchainAsset:          r.OnchainAsset,
-			PayeeAddress:          r.PayeeAddress,
-			AllowedPaymentMethods: r.AllowedPaymentMethods,
-			TimeoutMS:             r.TimeoutMs,
-			RateLimitRPM:          r.RateLimitRPM,
-			Status:                string(r.Status),
-			UpstreamAuth:          r.UpstreamAuth,
-		})
-	}
-
-	rcuPolicies := make([]rcu.PolicyConfig, 0, len(policies))
-	for _, p := range policies {
-		rcuPolicies = append(rcuPolicies, rcu.PolicyConfig{
-			PolicyID:             p.PolicyID,
-			ProjectID:            p.ProjectID,
-			RouteID:              &p.RouteID,
-			MaxAmountPerRequest:  p.MaxAmountPerRequest,
-			Rolling24hBudgetCap:  p.Rolling24hBudgetCap,
-			CircuitBreakerMaxRPM: p.CircuitBreakerMaxRPM,
-			WhitelistedNetworks:  p.WhitelistedNetworks,
-			WhitelistedRoutes:    p.WhitelistedRoutes,
-			IsActive:             p.IsActive,
-		})
-	}
-
-	// 3. Compute deterministic canonical snapshot hash
+	rcuRoutes, rcuPolicies := buildRCUSnapshotConfigs(routes, policies)
 	snapshotHash := rcu.ComputeCanonicalSnapshotHash(rcuRoutes, rcuPolicies)
-
-	// 4. Determine next version number
-	history := s.configVersionHistory[tenantID]
-	var maxVerNum int64 = 0
-	for _, v := range history {
-		if v.VersionNumber > maxVerNum {
-			maxVerNum = v.VersionNumber
-		}
-	}
-	newVersionNumber := maxVerNum + 1
+	newVersionNumber := s.nextVersionNumberLocked(tenantID)
 	versionID := GenerateConfigVersionID()
 	now := time.Now().Unix()
 
@@ -2641,12 +1838,10 @@ func (s *MemoryService) PublishConfig(ctx context.Context, tenantID string, chan
 		Policies:      rcuPolicies,
 	}
 
-	// 5. Deactivate previous versions
-	for _, v := range history {
+	for _, v := range s.configVersionHistory[tenantID] {
 		v.IsActive = false
 	}
 
-	// 6. Record new active snapshot
 	newVer := &ConfigVersion{
 		VersionID:      versionID,
 		TenantID:       tenantID,
@@ -2665,12 +1860,10 @@ func (s *MemoryService) PublishConfig(ctx context.Context, tenantID string, chan
 	s.configVersions[versionID] = newVer
 	s.configVersionHistory[tenantID] = append(s.configVersionHistory[tenantID], newVer)
 
-	// 7. Atomic RCU swap in data plane
 	if s.rcuMgr != nil {
 		_ = s.rcuMgr.Update(snap)
 	}
 
-	// 8. Audit event
 	s.recordAudit(tenantID, actorMemberID, "config.published", "ConfigVersion", versionID, nil, map[string]interface{}{
 		"version_number": newVersionNumber,
 		"snapshot_hash":  snapshotHash,
@@ -2686,11 +1879,10 @@ func (s *MemoryService) ListConfigVersions(ctx context.Context, tenantID string)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	history, ok := s.configVersionHistory[tenantID]
-	if !ok || len(history) == 0 {
+	history := s.configVersionHistory[tenantID]
+	if len(history) == 0 {
 		return []*ConfigVersion{}, nil
 	}
-
 	res := make([]*ConfigVersion, len(history))
 	for i, v := range history {
 		res[len(history)-1-i] = v
@@ -2713,23 +1905,12 @@ func (s *MemoryService) RollbackConfig(ctx context.Context, tenantID, targetVers
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, ok := s.tenants[tenantID]
-	if !ok {
+	if _, ok := s.tenants[tenantID]; !ok {
 		return nil, ErrTenantNotFound
 	}
-
-	var publisherEmail string
-	if actorMemberID != "" {
-		actor, ok := s.members[actorMemberID]
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionRouteWrite); err != nil {
-			return nil, err
-		}
-		publisherEmail = actor.Email
-	} else {
-		publisherEmail = "admin@agentpay.io"
+	publisherEmail, err := s.resolvePublisherEmailLocked(tenantID, actorMemberID)
+	if err != nil {
+		return nil, err
 	}
 
 	targetVer, ok := s.configVersions[targetVersionID]
@@ -2740,43 +1921,13 @@ func (s *MemoryService) RollbackConfig(ctx context.Context, tenantID, targetVers
 		return nil, ErrCannotRollbackToActive
 	}
 
-	history := s.configVersionHistory[tenantID]
-	var maxVerNum int64 = 0
-	for _, v := range history {
-		if v.VersionNumber > maxVerNum {
-			maxVerNum = v.VersionNumber
-		}
-	}
-	newVersionNumber := maxVerNum + 1
+	newVersionNumber := s.nextVersionNumberLocked(tenantID)
 	versionID := GenerateConfigVersionID()
 	now := time.Now().Unix()
 
-	summary := fmt.Sprintf("Rollback to version v%d", targetVer.VersionNumber)
-	if strings.TrimSpace(reason) != "" {
-		summary = fmt.Sprintf("Rollback to version v%d: %s", targetVer.VersionNumber, strings.TrimSpace(reason))
-	}
+	restoredSnap, summary := buildRestoredSnapshot(tenantID, versionID, actorMemberID, reason, newVersionNumber, now, targetVer)
 
-	// Snapshot content is identical to target version, retaining targetVer.SnapshotHash
-	restoredRoutes := make([]rcu.RouteConfig, len(targetVer.SnapshotJSON.Routes))
-	copy(restoredRoutes, targetVer.SnapshotJSON.Routes)
-	restoredPolicies := make([]rcu.PolicyConfig, len(targetVer.SnapshotJSON.Policies))
-	copy(restoredPolicies, targetVer.SnapshotJSON.Policies)
-
-	restoredSnap := &rcu.ConfigSnapshot{
-		SchemaVersion: "2.0.0",
-		TenantID:      tenantID,
-		VersionID:     versionID,
-		VersionNumber: newVersionNumber,
-		PublishedAt:   now,
-		PublishedBy:   actorMemberID,
-		ChangeSummary: summary,
-		SnapshotHash:  targetVer.SnapshotHash,
-		Routes:        restoredRoutes,
-		Policies:      restoredPolicies,
-	}
-
-	// Deactivate existing
-	for _, v := range history {
+	for _, v := range s.configVersionHistory[tenantID] {
 		v.IsActive = false
 	}
 
@@ -2790,21 +1941,20 @@ func (s *MemoryService) RollbackConfig(ctx context.Context, tenantID, targetVers
 		PublisherEmail: publisherEmail,
 		ChangeSummary:  summary,
 		IsActive:       true,
-		RoutesCount:    len(restoredRoutes),
-		PoliciesCount:  len(restoredPolicies),
+		RoutesCount:    len(restoredSnap.Routes),
+		PoliciesCount:  len(restoredSnap.Policies),
 		CreatedAt:      now,
 	}
 
 	s.configVersions[versionID] = newVer
 	s.configVersionHistory[tenantID] = append(s.configVersionHistory[tenantID], newVer)
 
-	// Sync restored routes back to memory service active routes
 	for id, r := range s.routes {
 		if r.TenantID == tenantID {
 			delete(s.routes, id)
 		}
 	}
-	for _, rr := range restoredRoutes {
+	for _, rr := range restoredSnap.Routes {
 		s.routes[rr.RouteID] = &Route{
 			RouteID:               rr.RouteID,
 			TenantID:              tenantID,
@@ -2824,12 +1974,10 @@ func (s *MemoryService) RollbackConfig(ctx context.Context, tenantID, targetVers
 		}
 	}
 
-	// Atomic RCU swap
 	if s.rcuMgr != nil {
 		_ = s.rcuMgr.Update(restoredSnap)
 	}
 
-	// Audit
 	s.recordAudit(tenantID, actorMemberID, "config.rolled_back", "ConfigVersion", versionID, map[string]interface{}{
 		"target_version_id":     targetVer.VersionID,
 		"target_version_number": targetVer.VersionNumber,
@@ -2847,9 +1995,7 @@ func (s *MemoryService) GetConfigVersionDiff(ctx context.Context, tenantID, base
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var baseSnap *rcu.ConfigSnapshot
-	var targetSnap *rcu.ConfigSnapshot
-
+	var baseSnap, targetSnap *rcu.ConfigSnapshot
 	if baseVersionID != "" {
 		v, ok := s.configVersions[baseVersionID]
 		if !ok || v.TenantID != tenantID {
@@ -2873,78 +2019,7 @@ func (s *MemoryService) GetConfigVersionDiff(ctx context.Context, tenantID, base
 		targetSnap = v.SnapshotJSON
 	}
 
-	routeDiffs := make([]RouteDiffItem, 0)
-	policyDiffs := make([]PolicyDiffItem, 0)
-
-	baseRouteMap := make(map[string]rcu.RouteConfig)
-	if baseSnap != nil {
-		for _, r := range baseSnap.Routes {
-			baseRouteMap[r.RouteID] = r
-		}
-	}
-
-	targetRouteMap := make(map[string]rcu.RouteConfig)
-	if targetSnap != nil {
-		for _, r := range targetSnap.Routes {
-			targetRouteMap[r.RouteID] = r
-		}
-	}
-
-	for id, tr := range targetRouteMap {
-		br, exists := baseRouteMap[id]
-		if !exists {
-			routeDiffs = append(routeDiffs, RouteDiffItem{
-				RouteID:     id,
-				Action:      "added",
-				PathPattern: tr.PathPattern,
-				After: map[string]interface{}{
-					"upstream_url":     tr.UpstreamURL,
-					"price_base_units": tr.PriceBaseUnits,
-				},
-			})
-		} else if br.UpstreamURL != tr.UpstreamURL || br.PriceBaseUnits != tr.PriceBaseUnits || br.PathPattern != tr.PathPattern {
-			routeDiffs = append(routeDiffs, RouteDiffItem{
-				RouteID:     id,
-				Action:      "modified",
-				PathPattern: tr.PathPattern,
-				Before: map[string]interface{}{
-					"upstream_url":     br.UpstreamURL,
-					"price_base_units": br.PriceBaseUnits,
-				},
-				After: map[string]interface{}{
-					"upstream_url":     tr.UpstreamURL,
-					"price_base_units": tr.PriceBaseUnits,
-				},
-			})
-		}
-	}
-
-	for id, br := range baseRouteMap {
-		if _, exists := targetRouteMap[id]; !exists {
-			routeDiffs = append(routeDiffs, RouteDiffItem{
-				RouteID:     id,
-				Action:      "deleted",
-				PathPattern: br.PathPattern,
-				Before: map[string]interface{}{
-					"upstream_url":     br.UpstreamURL,
-					"price_base_units": br.PriceBaseUnits,
-				},
-			})
-		}
-	}
-
-	activeVerID := ""
-	if baseSnap != nil {
-		activeVerID = baseSnap.VersionID
-	}
-
-	return &ConfigDraftDiff{
-		TenantID:        tenantID,
-		ActiveVersionID: activeVerID,
-		HasChanges:      len(routeDiffs) > 0 || len(policyDiffs) > 0,
-		RouteDiffs:      routeDiffs,
-		PolicyDiffs:     policyDiffs,
-	}, nil
+	return computeSnapshotDiff(tenantID, baseSnap, targetSnap), nil
 }
 
 // ----------------------------------------------------------------------------
@@ -2956,118 +2031,48 @@ func (s *MemoryService) GetAuthTypes() []upstreamauth.AuthTypeSchema {
 }
 
 func (s *MemoryService) TestUpstream(ctx context.Context, tenantID string, input *TestUpstreamInput, actorMemberID string) (*TestUpstreamResult, error) {
-	if actorMemberID != "" {
-		s.mu.RLock()
-		actor, ok := s.members[actorMemberID]
-		s.mu.RUnlock()
-		if !ok || actor.TenantID != tenantID {
-			return nil, ErrPermissionDenied
-		}
-		if err := EnforcePermission(actor, PermissionRouteRead); err != nil {
-			return nil, err
-		}
+	if err := s.checkPermissionRLock(tenantID, actorMemberID, PermissionRouteRead); err != nil {
+		return nil, err
 	}
-
-	if input == nil || strings.TrimSpace(input.UpstreamURL) == "" {
-		return &TestUpstreamResult{
-			Success: false,
-			Error:   "upstream_url is required",
-		}, nil
+	result, cleanURL, testErr := executeUpstreamTest(ctx, input)
+	if testErr != nil {
+		return nil, testErr
 	}
-
-	cleanURL := strings.TrimSpace(input.UpstreamURL)
-	targetURL, err := url.Parse(cleanURL)
-	if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
-		return &TestUpstreamResult{
-			Success: false,
-			Error:   "invalid upstream_url: must include scheme (http/https) and host",
-		}, nil
+	if cleanURL != "" && result.StatusCode > 0 || result.Error != "" && strings.HasPrefix(result.Error, "upstream connection error:") {
+		s.recordAudit(tenantID, actorMemberID, "route.tested", "Route", "", nil, map[string]interface{}{
+			"url":         cleanURL,
+			"auth_type":   "",
+			"success":     result.Success,
+			"status_code": result.StatusCode,
+		}, "127.0.0.1")
 	}
-
-	method := strings.ToUpper(strings.TrimSpace(input.Method))
-	if method == "" {
-		method = http.MethodGet
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, cleanURL, nil)
-	if err != nil {
-		return &TestUpstreamResult{
-			Success: false,
-			Error:   fmt.Sprintf("failed to construct test request: %v", err),
-		}, nil
-	}
-
-	// Apply configured upstream authentication
-	if input.UpstreamAuth != nil && input.UpstreamAuth.Type != "" && input.UpstreamAuth.Type != "none" {
-		if auth, ok := upstreamauth.Get(input.UpstreamAuth.Type); ok {
-			secrets := input.UpstreamAuth.Secrets
-			if len(secrets) == 0 && len(input.UpstreamAuth.SecretEnc) > 0 {
-				dec, _ := upstreamauth.DecryptSecrets(input.UpstreamAuth.SecretEnc, nil)
-				secrets = dec
-			}
-			if err := auth.Apply(ctx, req, input.UpstreamAuth.Params, secrets); err != nil {
-				return &TestUpstreamResult{
-					Success: false,
-					Error:   fmt.Sprintf("failed to apply upstream auth: %v", err),
-				}, nil
-			}
-		}
-	}
-
-	// Sanitize request headers for display
-	sentHeaders := make(map[string]string)
-	for k, vv := range req.Header {
-		val := strings.Join(vv, ", ")
-		sentHeaders[k] = upstreamauth.MaskHeader(k, val)
-	}
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return errors.New("stopped after 3 redirects")
-			}
-			return nil
-		},
-	}
-
-	start := time.Now()
-	resp, err := client.Do(req)
-	latency := time.Since(start).Milliseconds()
-
-	result := &TestUpstreamResult{
-		SentHeaders: sentHeaders,
-		LatencyMs:   latency,
-	}
-
-	if err != nil {
-		result.Success = false
-		result.Error = fmt.Sprintf("upstream connection error: %v", err)
-	} else {
-		defer resp.Body.Close()
-		result.StatusCode = resp.StatusCode
-		result.StatusText = resp.Status
-		result.Success = resp.StatusCode >= 200 && resp.StatusCode < 400
-	}
-
-	s.recordAudit(tenantID, actorMemberID, "route.tested", "Route", "", nil, map[string]interface{}{
-		"url":         cleanURL,
-		"auth_type":   "",
-		"success":     result.Success,
-		"status_code": result.StatusCode,
-	}, "127.0.0.1")
-
 	return result, nil
 }
 
-// SetUsageService configures a custom usage service on MemoryService.
+// ----------------------------------------------------------------------------
+// Observability: Usage, Payment Correlation & Timeline (T5.1, T5.2, T5.8)
+// ----------------------------------------------------------------------------
+
+func (s *MemoryService) enforceAuditRead(ctx context.Context, tenantID, actorMemberID string) error {
+	if actorMemberID == "" {
+		if auth.IsSystemContext(ctx) {
+			return nil
+		}
+		return ErrPermissionDenied
+	}
+	member, err := s.GetMember(ctx, tenantID, actorMemberID)
+	if err != nil {
+		return ErrPermissionDenied
+	}
+	return EnforcePermission(member, PermissionAuditRead)
+}
+
 func (s *MemoryService) SetUsageService(svc usage.Service) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.usageSvc = svc
 }
 
-// GetUsageService returns the active usage service or initializes an in-memory one.
 func (s *MemoryService) GetUsageService() usage.Service {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -3077,72 +2082,42 @@ func (s *MemoryService) GetUsageService() usage.Service {
 	return s.usageSvc
 }
 
-// ListRequestRecords retrieves request records with RBAC and tenant boundary enforcement.
 func (s *MemoryService) ListRequestRecords(ctx context.Context, tenantID string, filter usage.RequestFilter, actorMemberID string) ([]*usage.RequestRecord, int64, error) {
-	if actorMemberID != "" {
-		member, err := s.GetMember(ctx, tenantID, actorMemberID)
-		if err != nil {
-			return nil, 0, err
-		}
-		if err := EnforcePermission(member, PermissionAuditRead); err != nil {
-			return nil, 0, err
-		}
+	if err := s.enforceAuditRead(ctx, tenantID, actorMemberID); err != nil {
+		return nil, 0, err
 	}
 	filter.TenantID = tenantID
 	return s.GetUsageService().ListRequestRecords(ctx, filter)
 }
 
-// GetRequestRecord retrieves a single request record by ID with RBAC and tenant boundary enforcement.
 func (s *MemoryService) GetRequestRecord(ctx context.Context, tenantID, requestID string, actorMemberID string) (*usage.RequestRecord, error) {
-	if actorMemberID != "" {
-		member, err := s.GetMember(ctx, tenantID, actorMemberID)
-		if err != nil {
-			return nil, err
-		}
-		if err := EnforcePermission(member, PermissionAuditRead); err != nil {
-			return nil, err
-		}
+	if err := s.enforceAuditRead(ctx, tenantID, actorMemberID); err != nil {
+		return nil, err
 	}
 	return s.GetUsageService().GetRequestRecord(ctx, tenantID, requestID)
 }
 
-// ListUsageEvents retrieves usage events with RBAC and tenant boundary enforcement.
 func (s *MemoryService) ListUsageEvents(ctx context.Context, tenantID string, filter usage.UsageFilter, actorMemberID string) ([]*usage.UsageEvent, int64, error) {
-	if actorMemberID != "" {
-		member, err := s.GetMember(ctx, tenantID, actorMemberID)
-		if err != nil {
-			return nil, 0, err
-		}
-		if err := EnforcePermission(member, PermissionAuditRead); err != nil {
-			return nil, 0, err
-		}
+	if err := s.enforceAuditRead(ctx, tenantID, actorMemberID); err != nil {
+		return nil, 0, err
 	}
 	filter.TenantID = tenantID
 	return s.GetUsageService().ListUsageEvents(ctx, filter)
 }
 
-// GetUsageEvent retrieves a single usage event by ID with RBAC and tenant boundary enforcement.
 func (s *MemoryService) GetUsageEvent(ctx context.Context, tenantID, eventID string, actorMemberID string) (*usage.UsageEvent, error) {
-	if actorMemberID != "" {
-		member, err := s.GetMember(ctx, tenantID, actorMemberID)
-		if err != nil {
-			return nil, err
-		}
-		if err := EnforcePermission(member, PermissionAuditRead); err != nil {
-			return nil, err
-		}
+	if err := s.enforceAuditRead(ctx, tenantID, actorMemberID); err != nil {
+		return nil, err
 	}
 	return s.GetUsageService().GetUsageEvent(ctx, tenantID, eventID)
 }
 
-// SetPaymentService configures the payment correlation service.
 func (s *MemoryService) SetPaymentService(svc payment.Service) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.paymentSvc = svc
 }
 
-// GetPaymentService returns the active payment correlation service.
 func (s *MemoryService) GetPaymentService() payment.Service {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -3152,57 +2127,34 @@ func (s *MemoryService) GetPaymentService() payment.Service {
 	return s.paymentSvc
 }
 
-// GetPaymentAudit retrieves a single payment correlation audit record with RBAC and tenant boundary check.
 func (s *MemoryService) GetPaymentAudit(ctx context.Context, tenantID, intentID string, actorMemberID string) (*payment.PaymentAuditRecord, error) {
-	if actorMemberID != "" {
-		member, err := s.GetMember(ctx, tenantID, actorMemberID)
-		if err != nil {
-			return nil, err
-		}
-		if err := EnforcePermission(member, PermissionAuditRead); err != nil {
-			return nil, err
-		}
+	if err := s.enforceAuditRead(ctx, tenantID, actorMemberID); err != nil {
+		return nil, err
 	}
 	return s.GetPaymentService().GetPaymentAudit(ctx, tenantID, intentID)
 }
 
-// GetPaymentAuditByRequestID retrieves a payment correlation record by request_id.
 func (s *MemoryService) GetPaymentAuditByRequestID(ctx context.Context, tenantID, requestID string, actorMemberID string) (*payment.PaymentAuditRecord, error) {
-	if actorMemberID != "" {
-		member, err := s.GetMember(ctx, tenantID, actorMemberID)
-		if err != nil {
-			return nil, err
-		}
-		if err := EnforcePermission(member, PermissionAuditRead); err != nil {
-			return nil, err
-		}
+	if err := s.enforceAuditRead(ctx, tenantID, actorMemberID); err != nil {
+		return nil, err
 	}
 	return s.GetPaymentService().GetPaymentAuditByRequestID(ctx, tenantID, requestID)
 }
 
-// ListPaymentAudits retrieves a paginated list of payment correlation records with RBAC.
 func (s *MemoryService) ListPaymentAudits(ctx context.Context, tenantID string, filter payment.PaymentAuditFilter, actorMemberID string) ([]*payment.PaymentAuditRecord, int64, error) {
-	if actorMemberID != "" {
-		member, err := s.GetMember(ctx, tenantID, actorMemberID)
-		if err != nil {
-			return nil, 0, err
-		}
-		if err := EnforcePermission(member, PermissionAuditRead); err != nil {
-			return nil, 0, err
-		}
+	if err := s.enforceAuditRead(ctx, tenantID, actorMemberID); err != nil {
+		return nil, 0, err
 	}
 	filter.TenantID = tenantID
 	return s.GetPaymentService().ListPaymentAudits(ctx, filter)
 }
 
-// SetTimelineService configures the timeline service.
 func (s *MemoryService) SetTimelineService(svc timeline.Service) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.timelineSvc = svc
 }
 
-// GetTimelineService returns the active timeline service.
 func (s *MemoryService) GetTimelineService() timeline.Service {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -3212,18 +2164,10 @@ func (s *MemoryService) GetTimelineService() timeline.Service {
 	return s.timelineSvc
 }
 
-// GetAgentTimeline retrieves agent timeline events with RBAC, tenant ownership, and session aggregation.
 func (s *MemoryService) GetAgentTimeline(ctx context.Context, tenantID, agentID string, filter timeline.TimelineFilter, actorMemberID string) ([]*timeline.TimelineEvent, int64, []string, error) {
-	if actorMemberID != "" {
-		member, err := s.GetMember(ctx, tenantID, actorMemberID)
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		if err := EnforcePermission(member, PermissionAuditRead); err != nil {
-			return nil, 0, nil, err
-		}
+	if err := s.enforceAuditRead(ctx, tenantID, actorMemberID); err != nil {
+		return nil, 0, nil, err
 	}
-
 	ag, err := s.GetAgent(ctx, tenantID, agentID)
 	if err != nil {
 		return nil, 0, nil, err
@@ -3231,7 +2175,6 @@ func (s *MemoryService) GetAgentTimeline(ctx context.Context, tenantID, agentID 
 	if ag == nil || ag.TenantID != tenantID {
 		return nil, 0, nil, ErrAgentNotFound
 	}
-
 	filter.TenantID = tenantID
 	filter.AgentID = agentID
 	return s.GetTimelineService().GetTimeline(ctx, tenantID, agentID, filter)

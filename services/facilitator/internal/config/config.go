@@ -17,6 +17,13 @@ type Config struct {
 		Port int    `yaml:"port"`
 	} `yaml:"server"`
 
+	Security struct {
+		APIKey           string   `yaml:"api_key"`
+		AllowedPayees    []string `yaml:"allowed_payees"`
+		MinGasBalanceWei string   `yaml:"min_gas_balance_wei"`
+		AllowedOrigins   []string `yaml:"allowed_origins"`
+	} `yaml:"security"`
+
 	EVM struct {
 		RPCURL           string `yaml:"rpc_url"`
 		ChainID          int64  `yaml:"chain_id"`
@@ -36,6 +43,8 @@ func DefaultConfig() *Config {
 	cfg := &Config{}
 	cfg.Server.Host = "0.0.0.0"
 	cfg.Server.Port = 8001
+
+	cfg.Security.MinGasBalanceWei = "1000000000000000" // 0.001 ETH default minimum threshold
 
 	cfg.EVM.RPCURL = "https://sepolia-rollup.arbitrum.io/rpc"
 	cfg.EVM.ChainID = 421614
@@ -76,6 +85,25 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
+	if apiKey := os.Getenv("FACILITATOR_API_KEY"); apiKey != "" {
+		cfg.Security.APIKey = apiKey
+	} else if apiKey := os.Getenv("AGENTPAY_FACILITATOR_API_KEY"); apiKey != "" {
+		cfg.Security.APIKey = apiKey
+	}
+	if payees := os.Getenv("FACILITATOR_ALLOWED_PAYEES"); payees != "" {
+		parts := strings.Split(payees, ",")
+		clean := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				clean = append(clean, trimmed)
+			}
+		}
+		cfg.Security.AllowedPayees = clean
+	}
+	if minGas := os.Getenv("FACILITATOR_MIN_GAS_BALANCE_WEI"); minGas != "" {
+		cfg.Security.MinGasBalanceWei = strings.TrimSpace(minGas)
+	}
+
 	if rpc := os.Getenv("RPC_URL"); rpc != "" {
 		cfg.EVM.RPCURL = rpc
 	}
@@ -103,4 +131,15 @@ func LoadConfig(path string) (*Config, error) {
 
 func (c *Config) BigChainID() *big.Int {
 	return big.NewInt(c.EVM.ChainID)
+}
+
+func (c *Config) BigMinGasBalanceWei() *big.Int {
+	if strings.TrimSpace(c.Security.MinGasBalanceWei) == "" {
+		return nil
+	}
+	v, ok := new(big.Int).SetString(strings.TrimSpace(c.Security.MinGasBalanceWei), 10)
+	if !ok {
+		return nil
+	}
+	return v
 }

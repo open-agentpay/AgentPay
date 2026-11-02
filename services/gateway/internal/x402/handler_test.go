@@ -404,3 +404,267 @@ func TestOnChainChallengeAndReplayCorrelateSingleIntent(t *testing.T) {
 		t.Errorf("expected idempotency_key idem_onchain_corr_1, got %s", records2[0].IdempotencyKey)
 	}
 }
+
+func TestP03AsyncSettlementSubmittedStaysSubmittedUntilReconciledAndRevertMarksFailed(t *testing.T) {
+	var settleCalls int
+	var statusResp FacilitatorSettlementStatus
+	facServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/v1/settle":
+			settleCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(SettleResult{
+				SettlementID: "fac_stl_001",
+				Status:       "submitted",
+				TxHash:       "0xabc123def456",
+			})
+		case r.Method == "GET" && r.URL.Path == "/v1/settle/fac_stl_001":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(statusResp)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer facServer.Close()
+
+	nonceStore := NewMemoryNonceStore()
+	verifier := &MockPaymentVerifier{
+		ShouldPass:        true,
+		Payer:             "0x1111111111111111111111111111111111111111",
+		VerificationToken: "vtok_test_001",
+	}
+	processor, _ := setupTestProcessor(nil, verifier, nonceStore)
+	processor.SetFacilitatorURL(facServer.URL)
+
+	route := &rcu.RouteConfig{
+		RouteID:               "rou_p03",
+		TenantID:              "ten_p03",
+		UpstreamURL:           "http://upstream.internal:8000",
+		PriceBaseUnits:        50000,
+		Asset:                 "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+		PayeeAddress:          "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+		AllowedPaymentMethods: "onchain",
+	}
+
+	now := time.Now().Unix()
+	auth := &PaymentAuthorization{
+		Version:     "2.0",
+		ChallengeID: "ch_p03_1",
+		Payer:       "0x1111111111111111111111111111111111111111",
+		Scheme:      "EIP-3009",
+		Nonce:       "0xaaaa1111222233334444555566667777888899990000aaaabbbbccccddddeeee",
+		ValidAfter:  now - 10,
+		ValidBefore: now + 300,
+		Signature:   NewSignatureFromString("0xmock_sig"),
+	}
+	//Synchronously run executeAsyncSettlement after request to test deterministic state transitions
+	sc := newReqScope(processor, httptest.NewRequest("GET", "/v1/p03", nil), route, "req_p03_1", nil)
+	intentID := "pi_ch_p03_1"
+	settlementID := "stl_req_p03_1"
+	fulfillmentID := "ful_req_p03_1"
+	sc.initIntent("ten_p03", defaultProjectID, "", intentID, "idem_p03_1", "onchain", payment.IntentStatusAuthorized)
+	sc.initSettlement(settlementID, intentID, "onchain", payment.SettlementStatusSubmitted, auth.Payer, route.PayeeAddress, auth.Nonce, "")
+	sc.initFulfillment(fulfillmentID, intentID)
+	sc.updateCorrelationOutcomeWithMode(intentID, settlementID, fulfillmentID, http.StatusOK, false)
+
+	processor.executeAsyncSettlement(sc.r.Context(), intentID, settlementID, "vtok_test_001", auth, "idem_p03_1")
+
+	// 1. After 202 submitted from Facilitator, settlement MUST remain submitted (NOT confirmed!)
+	stl1, err := processor.GetPaymentService().GetSettlement(sc.r.Context(), settlementID)
+	if err != nil {
+		t.Fatalf("get settlement: %v", err)
+	}
+	if stl1.Status != payment.SettlementStatusSubmitted {
+		t.Fatalf("expected settlement status 'submitted' after 202 response, got %q", stl1.Status)
+	}
+	audit1, err := processor.GetPaymentAudit(sc, "ten_p03", intentID)
+	if err != nil {
+		t.Fatalf("get payment audit: %v", err)
+	}
+	if audit1.DisplayStatus != payment.DisplaySettlementInProgress {
+		t.Fatalf("expected display status %s while settlement is submitted, got %s", payment.DisplaySettlementInProgress, audit1.DisplayStatus)
+	}
+
+	// 2. Reconcile when Facilitator reports CONFIRMED -> transitions to confirmed & completed
+	statusResp = FacilitatorSettlementStatus{
+		SettlementID:  "fac_stl_001",
+		Status:        "CONFIRMED",
+		TxHash:        "0xabc123def456",
+		Confirmations: 1,
+	}
+	reconciled, err := processor.ReconcileSettlements(sc.r.Context())
+	if err != nil || reconciled != 1 {
+		t.Fatalf("expected 1 reconciled settlement, got %d (err=%v)", reconciled, err)
+	}
+	stl2, _ := processor.GetPaymentService().GetSettlement(sc.r.Context(), settlementID)
+	if stl2.Status != payment.SettlementStatusConfirmed {
+		t.Fatalf("expected settlement status 'confirmed' after reconciliation, got %q", stl2.Status)
+	}
+
+	// 3. Test on-chain revert (FAILED from Facilitator) -> transitions to failed & RECOVERY_REQUIRED
+	intentRevert := "pi_ch_p03_revert"
+	stlRevertID := "stl_req_p03_revert"
+	fulRevertID := "ful_req_p03_revert"
+	sc.initIntent("ten_p03", defaultProjectID, "", intentRevert, "idem_p03_2", "onchain", payment.IntentStatusAuthorized)
+	sc.initSettlement(stlRevertID, intentRevert, "onchain", payment.SettlementStatusUnknown, auth.Payer, route.PayeeAddress, "0xbbbb", "0xdeadbeef")
+	sc.initFulfillment(fulRevertID, intentRevert)
+	sc.updateCorrelationOutcomeWithMode(intentRevert, stlRevertID, fulRevertID, http.StatusOK, false)
+	processor.setFacilitatorSettlementID(stlRevertID, "fac_stl_001")
+
+	statusResp = FacilitatorSettlementStatus{
+		SettlementID: "fac_stl_001",
+		Status:       "FAILED",
+		TxHash:       "0xdeadbeef",
+		ErrorMessage: "execution reverted",
+	}
+	reconciled2, err := processor.ReconcileSettlements(sc.r.Context())
+	if err != nil || reconciled2 != 1 {
+		t.Fatalf("expected 1 reconciled reverted settlement, got %d (err=%v)", reconciled2, err)
+	}
+	stlRevert, _ := processor.GetPaymentService().GetSettlement(sc.r.Context(), stlRevertID)
+	if stlRevert.Status != payment.SettlementStatusFailed {
+		t.Fatalf("expected reverted settlement status 'failed', got %q", stlRevert.Status)
+	}
+	auditRevert, _ := processor.GetPaymentService().GetPaymentAudit(sc.r.Context(), "ten_p03", intentRevert)
+	if auditRevert.DisplayStatus != payment.DisplayRecoveryRequired || !auditRevert.IsRecoveryRequired {
+		t.Fatalf("expected reverted post-fulfillment audit to be RECOVERY_REQUIRED, got %s (recovery=%v)", auditRevert.DisplayStatus, auditRevert.IsRecoveryRequired)
+	}
+	// Ensure reconciliation never re-called POST /v1/settle (no blind retry)
+	if settleCalls != 1 {
+		t.Fatalf("expected exactly 1 POST /v1/settle call (no blind retry), got %d", settleCalls)
+	}
+}
+
+func (p *PaymentProcessor) GetPaymentAudit(sc *reqScope, tenantID, intentID string) (*payment.PaymentAuditRecord, error) {
+	return p.paymentService.GetPaymentAudit(sc.r.Context(), tenantID, intentID)
+}
+
+func TestP03SweepExpiredHoldsAfter5xx(t *testing.T) {
+	walletSvc := NewMemoryWalletService()
+	walletSvc.RegisterWallet("apk_live_hold_exp", &WalletAccount{
+		WalletID:         "wlt_exp_01",
+		TenantID:         "ten_exp_01",
+		Status:           "active",
+		AvailableBalance: 100000,
+		HeldBalance:      0,
+	})
+
+	m := metrics.New()
+	mock502Transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(bytes.NewBufferString(`{"error":"upstream down"}`)),
+			Request:    r,
+		}, nil
+	})
+	processor := NewPaymentProcessor(nil, nil, walletSvc, proxy.NewHandler(m, mock502Transport), m)
+	route := &rcu.RouteConfig{
+		RouteID:               "rou_502",
+		TenantID:              "ten_exp_01",
+		UpstreamURL:           "http://upstream.internal:8000",
+		PriceBaseUnits:        40000,
+		Asset:                 "USD",
+		AllowedPaymentMethods: "wallet",
+	}
+
+	req := httptest.NewRequest("GET", "/v1/502", nil)
+	req.Header.Set("Authorization", "Bearer apk_live_hold_exp")
+	w := httptest.NewRecorder()
+	serveAuthorizedWalletRequest(t, processor, w, req, route, "req_502_hold")
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 from upstream, got %d", w.Code)
+	}
+	wlt, _ := walletSvc.GetWalletByAPIKey(req.Context(), "apk_live_hold_exp")
+	if wlt.AvailableBalance != 60000 || wlt.HeldBalance != 40000 {
+		t.Fatalf("expected held=40000 available=60000 immediately after 502, got held=%d available=%d", wlt.HeldBalance, wlt.AvailableBalance)
+	}
+
+	// Sweep after TTL (now + 3 minutes) releases the expired hold
+	released, err := processor.SweepExpiredHolds(req.Context(), time.Now().Add(3*time.Minute))
+	if err != nil || released != 1 {
+		t.Fatalf("expected 1 expired hold released, got %d (err=%v)", released, err)
+	}
+	wltAfter, _ := walletSvc.GetWalletByAPIKey(req.Context(), "apk_live_hold_exp")
+	if wltAfter.AvailableBalance != 100000 || wltAfter.HeldBalance != 0 {
+		t.Fatalf("expected held=0 available=100000 after sweep, got held=%d available=%d", wltAfter.HeldBalance, wltAfter.AvailableBalance)
+	}
+}
+
+func TestP04CaseVariantPayerReplayAndRestartPersistence(t *testing.T) {
+	tmpFile := t.TempDir() + "/nonces.json"
+	nonceStore1, err := NewPersistentFileNonceStore(tmpFile)
+	if err != nil {
+		t.Fatalf("failed to create persistent nonce store: %v", err)
+	}
+	verifier := &MockPaymentVerifier{ShouldPass: true}
+	processor1, _ := setupTestProcessor(nil, verifier, nonceStore1)
+
+	route := &rcu.RouteConfig{
+		RouteID:               "rou_p04",
+		UpstreamURL:           "http://upstream.internal:8000",
+		PriceBaseUnits:        50000,
+		Asset:                 "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+		PayeeAddress:          "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+		AllowedPaymentMethods: "onchain",
+	}
+
+	now := time.Now().Unix()
+	// 1. First request with EIP-55 mixed-case Payer and uppercase hex in Nonce
+	authMixed := &PaymentAuthorization{
+		Version:     "2.0",
+		ChallengeID: "ch_p04_1",
+		Payer:       "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B",
+		Scheme:      "EIP-3009",
+		Nonce:       "0xABCDEF1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+		ValidAfter:  now - 10,
+		ValidBefore: now + 300,
+		Signature:   NewSignatureFromString("0xmock_signature"),
+	}
+	hdr1, _ := EncodeAuthorization(authMixed, true)
+	req1 := httptest.NewRequest("GET", "/v1/p04", nil)
+	req1.Header.Set(HeaderPaymentSignature, hdr1)
+	w1 := httptest.NewRecorder()
+	processor1.HandleRequest(w1, req1, route, "req_p04_1")
+	if w1.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on first request, got %d", w1.Code)
+	}
+
+	// 2. Replay with all-lowercase Payer and Nonce MUST be rejected with 409 ERR_NONCE_ALREADY_USED
+	authLower := &PaymentAuthorization{
+		Version:     "2.0",
+		ChallengeID: "ch_p04_1",
+		Payer:       "0xab5801a7d398351b8be11c439e05c5b3259aec9b",
+		Scheme:      "EIP-3009",
+		Nonce:       "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+		ValidAfter:  now - 10,
+		ValidBefore: now + 300,
+		Signature:   NewSignatureFromString("0xmock_signature"),
+	}
+	hdr2, _ := EncodeAuthorization(authLower, true)
+	req2 := httptest.NewRequest("GET", "/v1/p04", nil)
+	req2.Header.Set(HeaderPaymentSignature, hdr2)
+	w2 := httptest.NewRecorder()
+	processor1.HandleRequest(w2, req2, route, "req_p04_2")
+	if w2.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on case-variant payer replay, got %d", w2.Code)
+	}
+
+	// 3. Simulate gateway restart by creating a new store & processor from the same persistent file
+	nonceStoreAfterRestart, err := NewPersistentFileNonceStore(tmpFile)
+	if err != nil {
+		t.Fatalf("failed to reload persistent nonce store: %v", err)
+	}
+	processor2, _ := setupTestProcessor(nil, verifier, nonceStoreAfterRestart)
+	req3 := httptest.NewRequest("GET", "/v1/p04", nil)
+	req3.Header.Set(HeaderPaymentSignature, hdr2)
+	w3 := httptest.NewRecorder()
+	processor2.HandleRequest(w3, req3, route, "req_p04_3")
+	if w3.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on post-restart nonce replay, got %d", w3.Code)
+	}
+}
+

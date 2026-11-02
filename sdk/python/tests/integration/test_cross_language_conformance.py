@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import subprocess
 import tempfile
@@ -23,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
-from typing import Generator
+from typing import Any, Generator
 
 import httpx
 import pytest
@@ -37,6 +38,38 @@ def find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
         return s.getsockname()[1]
+
+
+def send_wallet_request(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    json_body: dict[str, Any] | None = None,
+) -> httpx.Response:
+    """Execute the two-step AgentPay wallet challenge + PAYMENT-SIGNATURE flow."""
+    resp = client.request(method, url, headers=headers, json=json_body)
+    if resp.status_code != 402 or "PAYMENT-REQUIRED" not in resp.headers:
+        return resp
+    body = resp.json()
+    challenge = body.get("error", {}).get("details", {}).get("challenge")
+    if not challenge or challenge.get("scheme") != "agentpay-wallet":
+        return resp
+
+    auth_payload = {
+        "version": challenge["version"],
+        "challengeId": challenge["challengeId"],
+        "scheme": challenge["scheme"],
+        "nonce": "0x" + secrets.token_hex(32),
+        "validAfter": challenge["validAfter"],
+        "validBefore": challenge["validBefore"],
+        "amount": challenge["amount"],
+        "resourceUri": challenge["resourceUri"],
+        "requestBinding": challenge["extensions"]["requestBinding"],
+    }
+    retry_headers = dict(headers)
+    retry_headers["PAYMENT-SIGNATURE"] = json.dumps(auth_payload)
+    return client.request(method, url, headers=retry_headers, json=json_body)
 
 
 class MockUpstreamHandler(BaseHTTPRequestHandler):
@@ -95,7 +128,7 @@ def live_gateway(mock_upstream: str) -> Generator[str, None, None]:
 
     gateway_port = find_free_port()
 
-    # Generate gateway config
+    # Generate gateway config with explicit JWT secret, upstream master key, and in-memory DB mode
     config_content = f"""
 version: "2.0.0"
 
@@ -107,8 +140,14 @@ server:
   idle_timeout_seconds: 10.0
   shutdown_timeout_seconds: 2.0
 
+auth:
+  jwt_secret: "conformance-test-jwt-secret-key-at-least-32-chars"
+  token_duration_hours: 24
+  upstream_master_key: "0123456789abcdef0123456789abcdef"
+  upstream_master_key_version: 1
+
 database:
-  postgres_url: "postgres://mock:mock@localhost:5432/mock?sslmode=disable"
+  postgres_url: ""
   max_open_conns: 5
   max_idle_conns: 2
   conn_max_lifetime_seconds: 60
@@ -165,10 +204,13 @@ routes:
         temp_cfg_path = f.name
 
     gateway_url = f"http://127.0.0.1:{gateway_port}"
+    env = dict(os.environ)
+    env["AGENTPAY_ALLOW_PRIVATE_UPSTREAM"] = "true"
     proc = subprocess.Popen(
         [str(GATEWAY_BIN), "-config", temp_cfg_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=env,
     )
 
     deadline = time.time() + 5.0
@@ -246,10 +288,12 @@ class TestCrossLanguageGatewayConformance:
                 "Authorization": "Bearer apk_live_valid123",
                 "Idempotency-Key": "idemp_py_wallet_001",
             }
-            resp = client.post(
+            resp = send_wallet_request(
+                client,
+                "POST",
                 f"{live_gateway}/v1/market-data",
                 headers=headers,
-                json={"query": "ETH-USDC"},
+                json_body={"query": "ETH-USDC"},
             )
 
             assert resp.status_code == 200
@@ -272,10 +316,12 @@ class TestCrossLanguageGatewayConformance:
             headers = {
                 "Authorization": "Bearer apk_live_poor",  # available: 100, required: 50,000
             }
-            resp = client.post(
+            resp = send_wallet_request(
+                client,
+                "POST",
                 f"{live_gateway}/v1/market-data",
                 headers=headers,
-                json={"query": "expensive"},
+                json_body={"query": "expensive"},
             )
 
             assert resp.status_code == 402
@@ -288,18 +334,20 @@ class TestCrossLanguageGatewayConformance:
             assert body["error"]["status"] == 402
 
     def test_wallet_frozen_arrears_rejected(self, live_gateway: str) -> None:
-        """TC_CROSS_04: Frozen/arrears wallet account is rejected with 403 ERR_WALLET_FROZEN."""
+        """TC_CROSS_04: Frozen/arrears wallet account is rejected with 402 ERR_WALLET_FROZEN."""
         with httpx.Client(trust_env=False) as client:
             headers = {
                 "Authorization": "Bearer apk_live_frozen",
             }
-            resp = client.post(
+            resp = send_wallet_request(
+                client,
+                "POST",
                 f"{live_gateway}/v1/market-data",
                 headers=headers,
-                json={"query": "test"},
+                json_body={"query": "test"},
             )
 
-            assert resp.status_code == 403
+            assert resp.status_code == 402
             body = resp.json()
             assert body["error"]["code"] == "ERR_WALLET_FROZEN"
             assert body["error"]["domain"] == "WALLET"
@@ -314,26 +362,32 @@ class TestCrossLanguageGatewayConformance:
             }
 
             # 1. First request succeeds
-            resp1 = client.post(
+            resp1 = send_wallet_request(
+                client,
+                "POST",
                 f"{live_gateway}/v1/market-data",
                 headers=headers,
-                json={"payload": "original"},
+                json_body={"payload": "original"},
             )
             assert resp1.status_code == 200
 
             # 2. Replay with identical payload hits cache
-            resp2 = client.post(
+            resp2 = send_wallet_request(
+                client,
+                "POST",
                 f"{live_gateway}/v1/market-data",
                 headers=headers,
-                json={"payload": "original"},
+                json_body={"payload": "original"},
             )
             assert resp2.status_code == 200
 
             # 3. Replay with altered payload fails with 409 conflict
-            resp3 = client.post(
+            resp3 = send_wallet_request(
+                client,
+                "POST",
                 f"{live_gateway}/v1/market-data",
                 headers=headers,
-                json={"payload": "tampered_altered"},
+                json_body={"payload": "tampered_altered"},
             )
             assert resp3.status_code == 409
             body = resp3.json()
@@ -346,7 +400,9 @@ class TestCrossLanguageGatewayConformance:
             headers = {
                 "Authorization": "Bearer apk_live_valid123",
             }
-            resp = client.get(
+            resp = send_wallet_request(
+                client,
+                "GET",
                 f"{live_gateway}/v1/failing-upstream",
                 headers=headers,
             )

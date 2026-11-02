@@ -11,6 +11,7 @@ import (
 	"github.com/open-agentpay/agentpay-gateway-go/internal/auth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/payment"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/timeline"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/upstreamauth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/usage"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/wallet"
 )
@@ -35,25 +36,113 @@ func NewHandlerWithJWT(svc Service, jwtMgr *auth.JWTManager) http.Handler {
 	return &APIHandler{svc: svc, jwtMgr: jwtMgr}
 }
 
+// authenticateRequest extracts and validates JWT claims if not already injected by auth.Middleware.
+// Client-supplied X-Actor-Member-Id and X-Tenant-Id headers are NEVER trusted.
+// # SECURITY-REVIEW
+func (h *APIHandler) authenticateRequest(r *http.Request) (*http.Request, error) {
+	if auth.GetClaims(r.Context()) != nil {
+		return r, nil
+	}
+	auth.StripUntrustedIdentityHeaders(r.Header)
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		tokenStr := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		claims, err := h.jwtMgr.ValidateToken(tokenStr)
+		if err != nil {
+			return r, err
+		}
+		ctx := auth.WithClaims(r.Context(), claims)
+		r = r.WithContext(ctx)
+		r.Header.Set("X-Actor-Member-Id", claims.Subject)
+		r.Header.Set("X-Tenant-Id", claims.TenantID)
+	}
+	return r, nil
+}
+
 func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimRight(r.URL.Path, "/")
-	method := r.Method
-
-	actorMemberID := r.Header.Get("X-Actor-Member-Id")
-	tenantIDHeader := r.Header.Get("X-Tenant-Id")
-	clientIP := r.Header.Get("X-Forwarded-For")
-	if clientIP == "" {
-		clientIP = r.RemoteAddr
+	clientIP := r.RemoteAddr
+	if hostPort := strings.TrimSpace(r.RemoteAddr); hostPort != "" {
+		clientIP = hostPort
 	}
 
-	// Public Read-Only Marketplace Discovery Endpoints
-	if strings.HasPrefix(path, "/api/v1/public/marketplace") {
+	// 1. Public unauthenticated endpoints
+	switch {
+	case strings.HasPrefix(path, "/api/v1/public/marketplace"):
 		NewPublicMarketplaceHandler(h.svc).ServeHTTP(w, r)
+		return
+	case path == "/api/v1/auth-types" && r.Method == http.MethodGet:
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"types": h.svc.GetAuthTypes()})
+		return
+	case (path == "/api/v1/auth/register" || path == "/api/v1/auth/login") && r.Method == http.MethodPost:
+		h.handleAuth(w, r, path, "", "")
 		return
 	}
 
-	// 0. Auth endpoints
-	if path == "/api/v1/auth/register" && method == http.MethodPost {
+	// 2. All other control-plane routes require a valid JWT token
+	r, err := h.authenticateRequest(r)
+	if err != nil {
+		h.writeError(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", err.Error())
+		return
+	}
+
+	actorMemberID := auth.GetMemberID(r.Context())
+	authTenantID := auth.GetTenantID(r.Context())
+	if actorMemberID == "" || authTenantID == "" {
+		h.writeError(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", "authentication required")
+		return
+	}
+
+	actorMember, err := h.svc.GetMember(r.Context(), authTenantID, actorMemberID)
+	if err != nil || actorMember == nil {
+		h.writeError(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", "invalid or unknown authenticated member")
+		return
+	}
+	if actorMember.Status != MemberStatusActive {
+		h.writeError(w, http.StatusForbidden, "ERR_PERMISSION_DENIED", ErrMemberDisabled.Error())
+		return
+	}
+
+	switch {
+	case strings.HasPrefix(path, "/api/v1/auth/"):
+		h.handleAuth(w, r, path, actorMemberID, authTenantID)
+	case path == "/api/v1/audit/events" && r.Method == http.MethodGet:
+		h.handleAuditEvents(w, r, actorMember, authTenantID)
+	case strings.HasPrefix(path, "/api/v1/agents/"):
+		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/agents/"), "/")
+		if h.handleAgentSubpath(w, r, authTenantID, actorMemberID, actorMember, clientIP, parts) {
+			return
+		}
+		http.NotFound(w, r)
+	case strings.HasPrefix(path, "/api/v1/wallets/"):
+		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/wallets/"), "/")
+		if h.handleFlatWalletSubpath(w, r, authTenantID, actorMemberID, actorMember, clientIP, parts) {
+			return
+		}
+		http.NotFound(w, r)
+	case path == "/api/v1/tenants":
+		if h.handleTenantsRoot(w, r, authTenantID, actorMember) {
+			return
+		}
+		http.NotFound(w, r)
+	case strings.HasPrefix(path, "/api/v1/tenants/"):
+		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/tenants/"), "/")
+		if h.handleTenantScoped(w, r, authTenantID, actorMemberID, actorMember, clientIP, parts) {
+			return
+		}
+		http.NotFound(w, r)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// 0. Auth & Audit Endpoints
+// ----------------------------------------------------------------------------
+
+func (h *APIHandler) handleAuth(w http.ResponseWriter, r *http.Request, path, actorMemberID, authTenantID string) {
+	switch {
+	case path == "/api/v1/auth/register" && r.Method == http.MethodPost:
 		var body struct {
 			TenantName string `json:"tenant_name"`
 			Email      string `json:"email"`
@@ -79,10 +168,8 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"user":   member,
 			"tenant": tenant,
 		})
-		return
-	}
 
-	if path == "/api/v1/auth/login" && method == http.MethodPost {
+	case path == "/api/v1/auth/login" && r.Method == http.MethodPost:
 		var body struct {
 			Email    string `json:"email"`
 			Password string `json:"password"`
@@ -106,61 +193,30 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"user":   member,
 			"tenant": tenant,
 		})
-		return
-	}
 
-	if path == "/api/v1/auth-types" && method == http.MethodGet {
-		schemas := h.svc.GetAuthTypes()
-		h.writeJSON(w, http.StatusOK, map[string]interface{}{"types": schemas})
-		return
-	}
-
-	if path == "/api/v1/auth/me" && method == http.MethodGet {
-		effectiveMemberID := actorMemberID
-		if effectiveMemberID == "" {
-			effectiveMemberID = auth.GetMemberID(r.Context())
-		}
-		effectiveTenantID := tenantIDHeader
-		if effectiveTenantID == "" {
-			effectiveTenantID = auth.GetTenantID(r.Context())
-		}
-
-		if effectiveMemberID == "" {
+	case path == "/api/v1/auth/me" && r.Method == http.MethodGet:
+		if actorMemberID == "" || authTenantID == "" {
 			h.writeError(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", "unauthenticated user")
 			return
 		}
-
-		member, err := h.svc.GetMember(r.Context(), effectiveTenantID, effectiveMemberID)
+		member, err := h.svc.GetMember(r.Context(), authTenantID, actorMemberID)
 		if err != nil {
 			h.handleError(w, err)
 			return
 		}
-
 		tenant, err := h.svc.GetTenant(r.Context(), member.TenantID)
 		if err != nil {
 			h.handleError(w, err)
 			return
 		}
-
-		permissions := GetRolePermissions(member.Role)
 		h.writeJSON(w, http.StatusOK, map[string]interface{}{
 			"user":        member,
 			"tenant":      tenant,
-			"permissions": permissions,
+			"permissions": GetRolePermissions(member.Role),
 		})
-		return
-	}
 
-	if path == "/api/v1/auth/password" && method == http.MethodPost {
-		effectiveMemberID := actorMemberID
-		if effectiveMemberID == "" {
-			effectiveMemberID = auth.GetMemberID(r.Context())
-		}
-		effectiveTenantID := tenantIDHeader
-		if effectiveTenantID == "" {
-			effectiveTenantID = auth.GetTenantID(r.Context())
-		}
-		if effectiveMemberID == "" {
+	case path == "/api/v1/auth/password" && r.Method == http.MethodPost:
+		if actorMemberID == "" || authTenantID == "" {
 			h.writeError(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", "unauthenticated user")
 			return
 		}
@@ -172,7 +228,7 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, http.StatusBadRequest, "ERR_INVALID_JSON", "invalid request body")
 			return
 		}
-		m, err := h.svc.GetMember(r.Context(), effectiveTenantID, effectiveMemberID)
+		m, err := h.svc.GetMember(r.Context(), authTenantID, actorMemberID)
 		if err != nil {
 			h.handleError(w, err)
 			return
@@ -188,43 +244,67 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (h *APIHandler) handleAuditEvents(w http.ResponseWriter, r *http.Request, actorMember *Member, authTenantID string) {
+	if err := EnforcePermission(actorMember, PermissionAuditRead); err != nil {
+		h.handleError(w, err)
 		return
 	}
-
-	// 1. Audit events
-	if method == http.MethodGet && path == "/api/v1/audit/events" {
-		tID := r.URL.Query().Get("tenant_id")
-		if tID == "" {
-			tID = tenantIDHeader
-		}
-		targetType := r.URL.Query().Get("target_type")
-		targetID := r.URL.Query().Get("target_id")
-		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		events, err := h.svc.ListAuditEvents(r.Context(), tID, targetType, targetID, limit)
-		if err != nil {
-			h.handleError(w, err)
-			return
-		}
-		h.writeJSON(w, http.StatusOK, map[string]interface{}{"count": len(events), "items": events})
+	q := r.URL.Query()
+	tID := q.Get("tenant_id")
+	if tID != "" && tID != authTenantID {
+		h.handleError(w, ErrPermissionDenied)
 		return
 	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	events, err := h.svc.ListAuditEvents(r.Context(), authTenantID, q.Get("target_type"), q.Get("target_id"), limit)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{"count": len(events), "items": events})
+}
 
-	// 2. Flat Agent endpoints
-	if strings.HasPrefix(path, "/api/v1/agents/") {
-		remainder := strings.TrimPrefix(path, "/api/v1/agents/")
-		parts := strings.Split(remainder, "/")
+// ----------------------------------------------------------------------------
+// 1. Agents & Flat Wallet Endpoints
+// ----------------------------------------------------------------------------
 
-		if len(parts) == 2 && parts[1] == "kill" && method == http.MethodPost {
-			agentID := parts[0]
+// handleAgentSubpath handles operations under /{agent_id}[/kill|/status|/timeline]
+// shared by both `/api/v1/agents/...` and `/api/v1/tenants/{tenant_id}/agents/...`.
+func (h *APIHandler) handleAgentSubpath(
+	w http.ResponseWriter,
+	r *http.Request,
+	tenantID, actorMemberID string,
+	actorMember *Member,
+	clientIP string,
+	parts []string,
+) bool {
+	if len(parts) == 0 || parts[0] == "" {
+		return false
+	}
+	agentID := parts[0]
+	method := r.Method
+
+	if len(parts) == 2 {
+		switch parts[1] {
+		case "kill":
+			if method != http.MethodPost {
+				return false
+			}
 			var body struct {
 				Reason string `json:"reason"`
 				Revoke bool   `json:"revoke"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			ag, keys, err := h.svc.KillAgent(r.Context(), tenantIDHeader, agentID, body.Reason, actorMemberID, body.Revoke, clientIP)
+			ag, keys, err := h.svc.KillAgent(r.Context(), tenantID, agentID, body.Reason, actorMemberID, body.Revoke, clientIP)
 			if err != nil {
 				h.handleError(w, err)
-				return
+				return true
 			}
 			h.writeJSON(w, http.StatusOK, map[string]interface{}{
 				"agent":        ag,
@@ -232,230 +312,314 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"killed":       true,
 				"status":       ag.Status,
 			})
-			return
-		}
+			return true
 
-		if len(parts) == 2 && parts[1] == "timeline" && method == http.MethodGet {
-			agentID := parts[0]
-			h.handleAgentTimeline(w, r, tenantIDHeader, agentID, actorMemberID)
-			return
-		}
-
-		if len(parts) == 1 {
-			agentID := parts[0]
-			switch method {
-			case http.MethodGet:
-				ag, err := h.svc.GetAgent(r.Context(), tenantIDHeader, agentID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"agent": ag})
-				return
-			case http.MethodPatch:
-				var body struct {
-					Name         string                 `json:"name"`
-					PolicyConfig map[string]interface{} `json:"policy_config"`
-				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
-				ag, err := h.svc.UpdateAgent(r.Context(), tenantIDHeader, agentID, body.Name, body.PolicyConfig, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"agent": ag})
-				return
-			case http.MethodDelete:
-				err := h.svc.DeleteAgent(r.Context(), tenantIDHeader, agentID, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "agent_id": agentID})
-				return
+		case "status":
+			if method != http.MethodPost {
+				return false
 			}
-		}
-	}
-
-	// 3. Flat Wallet endpoints
-	if strings.HasPrefix(path, "/api/v1/wallets/") {
-		remainder := strings.TrimPrefix(path, "/api/v1/wallets/")
-		parts := strings.Split(remainder, "/")
-		walletID := parts[0]
-
-		if len(parts) == 1 && method == http.MethodGet {
-			wlt, err := h.svc.GetWalletByID(r.Context(), walletID)
-			if err != nil {
-				h.handleError(w, err)
-				return
-			}
-			h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
-			return
-		}
-
-		if len(parts) == 2 {
-			action := parts[1]
-			switch action {
-			case "adjust":
-				if method == http.MethodPost {
-					var body struct {
-						Amount         int64  `json:"amount"`
-						Reason         string `json:"reason"`
-						IdempotencyKey string `json:"idempotency_key"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					err := h.svc.AdjustWallet(r.Context(), walletID, body.Amount, body.Reason, body.IdempotencyKey, actorMemberID, clientIP)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					wlt, _ := h.svc.GetWalletByID(r.Context(), walletID)
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
-					return
-				}
-			case "freeze":
-				if method == http.MethodPost {
-					var body struct {
-						Reason string `json:"reason"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					err := h.svc.FreezeWallet(r.Context(), walletID, body.Reason, actorMemberID, clientIP)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					wlt, _ := h.svc.GetWalletByID(r.Context(), walletID)
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
-					return
-				}
-			case "unfreeze":
-				if method == http.MethodPost {
-					var body struct {
-						Reason string `json:"reason"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					err := h.svc.UnfreezeWallet(r.Context(), walletID, body.Reason, actorMemberID, clientIP)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					wlt, _ := h.svc.GetWalletByID(r.Context(), walletID)
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
-					return
-				}
-			case "recalculate":
-				if method == http.MethodPost {
-					report, err := h.svc.RecalculateWallet(r.Context(), walletID, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"recalculation": report})
-					return
-				}
-			case "ledger":
-				if method == http.MethodGet {
-					entries, err := h.svc.GetLedgerEntries(r.Context(), walletID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"count": len(entries), "items": entries})
-					return
-				}
-			case "topups":
-				if method == http.MethodGet {
-					orders, err := h.svc.GetTopUpOrders(r.Context(), walletID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"count": len(orders), "items": orders})
-					return
-				}
-			}
-		}
-	}
-
-	// 4. Scoped Tenants endpoints: /api/v1/tenants/...
-	if path == "/api/v1/tenants" {
-		if method == http.MethodPost {
 			var body struct {
-				Name       string `json:"name"`
-				TenantID   string `json:"tenant_id"`
-				OwnerEmail string `json:"owner_email"`
-				Currency   string `json:"currency"`
+				Status string `json:"status"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				h.writeError(w, http.StatusBadRequest, "ERR_INVALID_PARAM", "malformed JSON body")
-				return
-			}
-			t, owner, err := h.svc.CreateTenant(r.Context(), body.Name, body.TenantID, body.OwnerEmail, body.Currency)
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			ag, err := h.svc.UpdateAgentStatus(r.Context(), tenantID, agentID, AgentStatus(body.Status), actorMemberID)
 			if err != nil {
 				h.handleError(w, err)
-				return
+				return true
 			}
-			resp := map[string]interface{}{"tenant": t}
-			if owner != nil {
-				resp["owner"] = owner
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"agent": ag})
+			return true
+
+		case "timeline":
+			if method != http.MethodGet {
+				return false
 			}
-			h.writeJSON(w, http.StatusCreated, resp)
-			return
+			h.handleAgentTimeline(w, r, tenantID, agentID, actorMemberID)
+			return true
 		}
-		if method == http.MethodGet {
-			tenants, err := h.svc.ListTenants(r.Context())
-			if err != nil {
-				h.handleError(w, err)
-				return
-			}
-			h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenants": tenants})
-			return
-		}
+		return false
 	}
 
-	if strings.HasPrefix(path, "/api/v1/tenants/") {
-		rem := strings.TrimPrefix(path, "/api/v1/tenants/")
-		parts := strings.Split(rem, "/")
-		tenantID := parts[0]
+	if len(parts) == 1 {
+		switch method {
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionAgentRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			ag, err := h.svc.GetAgent(r.Context(), tenantID, agentID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"agent": ag})
+			return true
 
-		if len(parts) == 1 {
-			switch method {
-			case http.MethodGet:
-				t, err := h.svc.GetTenant(r.Context(), tenantID)
+		case http.MethodPatch:
+			var body struct {
+				Name         string                 `json:"name"`
+				PolicyConfig map[string]interface{} `json:"policy_config"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			ag, err := h.svc.UpdateAgent(r.Context(), tenantID, agentID, body.Name, body.PolicyConfig, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"agent": ag})
+			return true
+
+		case http.MethodDelete:
+			if err := h.svc.DeleteAgent(r.Context(), tenantID, agentID, actorMemberID); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "agent_id": agentID})
+			return true
+		}
+	}
+	return false
+}
+
+func (h *APIHandler) handleFlatWalletSubpath(
+	w http.ResponseWriter,
+	r *http.Request,
+	authTenantID, actorMemberID string,
+	actorMember *Member,
+	clientIP string,
+	parts []string,
+) bool {
+	if len(parts) == 0 || parts[0] == "" {
+		return false
+	}
+	walletID := parts[0]
+	method := r.Method
+
+	wlt, err := h.svc.GetWalletByID(r.Context(), walletID)
+	if err != nil {
+		h.handleError(w, err)
+		return true
+	}
+	if wlt.TenantID != authTenantID {
+		h.handleError(w, ErrPermissionDenied)
+		return true
+	}
+
+	if len(parts) == 1 && method == http.MethodGet {
+		if err := EnforcePermission(actorMember, PermissionWalletRead); err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
+		return true
+	}
+
+	if len(parts) == 2 {
+		switch parts[1] {
+		case "adjust":
+			if method != http.MethodPost {
+				return false
+			}
+			var body struct {
+				Amount         int64  `json:"amount"`
+				Reason         string `json:"reason"`
+				IdempotencyKey string `json:"idempotency_key"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if err := h.svc.AdjustWallet(r.Context(), walletID, body.Amount, body.Reason, body.IdempotencyKey, actorMemberID, clientIP); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			wlt, _ := h.svc.GetWalletByID(r.Context(), walletID)
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
+			return true
+
+		case "freeze", "unfreeze":
+			if method != http.MethodPost {
+				return false
+			}
+			var body struct {
+				Reason string `json:"reason"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			var err error
+			if parts[1] == "freeze" {
+				err = h.svc.FreezeWallet(r.Context(), walletID, body.Reason, actorMemberID, clientIP)
+			} else {
+				err = h.svc.UnfreezeWallet(r.Context(), walletID, body.Reason, actorMemberID, clientIP)
+			}
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			wlt, _ := h.svc.GetWalletByID(r.Context(), walletID)
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
+			return true
+
+		case "recalculate":
+			if method != http.MethodPost {
+				return false
+			}
+			report, err := h.svc.RecalculateWallet(r.Context(), walletID, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"recalculation": report})
+			return true
+
+		case "ledger":
+			if method != http.MethodGet {
+				return false
+			}
+			if err := EnforcePermission(actorMember, PermissionWalletRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			entries, err := h.svc.GetLedgerEntries(r.Context(), walletID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"count": len(entries), "items": entries})
+			return true
+
+		case "topups":
+			if method != http.MethodGet {
+				return false
+			}
+			if err := EnforcePermission(actorMember, PermissionWalletRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			orders, err := h.svc.GetTopUpOrders(r.Context(), walletID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"count": len(orders), "items": orders})
+			return true
+		}
+	}
+	return false
+}
+
+// ----------------------------------------------------------------------------
+// 2. Tenants & Scoped Sub-Resources (/api/v1/tenants/...)
+// ----------------------------------------------------------------------------
+
+func (h *APIHandler) handleTenantsRoot(w http.ResponseWriter, r *http.Request, authTenantID string, actorMember *Member) bool {
+	switch r.Method {
+	case http.MethodPost:
+		if !auth.IsSystemContext(r.Context()) {
+			h.handleError(w, ErrPermissionDenied)
+			return true
+		}
+		var body struct {
+			Name       string `json:"name"`
+			TenantID   string `json:"tenant_id"`
+			OwnerEmail string `json:"owner_email"`
+			Currency   string `json:"currency"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			h.writeError(w, http.StatusBadRequest, "ERR_INVALID_PARAM", "malformed JSON body")
+			return true
+		}
+		t, owner, err := h.svc.CreateTenant(r.Context(), body.Name, body.TenantID, body.OwnerEmail, body.Currency)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		resp := map[string]interface{}{"tenant": t}
+		if owner != nil {
+			resp["owner"] = owner
+		}
+		h.writeJSON(w, http.StatusCreated, resp)
+		return true
+
+	case http.MethodGet:
+		if err := EnforcePermission(actorMember, PermissionTenantRead); err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		t, err := h.svc.GetTenant(r.Context(), authTenantID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenants": []*Tenant{t}})
+		return true
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantScoped(
+	w http.ResponseWriter,
+	r *http.Request,
+	authTenantID, actorMemberID string,
+	actorMember *Member,
+	clientIP string,
+	parts []string,
+) bool {
+	if len(parts) == 0 || parts[0] == "" {
+		return false
+	}
+	tenantID := parts[0]
+	if tenantID != authTenantID {
+		h.handleError(w, ErrPermissionDenied)
+		return true
+	}
+	method := r.Method
+
+	if len(parts) == 1 {
+		switch method {
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionTenantRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			t, err := h.svc.GetTenant(r.Context(), tenantID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenant": t})
+			return true
+
+		case http.MethodPatch:
+			var body struct {
+				Name     string `json:"name"`
+				Currency string `json:"currency"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			var t *Tenant
+			var err error
+			if body.Currency != "" {
+				t, err = h.svc.UpdateTenantCurrency(r.Context(), tenantID, body.Currency, actorMemberID)
 				if err != nil {
 					h.handleError(w, err)
-					return
+					return true
 				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenant": t})
-				return
-			case http.MethodPatch:
-				var body struct {
-					Name     string `json:"name"`
-					Currency string `json:"currency"`
-				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
-				var t *Tenant
-				var err error
-				if body.Currency != "" {
-					t, err = h.svc.UpdateTenantCurrency(r.Context(), tenantID, body.Currency, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-				}
-				if body.Name != "" || body.Currency == "" {
-					t, err = h.svc.UpdateTenant(r.Context(), tenantID, body.Name, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenant": t})
-				return
 			}
+			if body.Name != "" || body.Currency == "" {
+				t, err = h.svc.UpdateTenant(r.Context(), tenantID, body.Name, actorMemberID)
+				if err != nil {
+					h.handleError(w, err)
+					return true
+				}
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenant": t})
+			return true
 		}
+		return false
+	}
 
-		if len(parts) == 2 && parts[1] == "currency" && (method == http.MethodPatch || method == http.MethodPost) {
+	sub := parts[1]
+	rest := parts[2:]
+
+	switch sub {
+	case "currency":
+		if len(rest) == 0 && (method == http.MethodPatch || method == http.MethodPost) {
 			var body struct {
 				Currency string `json:"currency"`
 			}
@@ -463,13 +627,13 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			t, err := h.svc.UpdateTenantCurrency(r.Context(), tenantID, body.Currency, actorMemberID)
 			if err != nil {
 				h.handleError(w, err)
-				return
+				return true
 			}
 			h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenant": t})
-			return
+			return true
 		}
-
-		if len(parts) == 2 && parts[1] == "status" && method == http.MethodPost {
+	case "status":
+		if len(rest) == 0 && method == http.MethodPost {
 			var body struct {
 				Status string `json:"status"`
 			}
@@ -477,753 +641,807 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			t, err := h.svc.UpdateTenantStatus(r.Context(), tenantID, TenantStatus(body.Status), actorMemberID)
 			if err != nil {
 				h.handleError(w, err)
-				return
+				return true
 			}
 			h.writeJSON(w, http.StatusOK, map[string]interface{}{"tenant": t})
-			return
+			return true
 		}
+	case "projects":
+		return h.handleTenantProjects(w, r, tenantID, actorMemberID, actorMember, rest)
+	case "members":
+		return h.handleTenantMembers(w, r, tenantID, actorMemberID, actorMember, rest)
+	case "agents":
+		return h.handleTenantAgents(w, r, tenantID, actorMemberID, actorMember, clientIP, rest)
+	case "api-keys":
+		return h.handleTenantAPIKeys(w, r, tenantID, actorMemberID, actorMember, rest)
+	case "routes":
+		return h.handleTenantRoutes(w, r, tenantID, actorMemberID, actorMember, rest)
+	case "policies":
+		return h.handleTenantPolicies(w, r, tenantID, actorMemberID, actorMember, rest)
+	case "config":
+		return h.handleTenantConfig(w, r, tenantID, actorMemberID, actorMember, rest)
+	case "wallets":
+		return h.handleTenantWallets(w, r, tenantID, actorMemberID, actorMember, clientIP, rest)
+	case "requests":
+		return h.handleTenantRequests(w, r, tenantID, actorMemberID, rest)
+	case "usages":
+		return h.handleTenantUsages(w, r, tenantID, actorMemberID, rest)
+	case "payments":
+		return h.handleTenantPayments(w, r, tenantID, actorMemberID, rest)
+	}
+	return false
+}
 
-		// Projects
-		if parts[1] == "projects" {
-			if len(parts) == 2 {
-				if method == http.MethodPost {
-					var body struct {
-						Name               string `json:"name"`
-						BudgetCapBaseUnits int64  `json:"budget_cap_base_units"`
-						ProjectID          string `json:"project_id"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					p, err := h.svc.CreateProject(r.Context(), tenantID, body.Name, body.BudgetCapBaseUnits, body.ProjectID, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusCreated, map[string]interface{}{"project": p})
-					return
-				}
-				if method == http.MethodGet {
-					projects, err := h.svc.ListProjects(r.Context(), tenantID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"projects": projects})
-					return
-				}
+func (h *APIHandler) handleTenantProjects(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, actorMember *Member, rest []string) bool {
+	method := r.Method
+	if len(rest) == 0 {
+		switch method {
+		case http.MethodPost:
+			var body struct {
+				Name               string `json:"name"`
+				BudgetCapBaseUnits int64  `json:"budget_cap_base_units"`
+				ProjectID          string `json:"project_id"`
 			}
-			if len(parts) == 3 {
-				projectID := parts[2]
-				switch method {
-				case http.MethodGet:
-					p, err := h.svc.GetProject(r.Context(), tenantID, projectID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"project": p})
-					return
-				case http.MethodPatch:
-					var body struct {
-						Name               string         `json:"name"`
-						BudgetCapBaseUnits *int64         `json:"budget_cap_base_units"`
-						Status             *ProjectStatus `json:"status"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					p, err := h.svc.UpdateProject(r.Context(), tenantID, projectID, body.Name, body.BudgetCapBaseUnits, body.Status, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"project": p})
-					return
-				case http.MethodDelete:
-					err := h.svc.DeleteProject(r.Context(), tenantID, projectID, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "project_id": projectID})
-					return
-				}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			p, err := h.svc.CreateProject(r.Context(), tenantID, body.Name, body.BudgetCapBaseUnits, body.ProjectID, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
 			}
+			h.writeJSON(w, http.StatusCreated, map[string]interface{}{"project": p})
+			return true
+
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionProjectRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			projects, err := h.svc.ListProjects(r.Context(), tenantID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"projects": projects})
+			return true
 		}
-
-		// Members
-		if parts[1] == "members" {
-			if len(parts) == 2 {
-				if method == http.MethodPost {
-					var body struct {
-						Email    string `json:"email"`
-						Role     string `json:"role"`
-						Password string `json:"password,omitempty"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					m, err := h.svc.AddMember(r.Context(), tenantID, body.Email, MemberRole(body.Role), actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					if body.Password != "" {
-						_ = h.svc.SetMemberPassword(r.Context(), tenantID, m.MemberID, body.Password)
-					}
-					h.writeJSON(w, http.StatusCreated, map[string]interface{}{"member": m})
-					return
-				}
-				if method == http.MethodGet {
-					members, err := h.svc.ListMembers(r.Context(), tenantID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"members": members})
-					return
-				}
-			}
-			if len(parts) == 3 {
-				memberID := parts[2]
-				switch method {
-				case http.MethodGet:
-					m, err := h.svc.GetMember(r.Context(), tenantID, memberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"member": m})
-					return
-				case http.MethodPatch:
-					var body struct {
-						Role   *MemberRole   `json:"role"`
-						Status *MemberStatus `json:"status"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					m, err := h.svc.UpdateMember(r.Context(), tenantID, memberID, body.Role, body.Status, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"member": m})
-					return
-				case http.MethodDelete:
-					err := h.svc.RemoveMember(r.Context(), tenantID, memberID, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "member_id": memberID})
-					return
-				}
-			}
-		}
-
-		// Agents
-		if parts[1] == "agents" {
-			if len(parts) == 2 {
-				if method == http.MethodPost {
-					var body struct {
-						ProjectID    string                 `json:"project_id"`
-						Name         string                 `json:"name"`
-						PolicyConfig map[string]interface{} `json:"policy_config"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					ag, err := h.svc.CreateAgent(r.Context(), tenantID, body.ProjectID, body.Name, body.PolicyConfig, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusCreated, map[string]interface{}{"agent": ag})
-					return
-				}
-				if method == http.MethodGet {
-					projectID := r.URL.Query().Get("project_id")
-					var statusPtr *AgentStatus
-					if s := r.URL.Query().Get("status"); s != "" {
-						st := AgentStatus(s)
-						statusPtr = &st
-					}
-					agents, err := h.svc.ListAgents(r.Context(), tenantID, projectID, statusPtr)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"agents": agents})
-					return
-				}
-			}
-			if len(parts) >= 3 {
-				agentID := parts[2]
-				if len(parts) == 4 && parts[3] == "kill" && method == http.MethodPost {
-					var body struct {
-						Reason string `json:"reason"`
-						Revoke bool   `json:"revoke"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					ag, keys, err := h.svc.KillAgent(r.Context(), tenantID, agentID, body.Reason, actorMemberID, body.Revoke, clientIP)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{
-						"agent":        ag,
-						"revoked_keys": keys,
-						"killed":       true,
-						"status":       ag.Status,
-					})
-					return
-				}
-				if len(parts) == 4 && parts[3] == "status" && method == http.MethodPost {
-					var body struct {
-						Status string `json:"status"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					ag, err := h.svc.UpdateAgentStatus(r.Context(), tenantID, agentID, AgentStatus(body.Status), actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"agent": ag})
-					return
-				}
-				if len(parts) == 4 && parts[3] == "timeline" && method == http.MethodGet {
-					h.handleAgentTimeline(w, r, tenantID, agentID, actorMemberID)
-					return
-				}
-				if len(parts) == 3 {
-					switch method {
-					case http.MethodGet:
-						ag, err := h.svc.GetAgent(r.Context(), tenantID, agentID)
-						if err != nil {
-							h.handleError(w, err)
-							return
-						}
-						h.writeJSON(w, http.StatusOK, map[string]interface{}{"agent": ag})
-						return
-					case http.MethodPatch:
-						var body struct {
-							Name         string                 `json:"name"`
-							PolicyConfig map[string]interface{} `json:"policy_config"`
-						}
-						_ = json.NewDecoder(r.Body).Decode(&body)
-						ag, err := h.svc.UpdateAgent(r.Context(), tenantID, agentID, body.Name, body.PolicyConfig, actorMemberID)
-						if err != nil {
-							h.handleError(w, err)
-							return
-						}
-						h.writeJSON(w, http.StatusOK, map[string]interface{}{"agent": ag})
-						return
-					case http.MethodDelete:
-						err := h.svc.DeleteAgent(r.Context(), tenantID, agentID, actorMemberID)
-						if err != nil {
-							h.handleError(w, err)
-							return
-						}
-						h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "agent_id": agentID})
-						return
-					}
-				}
-			}
-		}
-
-		// API Keys
-		if parts[1] == "api-keys" {
-			if len(parts) == 2 {
-				if method == http.MethodPost {
-					var body struct {
-						ProjectID string   `json:"project_id"`
-						AgentID   string   `json:"agent_id"`
-						Name      string   `json:"name"`
-						Scopes    []string `json:"scopes"`
-						ExpiresAt *int64   `json:"expires_at"`
-					}
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					res, err := h.svc.CreateAPIKey(r.Context(), tenantID, body.ProjectID, body.AgentID, body.Name, body.Scopes, body.ExpiresAt, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusCreated, map[string]interface{}{
-						"api_key": res.APIKey,
-						"raw_key": res.RawKey,
-					})
-					return
-				}
-				if method == http.MethodGet {
-					agentID := r.URL.Query().Get("agent_id")
-					keys, err := h.svc.ListAPIKeys(r.Context(), tenantID, agentID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"api_keys": keys})
-					return
-				}
-			}
-			if len(parts) == 4 {
-				keyID := parts[2]
-				action := parts[3]
-				if action == "revoke" && method == http.MethodPost {
-					k, err := h.svc.RevokeAPIKey(r.Context(), tenantID, keyID, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"api_key": k})
-					return
-				}
-				if action == "rotate" && method == http.MethodPost {
-					res, err := h.svc.RotateAPIKey(r.Context(), tenantID, keyID, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{
-						"api_key": res.APIKey,
-						"raw_key": res.RawKey,
-					})
-					return
-				}
-			}
-		}
-
-		// Routes
-		if parts[1] == "routes" {
-			if len(parts) == 2 {
-				if method == http.MethodPost {
-					var rBody Route
-					_ = json.NewDecoder(r.Body).Decode(&rBody)
-					rBody.TenantID = tenantID
-					created, err := h.svc.CreateRoute(r.Context(), &rBody, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusCreated, map[string]interface{}{"route": created})
-					return
-				}
-				if method == http.MethodGet {
-					routes, err := h.svc.ListRoutes(r.Context(), tenantID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					projectID := r.URL.Query().Get("project_id")
-					if projectID != "" {
-						filtered := make([]*Route, 0)
-						for _, rt := range routes {
-							if rt.ProjectID == projectID {
-								filtered = append(filtered, rt)
-							}
-						}
-						routes = filtered
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"routes": routes})
-					return
-				}
-			}
-			if len(parts) == 3 && parts[2] == "test-upstream" && method == http.MethodPost {
-				var body TestUpstreamInput
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-					h.writeError(w, http.StatusBadRequest, "ERR_INVALID_PARAM", "malformed JSON body")
-					return
-				}
-				res, err := h.svc.TestUpstream(r.Context(), tenantID, &body, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"result": res})
-				return
-			}
-			if len(parts) == 3 {
-				routeID := parts[2]
-				switch method {
-				case http.MethodGet:
-					route, err := h.svc.GetRoute(r.Context(), tenantID, routeID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"route": route})
-					return
-				case http.MethodPatch:
-					var rBody UpdateRouteInput
-					_ = json.NewDecoder(r.Body).Decode(&rBody)
-					rBody.RouteID = routeID
-					rBody.TenantID = tenantID
-					updated, err := h.svc.UpdateRoute(r.Context(), &rBody, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"route": updated})
-					return
-				case http.MethodDelete:
-					err := h.svc.DeleteRoute(r.Context(), tenantID, routeID, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "route_id": routeID})
-					return
-				}
-			}
-		}
-
-		// Policies
-		if parts[1] == "policies" {
-			if len(parts) == 2 {
-				if method == http.MethodPost {
-					var pBody Policy
-					_ = json.NewDecoder(r.Body).Decode(&pBody)
-					pBody.TenantID = tenantID
-					created, err := h.svc.CreatePolicy(r.Context(), &pBody, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusCreated, map[string]interface{}{"policy": created})
-					return
-				}
-				if method == http.MethodGet {
-					projectID := r.URL.Query().Get("project_id")
-					agentID := r.URL.Query().Get("agent_id")
-					policies, err := h.svc.ListPolicies(r.Context(), tenantID, projectID, agentID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"policies": policies})
-					return
-				}
-			}
-			if len(parts) == 3 {
-				policyID := parts[2]
-				switch method {
-				case http.MethodGet:
-					pol, err := h.svc.GetPolicy(r.Context(), tenantID, policyID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"policy": pol})
-					return
-				case http.MethodPatch:
-					var pBody Policy
-					_ = json.NewDecoder(r.Body).Decode(&pBody)
-					pBody.PolicyID = policyID
-					pBody.TenantID = tenantID
-					updated, err := h.svc.UpdatePolicy(r.Context(), &pBody, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"policy": updated})
-					return
-				case http.MethodDelete:
-					err := h.svc.DeletePolicy(r.Context(), tenantID, policyID, actorMemberID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "policy_id": policyID})
-					return
-				}
-			}
-		}
-
-		// Config Draft, Validation, Publishing & Rollback (T4.3 / T4.4)
-		if parts[1] == "config" {
-			if len(parts) >= 3 && parts[2] == "validate" && method == http.MethodPost {
-				res, err := h.svc.ValidateConfig(r.Context(), tenantID, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"result": res})
-				return
-			}
-			if len(parts) >= 3 && parts[2] == "publish" && method == http.MethodPost {
-				var body struct {
-					ChangeSummary string `json:"change_summary"`
-				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
-				ver, err := h.svc.PublishConfig(r.Context(), tenantID, body.ChangeSummary, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"version": ver})
-				return
-			}
-			if len(parts) >= 3 && parts[2] == "rollback" && method == http.MethodPost {
-				var body struct {
-					TargetVersionID string `json:"target_version_id"`
-					Reason          string `json:"reason"`
-				}
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-					h.writeError(w, http.StatusBadRequest, "ERR_INVALID_JSON", "invalid request body")
-					return
-				}
-				ver, err := h.svc.RollbackConfig(r.Context(), tenantID, body.TargetVersionID, body.Reason, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"version": ver})
-				return
-			}
-			if len(parts) >= 3 && parts[2] == "versions" {
-				if len(parts) == 4 && parts[3] == "diff" && method == http.MethodGet {
-					baseVer := r.URL.Query().Get("base")
-					if baseVer == "" {
-						baseVer = r.URL.Query().Get("from")
-					}
-					targetVer := r.URL.Query().Get("target")
-					if targetVer == "" {
-						targetVer = r.URL.Query().Get("to")
-					}
-					diff, err := h.svc.GetConfigVersionDiff(r.Context(), tenantID, baseVer, targetVer)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"diff": diff})
-					return
-				}
-				if len(parts) == 3 && method == http.MethodGet {
-					list, err := h.svc.ListConfigVersions(r.Context(), tenantID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"versions": list})
-					return
-				}
-				if len(parts) == 4 && method == http.MethodGet {
-					verID := parts[3]
-					ver, err := h.svc.GetConfigVersion(r.Context(), tenantID, verID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"version": ver})
-					return
-				}
-			}
-			if len(parts) >= 3 && parts[2] == "draft" {
-				if len(parts) == 4 && parts[3] == "diff" && method == http.MethodGet {
-					diff, err := h.svc.GetDraftDiff(r.Context(), tenantID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"diff": diff})
-					return
-				}
-				if len(parts) == 3 && method == http.MethodGet {
-					summary, err := h.svc.GetDraftSummary(r.Context(), tenantID)
-					if err != nil {
-						h.handleError(w, err)
-						return
-					}
-					h.writeJSON(w, http.StatusOK, map[string]interface{}{"draft": summary})
-					return
-				}
-			}
-		}
-
-		// Wallets under tenant
-		if parts[1] == "wallets" {
-			if len(parts) == 2 && method == http.MethodGet {
-				wlt, err := h.svc.GetWallet(r.Context(), tenantID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
-				return
-			}
-			if len(parts) == 3 && parts[2] == "admin-grant" && method == http.MethodPost {
-				var body struct {
-					Amount         int64  `json:"amount"`
-					Reason         string `json:"reason"`
-					IdempotencyKey string `json:"idempotency_key"`
-				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
-				err := h.svc.AdminGrantWallet(r.Context(), tenantID, body.Amount, body.Reason, body.IdempotencyKey, actorMemberID, clientIP)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				wlt, _ := h.svc.GetWallet(r.Context(), tenantID)
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
-				return
-			}
-		}
-
-		// Request records under tenant (T5.1)
-		if parts[1] == "requests" {
-			if len(parts) == 2 && method == http.MethodGet {
-				q := r.URL.Query()
-				limit, _ := strconv.Atoi(q.Get("limit"))
-				offset, _ := strconv.Atoi(q.Get("offset"))
-				statusCode, _ := strconv.Atoi(q.Get("status_code"))
-
-				var isReplay *bool
-				if rStr := q.Get("is_replay"); rStr != "" {
-					b := rStr == "true" || rStr == "1"
-					isReplay = &b
-				}
-
-				filter := usage.RequestFilter{
-					ProjectID:  q.Get("project_id"),
-					AgentID:    q.Get("agent_id"),
-					RouteID:    q.Get("route_id"),
-					StatusCode: statusCode,
-					IsReplay:   isReplay,
-					Limit:      limit,
-					Offset:     offset,
-				}
-
-				list, total, err := h.svc.ListRequestRecords(r.Context(), tenantID, filter, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{
-					"requests": list,
-					"total":    total,
-					"limit":    limit,
-					"offset":   offset,
-				})
-				return
-			}
-			if len(parts) == 3 && method == http.MethodGet {
-				reqID := parts[2]
-				rec, err := h.svc.GetRequestRecord(r.Context(), tenantID, reqID, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"request": rec})
-				return
-			}
-		}
-
-		// Usage events under tenant (T5.1)
-		if parts[1] == "usages" {
-			if len(parts) == 2 && method == http.MethodGet {
-				q := r.URL.Query()
-				limit, _ := strconv.Atoi(q.Get("limit"))
-				offset, _ := strconv.Atoi(q.Get("offset"))
-
-				var isSuccess *bool
-				if sStr := q.Get("is_success"); sStr != "" {
-					b := sStr == "true" || sStr == "1"
-					isSuccess = &b
-				}
-
-				filter := usage.UsageFilter{
-					ProjectID:     q.Get("project_id"),
-					AgentID:       q.Get("agent_id"),
-					RouteID:       q.Get("route_id"),
-					IntentID:      q.Get("intent_id"),
-					PaymentMethod: q.Get("payment_method"),
-					IsSuccess:     isSuccess,
-					Limit:         limit,
-					Offset:        offset,
-				}
-
-				list, total, err := h.svc.ListUsageEvents(r.Context(), tenantID, filter, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{
-					"usages": list,
-					"total":  total,
-					"limit":  limit,
-					"offset": offset,
-				})
-				return
-			}
-			if len(parts) == 3 && method == http.MethodGet {
-				eventID := parts[2]
-				evt, err := h.svc.GetUsageEvent(r.Context(), tenantID, eventID, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"usage": evt})
-				return
-			}
-		}
-
-		// Payment correlation under tenant (T5.2)
-		if parts[1] == "payments" {
-			if len(parts) == 2 && method == http.MethodGet {
-				q := r.URL.Query()
-				limit, _ := strconv.Atoi(q.Get("limit"))
-				offset, _ := strconv.Atoi(q.Get("offset"))
-
-				filter := payment.PaymentAuditFilter{
-					ProjectID:     q.Get("project_id"),
-					AgentID:       q.Get("agent_id"),
-					RouteID:       q.Get("route_id"),
-					PaymentMethod: q.Get("payment_method"),
-					DisplayStatus: q.Get("display_status"),
-					IntentStatus:  q.Get("intent_status"),
-					Limit:         limit,
-					Offset:        offset,
-				}
-				if st := q.Get("start_time"); st != "" {
-					if t, err := time.Parse(time.RFC3339, st); err == nil {
-						filter.StartTime = &t
-					}
-				}
-				if et := q.Get("end_time"); et != "" {
-					if t, err := time.Parse(time.RFC3339, et); err == nil {
-						filter.EndTime = &t
-					}
-				}
-
-				list, total, err := h.svc.ListPaymentAudits(r.Context(), tenantID, filter, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{
-					"payments": list,
-					"total":    total,
-					"limit":    limit,
-					"offset":   offset,
-				})
-				return
-			}
-			if len(parts) == 3 && method == http.MethodGet {
-				intentID := parts[2]
-				rec, err := h.svc.GetPaymentAudit(r.Context(), tenantID, intentID, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"payment": rec})
-				return
-			}
-			if len(parts) == 4 && parts[2] == "by-request" && method == http.MethodGet {
-				reqID := parts[3]
-				rec, err := h.svc.GetPaymentAuditByRequestID(r.Context(), tenantID, reqID, actorMemberID)
-				if err != nil {
-					h.handleError(w, err)
-					return
-				}
-				h.writeJSON(w, http.StatusOK, map[string]interface{}{"payment": rec})
-				return
-			}
-		}
+		return false
 	}
 
-	http.NotFound(w, r)
+	if len(rest) == 1 {
+		projectID := rest[0]
+		switch method {
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionProjectRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			p, err := h.svc.GetProject(r.Context(), tenantID, projectID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"project": p})
+			return true
+
+		case http.MethodPatch:
+			var body struct {
+				Name               string         `json:"name"`
+				BudgetCapBaseUnits *int64         `json:"budget_cap_base_units"`
+				Status             *ProjectStatus `json:"status"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			p, err := h.svc.UpdateProject(r.Context(), tenantID, projectID, body.Name, body.BudgetCapBaseUnits, body.Status, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"project": p})
+			return true
+
+		case http.MethodDelete:
+			if err := h.svc.DeleteProject(r.Context(), tenantID, projectID, actorMemberID); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "project_id": projectID})
+			return true
+		}
+	}
+	return false
 }
+
+func (h *APIHandler) handleTenantMembers(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, actorMember *Member, rest []string) bool {
+	method := r.Method
+	if len(rest) == 0 {
+		switch method {
+		case http.MethodPost:
+			var body struct {
+				Email    string `json:"email"`
+				Role     string `json:"role"`
+				Password string `json:"password,omitempty"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			m, err := h.svc.AddMember(r.Context(), tenantID, body.Email, MemberRole(body.Role), actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			if body.Password != "" {
+				_ = h.svc.SetMemberPassword(r.Context(), tenantID, m.MemberID, body.Password)
+			}
+			h.writeJSON(w, http.StatusCreated, map[string]interface{}{"member": m})
+			return true
+
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionMemberRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			members, err := h.svc.ListMembers(r.Context(), tenantID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"members": members})
+			return true
+		}
+		return false
+	}
+
+	if len(rest) == 1 {
+		memberID := rest[0]
+		switch method {
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionMemberRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			m, err := h.svc.GetMember(r.Context(), tenantID, memberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"member": m})
+			return true
+
+		case http.MethodPatch:
+			var body struct {
+				Role   *MemberRole   `json:"role"`
+				Status *MemberStatus `json:"status"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			m, err := h.svc.UpdateMember(r.Context(), tenantID, memberID, body.Role, body.Status, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"member": m})
+			return true
+
+		case http.MethodDelete:
+			if err := h.svc.RemoveMember(r.Context(), tenantID, memberID, actorMemberID); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "member_id": memberID})
+			return true
+		}
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantAgents(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, actorMember *Member, clientIP string, rest []string) bool {
+	if len(rest) == 0 {
+		switch r.Method {
+		case http.MethodPost:
+			var body struct {
+				ProjectID    string                 `json:"project_id"`
+				Name         string                 `json:"name"`
+				PolicyConfig map[string]interface{} `json:"policy_config"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			ag, err := h.svc.CreateAgent(r.Context(), tenantID, body.ProjectID, body.Name, body.PolicyConfig, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusCreated, map[string]interface{}{"agent": ag})
+			return true
+
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionAgentRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			projectID := r.URL.Query().Get("project_id")
+			var statusPtr *AgentStatus
+			if s := r.URL.Query().Get("status"); s != "" {
+				st := AgentStatus(s)
+				statusPtr = &st
+			}
+			agents, err := h.svc.ListAgents(r.Context(), tenantID, projectID, statusPtr)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"agents": agents})
+			return true
+		}
+		return false
+	}
+	return h.handleAgentSubpath(w, r, tenantID, actorMemberID, actorMember, clientIP, rest)
+}
+
+func (h *APIHandler) handleTenantAPIKeys(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, actorMember *Member, rest []string) bool {
+	method := r.Method
+	if len(rest) == 0 {
+		switch method {
+		case http.MethodPost:
+			var body struct {
+				ProjectID string   `json:"project_id"`
+				AgentID   string   `json:"agent_id"`
+				Name      string   `json:"name"`
+				Scopes    []string `json:"scopes"`
+				ExpiresAt *int64   `json:"expires_at"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			res, err := h.svc.CreateAPIKey(r.Context(), tenantID, body.ProjectID, body.AgentID, body.Name, body.Scopes, body.ExpiresAt, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusCreated, map[string]interface{}{
+				"api_key": res.APIKey,
+				"raw_key": res.RawKey,
+			})
+			return true
+
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionAPIKeyRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			agentID := r.URL.Query().Get("agent_id")
+			keys, err := h.svc.ListAPIKeys(r.Context(), tenantID, agentID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"api_keys": keys})
+			return true
+		}
+		return false
+	}
+
+	if len(rest) == 2 && method == http.MethodPost {
+		keyID, action := rest[0], rest[1]
+		switch action {
+		case "revoke":
+			k, err := h.svc.RevokeAPIKey(r.Context(), tenantID, keyID, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"api_key": k})
+			return true
+		case "rotate":
+			res, err := h.svc.RotateAPIKey(r.Context(), tenantID, keyID, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{
+				"api_key": res.APIKey,
+				"raw_key": res.RawKey,
+			})
+			return true
+		}
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantRoutes(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, actorMember *Member, rest []string) bool {
+	method := r.Method
+	if len(rest) == 0 {
+		switch method {
+		case http.MethodPost:
+			var rBody Route
+			_ = json.NewDecoder(r.Body).Decode(&rBody)
+			rBody.TenantID = tenantID
+			created, err := h.svc.CreateRoute(r.Context(), &rBody, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusCreated, map[string]interface{}{"route": created})
+			return true
+
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionRouteRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			routes, err := h.svc.ListRoutes(r.Context(), tenantID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			if projectID := r.URL.Query().Get("project_id"); projectID != "" {
+				filtered := make([]*Route, 0)
+				for _, rt := range routes {
+					if rt.ProjectID == projectID {
+						filtered = append(filtered, rt)
+					}
+				}
+				routes = filtered
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"routes": routes})
+			return true
+		}
+		return false
+	}
+
+	if len(rest) == 1 {
+		if rest[0] == "test-upstream" && method == http.MethodPost {
+			var body TestUpstreamInput
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				h.writeError(w, http.StatusBadRequest, "ERR_INVALID_PARAM", "malformed JSON body")
+				return true
+			}
+			res, err := h.svc.TestUpstream(r.Context(), tenantID, &body, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"result": res})
+			return true
+		}
+
+		routeID := rest[0]
+		switch method {
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionRouteRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			route, err := h.svc.GetRoute(r.Context(), tenantID, routeID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"route": route})
+			return true
+
+		case http.MethodPatch:
+			var rBody UpdateRouteInput
+			_ = json.NewDecoder(r.Body).Decode(&rBody)
+			rBody.RouteID = routeID
+			rBody.TenantID = tenantID
+			updated, err := h.svc.UpdateRoute(r.Context(), &rBody, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"route": updated})
+			return true
+
+		case http.MethodDelete:
+			if err := h.svc.DeleteRoute(r.Context(), tenantID, routeID, actorMemberID); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "route_id": routeID})
+			return true
+		}
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantPolicies(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, actorMember *Member, rest []string) bool {
+	method := r.Method
+	if len(rest) == 0 {
+		switch method {
+		case http.MethodPost:
+			var pBody Policy
+			_ = json.NewDecoder(r.Body).Decode(&pBody)
+			pBody.TenantID = tenantID
+			created, err := h.svc.CreatePolicy(r.Context(), &pBody, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusCreated, map[string]interface{}{"policy": created})
+			return true
+
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionPolicyRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			q := r.URL.Query()
+			policies, err := h.svc.ListPolicies(r.Context(), tenantID, q.Get("project_id"), q.Get("agent_id"))
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"policies": policies})
+			return true
+		}
+		return false
+	}
+
+	if len(rest) == 1 {
+		policyID := rest[0]
+		switch method {
+		case http.MethodGet:
+			if err := EnforcePermission(actorMember, PermissionPolicyRead); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			pol, err := h.svc.GetPolicy(r.Context(), tenantID, policyID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"policy": pol})
+			return true
+
+		case http.MethodPatch:
+			var pBody Policy
+			_ = json.NewDecoder(r.Body).Decode(&pBody)
+			pBody.PolicyID = policyID
+			pBody.TenantID = tenantID
+			updated, err := h.svc.UpdatePolicy(r.Context(), &pBody, actorMemberID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"policy": updated})
+			return true
+
+		case http.MethodDelete:
+			if err := h.svc.DeletePolicy(r.Context(), tenantID, policyID, actorMemberID); err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true, "policy_id": policyID})
+			return true
+		}
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantConfig(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, actorMember *Member, rest []string) bool {
+	if len(rest) == 0 {
+		return false
+	}
+	method := r.Method
+
+	switch rest[0] {
+	case "validate":
+		if method != http.MethodPost {
+			return false
+		}
+		res, err := h.svc.ValidateConfig(r.Context(), tenantID, actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"result": res})
+		return true
+
+	case "publish":
+		if method != http.MethodPost {
+			return false
+		}
+		var body struct {
+			ChangeSummary string `json:"change_summary"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		ver, err := h.svc.PublishConfig(r.Context(), tenantID, body.ChangeSummary, actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"version": ver})
+		return true
+
+	case "rollback":
+		if method != http.MethodPost {
+			return false
+		}
+		var body struct {
+			TargetVersionID string `json:"target_version_id"`
+			Reason          string `json:"reason"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			h.writeError(w, http.StatusBadRequest, "ERR_INVALID_JSON", "invalid request body")
+			return true
+		}
+		ver, err := h.svc.RollbackConfig(r.Context(), tenantID, body.TargetVersionID, body.Reason, actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"version": ver})
+		return true
+
+	case "versions":
+		if method != http.MethodGet {
+			return false
+		}
+		if err := EnforcePermission(actorMember, PermissionRouteRead); err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		if len(rest) == 2 && rest[1] == "diff" {
+			q := r.URL.Query()
+			baseVer := q.Get("base")
+			if baseVer == "" {
+				baseVer = q.Get("from")
+			}
+			targetVer := q.Get("target")
+			if targetVer == "" {
+				targetVer = q.Get("to")
+			}
+			diff, err := h.svc.GetConfigVersionDiff(r.Context(), tenantID, baseVer, targetVer)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"diff": diff})
+			return true
+		}
+		if len(rest) == 1 {
+			list, err := h.svc.ListConfigVersions(r.Context(), tenantID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"versions": list})
+			return true
+		}
+		if len(rest) == 2 {
+			ver, err := h.svc.GetConfigVersion(r.Context(), tenantID, rest[1])
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"version": ver})
+			return true
+		}
+
+	case "draft":
+		if method != http.MethodGet {
+			return false
+		}
+		if err := EnforcePermission(actorMember, PermissionRouteRead); err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		if len(rest) == 2 && rest[1] == "diff" {
+			diff, err := h.svc.GetDraftDiff(r.Context(), tenantID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"diff": diff})
+			return true
+		}
+		if len(rest) == 1 {
+			summary, err := h.svc.GetDraftSummary(r.Context(), tenantID)
+			if err != nil {
+				h.handleError(w, err)
+				return true
+			}
+			h.writeJSON(w, http.StatusOK, map[string]interface{}{"draft": summary})
+			return true
+		}
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantWallets(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, actorMember *Member, clientIP string, rest []string) bool {
+	if len(rest) == 0 && r.Method == http.MethodGet {
+		if err := EnforcePermission(actorMember, PermissionWalletRead); err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		wlt, err := h.svc.GetWallet(r.Context(), tenantID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
+		return true
+	}
+	if len(rest) == 1 && rest[0] == "admin-grant" && r.Method == http.MethodPost {
+		var body struct {
+			Amount         int64  `json:"amount"`
+			Reason         string `json:"reason"`
+			IdempotencyKey string `json:"idempotency_key"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := h.svc.AdminGrantWallet(r.Context(), tenantID, body.Amount, body.Reason, body.IdempotencyKey, actorMemberID, clientIP); err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		wlt, _ := h.svc.GetWallet(r.Context(), tenantID)
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"wallet": wlt})
+		return true
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantRequests(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, rest []string) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	if len(rest) == 0 {
+		q := r.URL.Query()
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		offset, _ := strconv.Atoi(q.Get("offset"))
+		statusCode, _ := strconv.Atoi(q.Get("status_code"))
+
+		var isReplay *bool
+		if rStr := q.Get("is_replay"); rStr != "" {
+			b := rStr == "true" || rStr == "1"
+			isReplay = &b
+		}
+
+		filter := usage.RequestFilter{
+			ProjectID:  q.Get("project_id"),
+			AgentID:    q.Get("agent_id"),
+			RouteID:    q.Get("route_id"),
+			StatusCode: statusCode,
+			IsReplay:   isReplay,
+			Limit:      limit,
+			Offset:     offset,
+		}
+
+		list, total, err := h.svc.ListRequestRecords(r.Context(), tenantID, filter, actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"requests": list,
+			"total":    total,
+			"limit":    limit,
+			"offset":   offset,
+		})
+		return true
+	}
+	if len(rest) == 1 {
+		rec, err := h.svc.GetRequestRecord(r.Context(), tenantID, rest[0], actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"request": rec})
+		return true
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantUsages(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, rest []string) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	if len(rest) == 0 {
+		q := r.URL.Query()
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		offset, _ := strconv.Atoi(q.Get("offset"))
+
+		var isSuccess *bool
+		if sStr := q.Get("is_success"); sStr != "" {
+			b := sStr == "true" || sStr == "1"
+			isSuccess = &b
+		}
+
+		filter := usage.UsageFilter{
+			ProjectID:     q.Get("project_id"),
+			AgentID:       q.Get("agent_id"),
+			RouteID:       q.Get("route_id"),
+			IntentID:      q.Get("intent_id"),
+			PaymentMethod: q.Get("payment_method"),
+			IsSuccess:     isSuccess,
+			Limit:         limit,
+			Offset:        offset,
+		}
+
+		list, total, err := h.svc.ListUsageEvents(r.Context(), tenantID, filter, actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"usages": list,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		})
+		return true
+	}
+	if len(rest) == 1 {
+		evt, err := h.svc.GetUsageEvent(r.Context(), tenantID, rest[0], actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"usage": evt})
+		return true
+	}
+	return false
+}
+
+func (h *APIHandler) handleTenantPayments(w http.ResponseWriter, r *http.Request, tenantID, actorMemberID string, rest []string) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	if len(rest) == 0 {
+		q := r.URL.Query()
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		offset, _ := strconv.Atoi(q.Get("offset"))
+
+		filter := payment.PaymentAuditFilter{
+			ProjectID:     q.Get("project_id"),
+			AgentID:       q.Get("agent_id"),
+			RouteID:       q.Get("route_id"),
+			PaymentMethod: q.Get("payment_method"),
+			DisplayStatus: q.Get("display_status"),
+			IntentStatus:  q.Get("intent_status"),
+			Limit:         limit,
+			Offset:        offset,
+		}
+		if st := q.Get("start_time"); st != "" {
+			if t, err := time.Parse(time.RFC3339, st); err == nil {
+				filter.StartTime = &t
+			}
+		}
+		if et := q.Get("end_time"); et != "" {
+			if t, err := time.Parse(time.RFC3339, et); err == nil {
+				filter.EndTime = &t
+			}
+		}
+
+		list, total, err := h.svc.ListPaymentAudits(r.Context(), tenantID, filter, actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"payments": list,
+			"total":    total,
+			"limit":    limit,
+			"offset":   offset,
+		})
+		return true
+	}
+	if len(rest) == 1 {
+		rec, err := h.svc.GetPaymentAudit(r.Context(), tenantID, rest[0], actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"payment": rec})
+		return true
+	}
+	if len(rest) == 2 && rest[0] == "by-request" {
+		rec, err := h.svc.GetPaymentAuditByRequestID(r.Context(), tenantID, rest[1], actorMemberID)
+		if err != nil {
+			h.handleError(w, err)
+			return true
+		}
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{"payment": rec})
+		return true
+	}
+	return false
+}
+
+// ----------------------------------------------------------------------------
+// 3. Error Mapping, JSON Response & Agent Timeline Helpers
+// ----------------------------------------------------------------------------
 
 func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 	switch {
@@ -1253,6 +1471,8 @@ func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 		errors.Is(err, usage.ErrTenantMismatch),
 		errors.Is(err, payment.ErrTenantMismatch):
 		h.writeError(w, http.StatusForbidden, "ERR_PERMISSION_DENIED", err.Error())
+	case errors.Is(err, upstreamauth.ErrSSRFBlocked):
+		h.writeError(w, http.StatusForbidden, "ERR_SSRF_BLOCKED", err.Error())
 	case errors.Is(err, ErrTenantAlreadyExists),
 		errors.Is(err, ErrProjectAlreadyExists),
 		errors.Is(err, ErrMemberAlreadyExists),
@@ -1304,14 +1524,32 @@ func (h *APIHandler) writeError(w http.ResponseWriter, statusCode int, code, mes
 	})
 }
 
+func parseFlexibleTimestamp(raw string) *time.Time {
+	if raw == "" {
+		return nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return &t
+	}
+	if sec, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		var t time.Time
+		if sec > 1e11 {
+			t = time.UnixMilli(sec)
+		} else {
+			t = time.Unix(sec, 0)
+		}
+		return &t
+	}
+	return nil
+}
+
 func (h *APIHandler) handleAgentTimeline(w http.ResponseWriter, r *http.Request, tenantID, agentID, actorMemberID string) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	if limit <= 0 {
 		limit = 50
-	}
-	if limit > 200 {
+	} else if limit > 200 {
 		limit = 200
 	}
 	if offset < 0 {
@@ -1322,35 +1560,10 @@ func (h *APIHandler) handleAgentTimeline(w http.ResponseWriter, r *http.Request,
 		SessionID: q.Get("session_id"),
 		TaskID:    q.Get("task_id"),
 		EventType: q.Get("event_type"),
+		StartTime: parseFlexibleTimestamp(q.Get("start_time")),
+		EndTime:   parseFlexibleTimestamp(q.Get("end_time")),
 		Limit:     limit,
 		Offset:    offset,
-	}
-
-	if st := q.Get("start_time"); st != "" {
-		if t, err := time.Parse(time.RFC3339, st); err == nil {
-			filter.StartTime = &t
-		} else if sec, err := strconv.ParseInt(st, 10, 64); err == nil {
-			if sec > 1e11 {
-				t := time.UnixMilli(sec)
-				filter.StartTime = &t
-			} else {
-				t := time.Unix(sec, 0)
-				filter.StartTime = &t
-			}
-		}
-	}
-	if et := q.Get("end_time"); et != "" {
-		if t, err := time.Parse(time.RFC3339, et); err == nil {
-			filter.EndTime = &t
-		} else if sec, err := strconv.ParseInt(et, 10, 64); err == nil {
-			if sec > 1e11 {
-				t := time.UnixMilli(sec)
-				filter.EndTime = &t
-			} else {
-				t := time.Unix(sec, 0)
-				filter.EndTime = &t
-			}
-		}
 	}
 
 	events, total, sessions, err := h.svc.GetAgentTimeline(r.Context(), tenantID, agentID, filter, actorMemberID)
@@ -1373,4 +1586,3 @@ func (h *APIHandler) handleAgentTimeline(w http.ResponseWriter, r *http.Request,
 		"sessions": sessions,
 	})
 }
-

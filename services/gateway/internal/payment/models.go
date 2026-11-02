@@ -228,10 +228,17 @@ func DeriveCompositeDisplayStatus(intentStatus, settlementStatus, fulfillmentSta
 		return DisplayWalletHoldProcessing, "虚拟钱包额度已成功锁定，正在调用上游服务", false
 	}
 
-	// 2. Onchain broadcast in-flight, upstream not started yet
+	// 2. Onchain broadcast in-flight (before, during, or after upstream fulfillment)
 	if (settlementStatus == SettlementStatusUnknown || settlementStatus == SettlementStatusPending || settlementStatus == SettlementStatusSubmitted) &&
 		fulfillmentStatus == FulfillmentStatusNotStarted {
 		return DisplaySettlementInProgress, "链上交易已广播，等待区块确认", false
+	}
+	if (settlementStatus == SettlementStatusPending || settlementStatus == SettlementStatusSubmitted) &&
+		(fulfillmentStatus == FulfillmentStatusInProgress || fulfillmentStatus == FulfillmentStatusSucceeded) {
+		return DisplaySettlementInProgress, "上游已履约，链上交易已广播等待区块最终确认", false
+	}
+	if settlementStatus == SettlementStatusUnknown && fulfillmentStatus != FulfillmentStatusNotStarted {
+		return DisplayRecoveryRequired, "链上结算状态未知，正在通过后台对账任务向 Facilitator 查询确认", true
 	}
 
 	// 3. Payment confirmed, upstream in-progress
@@ -254,14 +261,17 @@ func DeriveCompositeDisplayStatus(intentStatus, settlementStatus, fulfillmentSta
 		return DisplaySettledFulfillmentNeedsReview, "资金已扣费确认，但上游返回 5xx/超时，状态未知待核验", true
 	}
 
-	// 7. Wallet released on upstream failure (4xx) -> unbilled
-	if settlementStatus == SettlementStatusReleased && fulfillmentStatus == FulfillmentStatusFailed {
-		return DisplayReleasedUnbilled, "上游请求失败，钱包冻结已无损全额解冻，买方未产生扣费", false
+	// 7. Wallet released on upstream failure (4xx) or expired hold -> unbilled
+	if settlementStatus == SettlementStatusReleased && (fulfillmentStatus == FulfillmentStatusFailed || fulfillmentStatus == FulfillmentStatusUnknown || fulfillmentStatus == FulfillmentStatusNotStarted) {
+		return DisplayReleasedUnbilled, "上游请求未成功或冻结已到期，钱包冻结已无损全额解冻，买方未产生扣费", false
 	}
 
-	// 8. Payment failed before dispatch
-	if settlementStatus == SettlementStatusFailed && fulfillmentStatus == FulfillmentStatusNotStarted {
-		return DisplayPaymentFailed, "资金划转失败或余额不足，未发起履约交付", false
+	// 8. Payment failed before dispatch or alongside upstream failure
+	if settlementStatus == SettlementStatusFailed && (fulfillmentStatus == FulfillmentStatusNotStarted || fulfillmentStatus == FulfillmentStatusFailed) {
+		return DisplayPaymentFailed, "资金划转失败或余额不足，未产生有效扣费", false
+	}
+	if settlementStatus == SettlementStatusFailed && (fulfillmentStatus == FulfillmentStatusSucceeded || fulfillmentStatus == FulfillmentStatusInProgress || fulfillmentStatus == FulfillmentStatusUnknown) {
+		return DisplayRecoveryRequired, "链上交易回滚失败但上游已触发调用，需人工复核与追偿", true
 	}
 
 	// 9. Unknown fulfillment with held wallet (upstream 5xx/timeout)

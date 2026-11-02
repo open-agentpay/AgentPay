@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/open-agentpay/agentpay-gateway-go/internal/auth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/rcu"
 )
 
@@ -31,7 +33,8 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	}
 	svc.SetRCUManager(rcuMgr)
 
-	handler := NewHandler(svc)
+	jwtMgr := auth.MustNewJWTManager("test-admin-secret-key-for-unit-testing-32b!", 24*time.Hour)
+	handler := NewHandlerWithJWT(svc, jwtMgr)
 
 	// 1. Create Tenant & Owner Member
 	tenant, owner, err := svc.Register(ctx, "AlphaCorp", "owner@alpha.io", "Password123!")
@@ -40,13 +43,14 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	}
 	tenantID := tenant.TenantID
 	ownerID := owner.MemberID
+	ownerToken, _ := jwtMgr.GenerateToken(owner.MemberID, owner.Email, tenantID, string(owner.Role))
 
 	// Create a Viewer Member for RBAC checks
 	viewer, err := svc.AddMember(ctx, tenantID, "viewer@alpha.io", RoleViewer, ownerID)
 	if err != nil {
 		t.Fatalf("failed to create viewer member: %v", err)
 	}
-	viewerID := viewer.MemberID
+	viewerToken, _ := jwtMgr.GenerateToken(viewer.MemberID, viewer.Email, tenantID, string(viewer.Role))
 
 	// 2. Create Project and a valid Route & Policy
 	proj, err := svc.CreateProject(ctx, tenantID, "AI Engine", 1000000, "", ownerID)
@@ -89,7 +93,7 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	{
 		pubPayload := `{"change_summary": "Initial release"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenantID+"/config/publish", bytes.NewReader([]byte(pubPayload)))
-		req.Header.Set("X-Actor-Member-Id", viewerID)
+		req.Header.Set("Authorization", "Bearer "+viewerToken)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -103,7 +107,7 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	{
 		pubPayload := `{"change_summary": "Release v1: Chat completions route"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenantID+"/config/publish", bytes.NewReader([]byte(pubPayload)))
-		req.Header.Set("X-Actor-Member-Id", ownerID)
+		req.Header.Set("Authorization", "Bearer "+ownerToken)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -165,7 +169,7 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	{
 		pubPayload := `{"change_summary": "Attempt invalid release"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenantID+"/config/publish", bytes.NewReader([]byte(pubPayload)))
-		req.Header.Set("X-Actor-Member-Id", ownerID)
+		req.Header.Set("Authorization", "Bearer "+ownerToken)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -194,7 +198,7 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	{
 		pubPayload := `{"change_summary": "Release v2: Add embeddings route"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenantID+"/config/publish", bytes.NewReader([]byte(pubPayload)))
-		req.Header.Set("X-Actor-Member-Id", ownerID)
+		req.Header.Set("Authorization", "Bearer "+ownerToken)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -231,7 +235,7 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	// 7. Test List Config Versions (Descending order)
 	{
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+tenantID+"/config/versions", nil)
-		req.Header.Set("X-Actor-Member-Id", ownerID)
+		req.Header.Set("Authorization", "Bearer "+ownerToken)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -255,7 +259,7 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	// 8. Test Version Diff between v1 and v2
 	{
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+tenantID+"/config/versions/diff?base="+v1ID+"&target="+v2ID, nil)
-		req.Header.Set("X-Actor-Member-Id", ownerID)
+		req.Header.Set("Authorization", "Bearer "+ownerToken)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -281,7 +285,7 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 	{
 		rollbackPayload := `{"target_version_id": "` + v1ID + `", "reason": "Incident mitigation"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenantID+"/config/rollback", bytes.NewReader([]byte(rollbackPayload)))
-		req.Header.Set("X-Actor-Member-Id", ownerID)
+		req.Header.Set("Authorization", "Bearer "+ownerToken)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -325,7 +329,7 @@ func TestConfigPublishingAndRollback(t *testing.T) {
 		activeSnap := rcuMgr.Current()
 		rollbackPayload := `{"target_version_id": "` + activeSnap.VersionID + `"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenantID+"/config/rollback", bytes.NewReader([]byte(rollbackPayload)))
-		req.Header.Set("X-Actor-Member-Id", ownerID)
+		req.Header.Set("Authorization", "Bearer "+ownerToken)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 

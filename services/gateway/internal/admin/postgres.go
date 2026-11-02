@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +18,6 @@ import (
 	"github.com/open-agentpay/agentpay-gateway-go/internal/upstreamauth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/usage"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/wallet"
-)
-
-var (
-	pgEthAddressValidationRegex = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
-	pgCaip2ValidationRegex      = regexp.MustCompile(`^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$`)
 )
 
 // PostgresService implements admin.Service backed by PostgreSQL.
@@ -57,7 +49,6 @@ func NewPostgresService(db *sql.DB, agentReg *agent.Registry, walletSvc wallet.S
 
 // initSync loads active agents and active API keys from PostgreSQL into the fast-path in-memory registry.
 func (p *PostgresService) initSync(ctx context.Context) error {
-	// 0. Ensure api_auth_configs table and marketplace columns on ap_route exist
 	_, _ = p.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS api_auth_configs (
 			id VARCHAR(64) PRIMARY KEY,
@@ -85,7 +76,6 @@ func (p *PostgresService) initSync(ctx context.Context) error {
 		return nil
 	}
 
-	// 1. Load active/suspended agents
 	agentRows, err := p.db.QueryContext(ctx, `
 		SELECT agent_id, tenant_id, project_id, name, status, policy_config
 		FROM ap_agent
@@ -102,7 +92,6 @@ func (p *PostgresService) initSync(ctx context.Context) error {
 		if err := agentRows.Scan(&agID, &tID, &pID, &name, &status, &polCfgBytes); err != nil {
 			return err
 		}
-
 		var polCfg map[string]interface{}
 		_ = json.Unmarshal(polCfgBytes, &polCfg)
 
@@ -115,7 +104,6 @@ func (p *PostgresService) initSync(ctx context.Context) error {
 		}, nil)
 	}
 
-	// 2. Load active API keys
 	keyRows, err := p.db.QueryContext(ctx, `
 		SELECT key_hash, agent_id
 		FROM ap_api_key
@@ -133,7 +121,6 @@ func (p *PostgresService) initSync(ctx context.Context) error {
 		}
 		p.agentReg.BindAPIKeyHash(keyHash, agID)
 	}
-
 	return nil
 }
 
@@ -151,24 +138,22 @@ func (p *PostgresService) recordAudit(ctx context.Context, tenantID, operatorID,
 		afterJSON, _ = json.Marshal(after)
 	}
 
-	query := `
+	_, _ = p.db.ExecContext(ctx, `
 		INSERT INTO ap_audit_event (
 			audit_id, tenant_id, operator_id, action, target_type, target_id, before_state, after_state, client_ip, created_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW());
-	`
-	_, _ = p.db.ExecContext(ctx, query, auditID, tenantID, operatorID, action, targetType, targetID, beforeJSON, afterJSON, clientIP)
+	`, auditID, tenantID, operatorID, action, targetType, targetID, beforeJSON, afterJSON, clientIP)
 }
 
 func (p *PostgresService) getMember(ctx context.Context, tenantID, memberID string) (*Member, error) {
-	query := `
+	var m Member
+	var pwd sql.NullString
+	err := p.db.QueryRowContext(ctx, `
 		SELECT member_id, tenant_id, email, password_hash, role, status,
 		       EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
 		FROM ap_member
 		WHERE member_id = $1;
-	`
-	var m Member
-	var pwd sql.NullString
-	err := p.db.QueryRowContext(ctx, query, memberID).Scan(
+	`, memberID).Scan(
 		&m.MemberID, &m.TenantID, &m.Email, &pwd, &m.Role, &m.Status, &m.CreatedAt, &m.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -188,13 +173,13 @@ func (p *PostgresService) getMember(ctx context.Context, tenantID, memberID stri
 
 func (p *PostgresService) enforcePermission(ctx context.Context, actorMemberID, tenantID string, perm Permission) error {
 	if actorMemberID == "" {
-		return nil
-	}
-	actor, err := p.getMember(ctx, tenantID, actorMemberID)
-	if err != nil {
+		if auth.IsSystemContext(ctx) {
+			return nil
+		}
 		return ErrPermissionDenied
 	}
-	if actor.TenantID != tenantID {
+	actor, err := p.getMember(ctx, tenantID, actorMemberID)
+	if err != nil || actor.TenantID != tenantID {
 		return ErrPermissionDenied
 	}
 	return EnforcePermission(actor, perm)
@@ -252,36 +237,29 @@ func (p *PostgresService) Register(ctx context.Context, tenantName, email, passw
 	now := time.Now()
 	nowUnix := now.Unix()
 
-	// 1. Insert Tenant
-	_, err = tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ap_tenant (tenant_id, name, currency, status, created_at, updated_at)
 		VALUES ($1, $2, $3, 'active', $4, $4);
-	`, tid, cleanName, curr, now)
-	if err != nil {
+	`, tid, cleanName, curr, now); err != nil {
 		return nil, nil, fmt.Errorf("failed to create tenant: %w", err)
 	}
 
-	// 2. Insert Owner Member
-	_, err = tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ap_member (member_id, tenant_id, email, password_hash, role, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, 'owner', 'active', $5, $5);
-	`, mid, tid, cleanEmail, hash, now)
-	if err != nil {
+	`, mid, tid, cleanEmail, hash, now); err != nil {
 		return nil, nil, fmt.Errorf("failed to create owner member: %w", err)
 	}
 
-	// 3. Insert Master Virtual Wallet
 	walletID := fmt.Sprintf("wlt_%s", tid)
-	_, err = tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ap_wallet (wallet_id, tenant_id, asset, status, version, available_cache, held_cache, created_at, updated_at)
 		VALUES ($1, $2, $3, 'active', 1, 0, 0, $4, $4)
 		ON CONFLICT (tenant_id) DO NOTHING;
-	`, walletID, tid, curr, now)
-	if err != nil {
+	`, walletID, tid, curr, now); err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize wallet: %w", err)
 	}
 
-	// 4. Audit event
 	auditID := GenerateAuditID()
 	_, _ = tx.ExecContext(ctx, `
 		INSERT INTO ap_audit_event (audit_id, tenant_id, operator_id, action, target_type, target_id, after_state, client_ip, created_at)
@@ -313,77 +291,22 @@ func (p *PostgresService) Register(ctx context.Context, tenantName, email, passw
 	return t, m, nil
 }
 
-func (p *PostgresService) Login(ctx context.Context, email, password string) (*Member, *Tenant, error) {
+func (p *PostgresService) queryMemberAndTenantByEmail(ctx context.Context, email string) (*Member, *Tenant, error) {
 	cleanEmail := strings.TrimSpace(email)
-	if cleanEmail == "" || password == "" {
-		return nil, nil, ErrInvalidCredentials
-	}
-
-	query := `
+	var m Member
+	var t Tenant
+	var pwd sql.NullString
+	err := p.db.QueryRowContext(ctx, `
 		SELECT m.member_id, m.tenant_id, m.email, m.password_hash, m.role, m.status,
 		       EXTRACT(EPOCH FROM m.created_at)::bigint, EXTRACT(EPOCH FROM m.updated_at)::bigint,
 		       t.name, t.currency, t.status, EXTRACT(EPOCH FROM t.created_at)::bigint, EXTRACT(EPOCH FROM t.updated_at)::bigint
 		FROM ap_member m
 		JOIN ap_tenant t ON m.tenant_id = t.tenant_id
 		WHERE LOWER(m.email) = LOWER($1);
-	`
-	var m Member
-	var t Tenant
-	var pwd sql.NullString
-	err := p.db.QueryRowContext(ctx, query, cleanEmail).Scan(
+	`, cleanEmail).Scan(
 		&m.MemberID, &m.TenantID, &m.Email, &pwd, &m.Role, &m.Status, &m.CreatedAt, &m.UpdatedAt,
 		&t.Name, &t.Currency, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, ErrInvalidCredentials
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	t.TenantID = m.TenantID
-	if t.Currency == "" {
-		t.Currency = "USD"
-	}
-
-	if m.Status == MemberStatusDisabled {
-		return nil, nil, ErrMemberDisabled
-	}
-	if t.Status == TenantStatusTerminated {
-		return nil, nil, ErrTenantTerminated
-	}
-	if t.Status == TenantStatusSuspended {
-		return nil, nil, ErrTenantSuspended
-	}
-
-	if !pwd.Valid || !auth.VerifyPassword(password, pwd.String) {
-		return nil, nil, ErrInvalidCredentials
-	}
-
-	m.PasswordHash = pwd.String
-	p.recordAudit(ctx, t.TenantID, m.MemberID, "auth.login", "Member", m.MemberID, nil, map[string]interface{}{"email": m.Email}, "127.0.0.1")
-	return &m, &t, nil
-}
-
-func (p *PostgresService) GetMemberByEmail(ctx context.Context, email string) (*Member, *Tenant, error) {
-	cleanEmail := strings.TrimSpace(email)
-	query := `
-		SELECT m.member_id, m.tenant_id, m.email, m.password_hash, m.role, m.status,
-		       EXTRACT(EPOCH FROM m.created_at)::bigint, EXTRACT(EPOCH FROM m.updated_at)::bigint,
-		       t.name, t.currency, t.status, EXTRACT(EPOCH FROM t.created_at)::bigint, EXTRACT(EPOCH FROM t.updated_at)::bigint
-		FROM ap_member m
-		JOIN ap_tenant t ON m.tenant_id = t.tenant_id
-		WHERE LOWER(m.email) = LOWER($1);
-	`
-	var m Member
-	var t Tenant
-	var pwd sql.NullString
-	err := p.db.QueryRowContext(ctx, query, cleanEmail).Scan(
-		&m.MemberID, &m.TenantID, &m.Email, &pwd, &m.Role, &m.Status, &m.CreatedAt, &m.UpdatedAt,
-		&t.Name, &t.Currency, &t.Status, &t.CreatedAt, &t.UpdatedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, ErrMemberNotFound
-	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -395,6 +318,41 @@ func (p *PostgresService) GetMemberByEmail(ctx context.Context, email string) (*
 		m.PasswordHash = pwd.String
 	}
 	return &m, &t, nil
+}
+
+func (p *PostgresService) Login(ctx context.Context, email, password string) (*Member, *Tenant, error) {
+	if strings.TrimSpace(email) == "" || password == "" {
+		return nil, nil, ErrInvalidCredentials
+	}
+	m, t, err := p.queryMemberAndTenantByEmail(ctx, email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, ErrInvalidCredentials
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if m.Status == MemberStatusDisabled {
+		return nil, nil, ErrMemberDisabled
+	}
+	if t.Status == TenantStatusTerminated {
+		return nil, nil, ErrTenantTerminated
+	}
+	if t.Status == TenantStatusSuspended {
+		return nil, nil, ErrTenantSuspended
+	}
+	if m.PasswordHash == "" || !auth.VerifyPassword(password, m.PasswordHash) {
+		return nil, nil, ErrInvalidCredentials
+	}
+	p.recordAudit(ctx, t.TenantID, m.MemberID, "auth.login", "Member", m.MemberID, nil, map[string]interface{}{"email": m.Email}, "127.0.0.1")
+	return m, t, nil
+}
+
+func (p *PostgresService) GetMemberByEmail(ctx context.Context, email string) (*Member, *Tenant, error) {
+	m, t, err := p.queryMemberAndTenantByEmail(ctx, email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, ErrMemberNotFound
+	}
+	return m, t, err
 }
 
 func (p *PostgresService) SetMemberPassword(ctx context.Context, tenantID, memberID, password string) error {
@@ -462,11 +420,10 @@ func (p *PostgresService) CreateTenant(ctx context.Context, name string, tenantI
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ap_tenant (tenant_id, name, currency, status, created_at, updated_at)
 		VALUES ($1, $2, $3, 'active', $4, $4);
-	`, tid, cleanName, curr, now)
-	if err != nil {
+	`, tid, cleanName, curr, now); err != nil {
 		return nil, nil, err
 	}
 
@@ -474,11 +431,10 @@ func (p *PostgresService) CreateTenant(ctx context.Context, name string, tenantI
 	if ownerEmail != "" {
 		cleanOwnerEmail := strings.TrimSpace(ownerEmail)
 		mid := GenerateMemberID()
-		_, err = tx.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO ap_member (member_id, tenant_id, email, role, status, created_at, updated_at)
 			VALUES ($1, $2, $3, 'owner', 'active', $4, $4);
-		`, mid, tid, cleanOwnerEmail, now)
-		if err != nil {
+		`, mid, tid, cleanOwnerEmail, now); err != nil {
 			return nil, nil, err
 		}
 		ownerMember = &Member{
@@ -492,7 +448,6 @@ func (p *PostgresService) CreateTenant(ctx context.Context, name string, tenantI
 		}
 	}
 
-	// Master virtual wallet
 	walletID := fmt.Sprintf("wlt_%s", tid)
 	_, _ = tx.ExecContext(ctx, `
 		INSERT INTO ap_wallet (wallet_id, tenant_id, asset, status, version, available_cache, held_cache, created_at, updated_at)
@@ -517,13 +472,12 @@ func (p *PostgresService) CreateTenant(ctx context.Context, name string, tenantI
 }
 
 func (p *PostgresService) GetTenant(ctx context.Context, tenantID string) (*Tenant, error) {
-	query := `
+	var t Tenant
+	err := p.db.QueryRowContext(ctx, `
 		SELECT tenant_id, name, currency, status, EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
 		FROM ap_tenant
 		WHERE tenant_id = $1;
-	`
-	var t Tenant
-	err := p.db.QueryRowContext(ctx, query, tenantID).Scan(&t.TenantID, &t.Name, &t.Currency, &t.Status, &t.CreatedAt, &t.UpdatedAt)
+	`, tenantID).Scan(&t.TenantID, &t.Name, &t.Currency, &t.Status, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrTenantNotFound
 	}
@@ -537,12 +491,11 @@ func (p *PostgresService) GetTenant(ctx context.Context, tenantID string) (*Tena
 }
 
 func (p *PostgresService) ListTenants(ctx context.Context) ([]*Tenant, error) {
-	query := `
+	rows, err := p.db.QueryContext(ctx, `
 		SELECT tenant_id, name, currency, status, EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
 		FROM ap_tenant
 		ORDER BY created_at DESC;
-	`
-	rows, err := p.db.QueryContext(ctx, query)
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -567,7 +520,6 @@ func (p *PostgresService) UpdateTenant(ctx context.Context, tenantID string, nam
 	if cleanName == "" {
 		return nil, fmt.Errorf("tenant name cannot be empty")
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionTenantUpdate); err != nil {
 		return nil, err
 	}
@@ -581,12 +533,9 @@ func (p *PostgresService) UpdateTenant(ctx context.Context, tenantID string, nam
 	}
 
 	before := map[string]interface{}{"name": t.Name}
-	_, err = p.db.ExecContext(ctx, `
-		UPDATE ap_tenant
-		SET name = $1, updated_at = NOW()
-		WHERE tenant_id = $2;
-	`, cleanName, tenantID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `
+		UPDATE ap_tenant SET name = $1, updated_at = NOW() WHERE tenant_id = $2;
+	`, cleanName, tenantID); err != nil {
 		return nil, err
 	}
 
@@ -614,7 +563,6 @@ func (p *PostgresService) UpdateTenantCurrency(ctx context.Context, tenantID str
 		return nil, ErrTenantTerminated
 	}
 
-	// Enforce C2 immutability: check if routes or ledger entries exist
 	var routeCount, ledgerCount int
 	_ = p.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ap_route WHERE tenant_id = $1;`, tenantID).Scan(&routeCount)
 	_ = p.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ap_ledger_entry WHERE tenant_id = $1;`, tenantID).Scan(&ledgerCount)
@@ -629,12 +577,10 @@ func (p *PostgresService) UpdateTenantCurrency(ctx context.Context, tenantID str
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, `UPDATE ap_tenant SET currency = $1, updated_at = NOW() WHERE tenant_id = $2;`, curr, tenantID)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE ap_tenant SET currency = $1, updated_at = NOW() WHERE tenant_id = $2;`, curr, tenantID); err != nil {
 		return nil, err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE ap_wallet SET asset = $1, updated_at = NOW() WHERE tenant_id = $2;`, curr, tenantID)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE ap_wallet SET asset = $1, updated_at = NOW() WHERE tenant_id = $2;`, curr, tenantID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -648,7 +594,11 @@ func (p *PostgresService) UpdateTenantCurrency(ctx context.Context, tenantID str
 }
 
 func (p *PostgresService) UpdateTenantStatus(ctx context.Context, tenantID string, status TenantStatus, actorMemberID string) (*Tenant, error) {
-	if actorMemberID != "" {
+	if actorMemberID == "" {
+		if !auth.IsSystemContext(ctx) {
+			return nil, ErrPermissionDenied
+		}
+	} else {
 		actor, err := p.getMember(ctx, tenantID, actorMemberID)
 		if err != nil || actor.TenantID != tenantID || actor.Role != RoleOwner {
 			return nil, ErrPermissionDenied
@@ -664,12 +614,9 @@ func (p *PostgresService) UpdateTenantStatus(ctx context.Context, tenantID strin
 	}
 
 	before := map[string]interface{}{"status": string(t.Status)}
-	_, err = p.db.ExecContext(ctx, `
-		UPDATE ap_tenant
-		SET status = $1, updated_at = NOW()
-		WHERE tenant_id = $2;
-	`, string(status), tenantID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `
+		UPDATE ap_tenant SET status = $1, updated_at = NOW() WHERE tenant_id = $2;
+	`, string(status), tenantID); err != nil {
 		return nil, err
 	}
 
@@ -694,7 +641,6 @@ func (p *PostgresService) CreateProject(ctx context.Context, tenantID, name stri
 	if t.Status == TenantStatusTerminated {
 		return nil, ErrTenantTerminated
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionProjectCreate); err != nil {
 		return nil, err
 	}
@@ -717,12 +663,10 @@ func (p *PostgresService) CreateProject(ctx context.Context, tenantID, name stri
 
 	now := time.Now()
 	nowUnix := now.Unix()
-
-	_, err = p.db.ExecContext(ctx, `
+	if _, err := p.db.ExecContext(ctx, `
 		INSERT INTO ap_project (project_id, tenant_id, name, budget_cap_base_units, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, 'active', $5, $5);
-	`, pid, tenantID, cleanName, budgetCap, now)
-	if err != nil {
+	`, pid, tenantID, cleanName, budgetCap, now); err != nil {
 		return nil, err
 	}
 
@@ -740,14 +684,13 @@ func (p *PostgresService) CreateProject(ctx context.Context, tenantID, name stri
 }
 
 func (p *PostgresService) GetProject(ctx context.Context, tenantID, projectID string) (*Project, error) {
-	query := `
+	var prj Project
+	err := p.db.QueryRowContext(ctx, `
 		SELECT project_id, tenant_id, name, budget_cap_base_units, status,
 		       EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
 		FROM ap_project
 		WHERE project_id = $1;
-	`
-	var prj Project
-	err := p.db.QueryRowContext(ctx, query, projectID).Scan(
+	`, projectID).Scan(
 		&prj.ProjectID, &prj.TenantID, &prj.Name, &prj.BudgetCapBaseUnits, &prj.Status, &prj.CreatedAt, &prj.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -763,14 +706,13 @@ func (p *PostgresService) GetProject(ctx context.Context, tenantID, projectID st
 }
 
 func (p *PostgresService) ListProjects(ctx context.Context, tenantID string) ([]*Project, error) {
-	query := `
+	rows, err := p.db.QueryContext(ctx, `
 		SELECT project_id, tenant_id, name, budget_cap_base_units, status,
 		       EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
 		FROM ap_project
 		WHERE tenant_id = $1
 		ORDER BY created_at DESC;
-	`
-	rows, err := p.db.QueryContext(ctx, query, tenantID)
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -798,7 +740,6 @@ func (p *PostgresService) UpdateProject(ctx context.Context, tenantID, projectID
 	}
 
 	before := map[string]interface{}{"name": prj.Name, "budget_cap": prj.BudgetCapBaseUnits, "status": string(prj.Status)}
-
 	if name != "" {
 		cleanName := strings.TrimSpace(name)
 		var exists bool
@@ -815,12 +756,11 @@ func (p *PostgresService) UpdateProject(ctx context.Context, tenantID, projectID
 		prj.Status = *status
 	}
 
-	_, err = p.db.ExecContext(ctx, `
+	if _, err := p.db.ExecContext(ctx, `
 		UPDATE ap_project
 		SET name = $1, budget_cap_base_units = $2, status = $3, updated_at = NOW()
 		WHERE project_id = $4;
-	`, prj.Name, prj.BudgetCapBaseUnits, string(prj.Status), projectID)
-	if err != nil {
+	`, prj.Name, prj.BudgetCapBaseUnits, string(prj.Status), projectID); err != nil {
 		return nil, err
 	}
 
@@ -833,17 +773,13 @@ func (p *PostgresService) DeleteProject(ctx context.Context, tenantID, projectID
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionProjectDelete); err != nil {
 		return err
 	}
-
 	prj, err := p.GetProject(ctx, tenantID, projectID)
 	if err != nil {
 		return err
 	}
-
-	_, err = p.db.ExecContext(ctx, `DELETE FROM ap_project WHERE project_id = $1;`, projectID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM ap_project WHERE project_id = $1;`, projectID); err != nil {
 		return err
 	}
-
 	p.recordAudit(ctx, tenantID, actorMemberID, "project.deleted", "Project", projectID, map[string]interface{}{"name": prj.Name}, nil, "127.0.0.1")
 	return nil
 }
@@ -857,7 +793,6 @@ func (p *PostgresService) AddMember(ctx context.Context, tenantID, email string,
 	if cleanEmail == "" {
 		return nil, fmt.Errorf("email cannot be empty")
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionMemberCreate); err != nil {
 		return nil, err
 	}
@@ -872,11 +807,10 @@ func (p *PostgresService) AddMember(ctx context.Context, tenantID, email string,
 	now := time.Now()
 	nowUnix := now.Unix()
 
-	_, err := p.db.ExecContext(ctx, `
+	if _, err := p.db.ExecContext(ctx, `
 		INSERT INTO ap_member (member_id, tenant_id, email, role, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, 'active', $5, $5);
-	`, mid, tenantID, cleanEmail, string(role), now)
-	if err != nil {
+	`, mid, tenantID, cleanEmail, string(role), now); err != nil {
 		return nil, err
 	}
 
@@ -898,14 +832,13 @@ func (p *PostgresService) GetMember(ctx context.Context, tenantID, memberID stri
 }
 
 func (p *PostgresService) ListMembers(ctx context.Context, tenantID string) ([]*Member, error) {
-	query := `
+	rows, err := p.db.QueryContext(ctx, `
 		SELECT member_id, tenant_id, email, password_hash, role, status,
 		       EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
 		FROM ap_member
 		WHERE tenant_id = $1
 		ORDER BY created_at ASC;
-	`
-	rows, err := p.db.QueryContext(ctx, query, tenantID)
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -944,7 +877,6 @@ func (p *PostgresService) UpdateMember(ctx context.Context, tenantID, memberID s
 		return nil, err
 	}
 
-	// Last Owner protection
 	if m.Role == RoleOwner && m.Status == MemberStatusActive {
 		activeOwners, err := p.countActiveOwners(ctx, tenantID)
 		if err != nil {
@@ -968,12 +900,9 @@ func (p *PostgresService) UpdateMember(ctx context.Context, tenantID, memberID s
 		m.Status = *status
 	}
 
-	_, err = p.db.ExecContext(ctx, `
-		UPDATE ap_member
-		SET role = $1, status = $2, updated_at = NOW()
-		WHERE member_id = $3;
-	`, string(m.Role), string(m.Status), memberID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `
+		UPDATE ap_member SET role = $1, status = $2, updated_at = NOW() WHERE member_id = $3;
+	`, string(m.Role), string(m.Status), memberID); err != nil {
 		return nil, err
 	}
 
@@ -986,7 +915,6 @@ func (p *PostgresService) RemoveMember(ctx context.Context, tenantID, memberID s
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionMemberDelete); err != nil {
 		return err
 	}
-
 	m, err := p.getMember(ctx, tenantID, memberID)
 	if err != nil {
 		return err
@@ -1002,11 +930,9 @@ func (p *PostgresService) RemoveMember(ctx context.Context, tenantID, memberID s
 		}
 	}
 
-	_, err = p.db.ExecContext(ctx, `DELETE FROM ap_member WHERE member_id = $1;`, memberID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM ap_member WHERE member_id = $1;`, memberID); err != nil {
 		return err
 	}
-
 	p.recordAudit(ctx, tenantID, actorMemberID, "member.removed", "Member", memberID, map[string]interface{}{"email": m.Email}, nil, "127.0.0.1")
 	return nil
 }
@@ -1034,17 +960,15 @@ func (p *PostgresService) CreateAgent(ctx context.Context, tenantID, projectID, 
 	agID := GenerateAgentID()
 	now := time.Now()
 	nowUnix := now.Unix()
-
 	if policyCfg == nil {
 		policyCfg = make(map[string]interface{})
 	}
 	cfgBytes, _ := json.Marshal(policyCfg)
 
-	_, err := p.db.ExecContext(ctx, `
+	if _, err := p.db.ExecContext(ctx, `
 		INSERT INTO ap_agent (agent_id, tenant_id, project_id, name, status, policy_config, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, 'active', $5, $6, $6);
-	`, agID, tenantID, projectID, cleanName, cfgBytes, now)
-	if err != nil {
+	`, agID, tenantID, projectID, cleanName, cfgBytes, now); err != nil {
 		return nil, err
 	}
 
@@ -1074,15 +998,14 @@ func (p *PostgresService) CreateAgent(ctx context.Context, tenantID, projectID, 
 }
 
 func (p *PostgresService) GetAgent(ctx context.Context, tenantID, agentID string) (*Agent, error) {
-	query := `
+	var ag Agent
+	var cfgBytes []byte
+	err := p.db.QueryRowContext(ctx, `
 		SELECT agent_id, tenant_id, project_id, name, status, policy_config,
 		       EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
 		FROM ap_agent
 		WHERE agent_id = $1;
-	`
-	var ag Agent
-	var cfgBytes []byte
-	err := p.db.QueryRowContext(ctx, query, agentID).Scan(
+	`, agentID).Scan(
 		&ag.AgentID, &ag.TenantID, &ag.ProjectID, &ag.Name, &ag.Status, &cfgBytes, &ag.CreatedAt, &ag.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1167,12 +1090,9 @@ func (p *PostgresService) UpdateAgent(ctx context.Context, tenantID, agentID str
 	}
 
 	cfgBytes, _ := json.Marshal(ag.PolicyConfig)
-	_, err = p.db.ExecContext(ctx, `
-		UPDATE ap_agent
-		SET name = $1, policy_config = $2, updated_at = NOW()
-		WHERE agent_id = $3;
-	`, ag.Name, cfgBytes, agentID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `
+		UPDATE ap_agent SET name = $1, policy_config = $2, updated_at = NOW() WHERE agent_id = $3;
+	`, ag.Name, cfgBytes, agentID); err != nil {
 		return nil, err
 	}
 
@@ -1205,18 +1125,14 @@ func (p *PostgresService) UpdateAgentStatus(ctx context.Context, tenantID, agent
 	}
 
 	before := map[string]interface{}{"status": string(ag.Status)}
-	_, err = p.db.ExecContext(ctx, `
-		UPDATE ap_agent
-		SET status = $1, updated_at = NOW()
-		WHERE agent_id = $2;
-	`, string(status), agentID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `
+		UPDATE ap_agent SET status = $1, updated_at = NOW() WHERE agent_id = $2;
+	`, string(status), agentID); err != nil {
 		return nil, err
 	}
 
 	ag.Status = status
 	ag.UpdatedAt = time.Now().Unix()
-
 	if p.agentReg != nil {
 		p.agentReg.SetAgentStatus(agentID, agent.AgentStatus(status))
 	}
@@ -1230,7 +1146,6 @@ func (p *PostgresService) KillAgent(ctx context.Context, tenantID, agentID, reas
 	if cleanReason == "" {
 		return nil, nil, ErrMissingReason
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAgentKill); err != nil {
 		return nil, nil, err
 	}
@@ -1240,18 +1155,13 @@ func (p *PostgresService) KillAgent(ctx context.Context, tenantID, agentID, reas
 		return nil, nil, err
 	}
 
-	// 1. Instantaneous in-memory fast-path kill
 	if p.agentReg != nil {
 		p.agentReg.SetAgentStatus(agentID, agent.AgentStatusSuspended)
 	}
 
-	// 2. Persist suspended status
-	_, err = p.db.ExecContext(ctx, `
-		UPDATE ap_agent
-		SET status = 'suspended', updated_at = NOW()
-		WHERE agent_id = $1;
-	`, agentID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `
+		UPDATE ap_agent SET status = 'suspended', updated_at = NOW() WHERE agent_id = $1;
+	`, agentID); err != nil {
 		return nil, nil, err
 	}
 	ag.Status = AgentStatusSuspended
@@ -1260,9 +1170,7 @@ func (p *PostgresService) KillAgent(ctx context.Context, tenantID, agentID, reas
 	revokedKeys := make([]string, 0)
 	if revoke {
 		rows, err := p.db.QueryContext(ctx, `
-			SELECT key_id, key_hash
-			FROM ap_api_key
-			WHERE agent_id = $1 AND status = 'active';
+			SELECT key_id, key_hash FROM ap_api_key WHERE agent_id = $1 AND status = 'active';
 		`, agentID)
 		if err == nil {
 			defer rows.Close()
@@ -1276,9 +1184,7 @@ func (p *PostgresService) KillAgent(ctx context.Context, tenantID, agentID, reas
 				}
 			}
 			_, _ = p.db.ExecContext(ctx, `
-				UPDATE ap_api_key
-				SET status = 'revoked', updated_at = NOW()
-				WHERE agent_id = $1 AND status = 'active';
+				UPDATE ap_api_key SET status = 'revoked', updated_at = NOW() WHERE agent_id = $1 AND status = 'active';
 			`, agentID)
 		}
 	}
@@ -1295,21 +1201,16 @@ func (p *PostgresService) DeleteAgent(ctx context.Context, tenantID, agentID, ac
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAgentKill); err != nil {
 		return err
 	}
-
 	ag, err := p.GetAgent(ctx, tenantID, agentID)
 	if err != nil {
 		return err
 	}
-
 	if p.agentReg != nil {
 		p.agentReg.SetAgentStatus(agentID, agent.AgentStatusRevoked)
 	}
-
-	_, err = p.db.ExecContext(ctx, `DELETE FROM ap_agent WHERE agent_id = $1;`, agentID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM ap_agent WHERE agent_id = $1;`, agentID); err != nil {
 		return err
 	}
-
 	p.recordAudit(ctx, tenantID, actorMemberID, "agent.deleted", "Agent", agentID, map[string]interface{}{"name": ag.Name}, nil, "127.0.0.1")
 	return nil
 }
@@ -1352,11 +1253,10 @@ func (p *PostgresService) CreateAPIKey(ctx context.Context, tenantID, projectID,
 		expTime = &t
 	}
 
-	_, err = p.db.ExecContext(ctx, `
+	if _, err := p.db.ExecContext(ctx, `
 		INSERT INTO ap_api_key (key_id, tenant_id, project_id, agent_id, name, key_hash, key_prefix, scopes, status, expires_at, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, $10, $10);
-	`, keyID, tenantID, projectID, agentID, cleanName, keyHash, keyPrefix, scopesBytes, expTime, now)
-	if err != nil {
+	`, keyID, tenantID, projectID, agentID, cleanName, keyHash, keyPrefix, scopesBytes, expTime, now); err != nil {
 		return nil, err
 	}
 
@@ -1380,23 +1280,19 @@ func (p *PostgresService) CreateAPIKey(ctx context.Context, tenantID, projectID,
 	}
 
 	p.recordAudit(ctx, tenantID, actorMemberID, "apikey.created", "APIKey", keyID, nil, map[string]interface{}{"agent_id": agentID, "name": cleanName}, "127.0.0.1")
-	return &CreateAPIKeyResult{
-		APIKey: apiKey,
-		RawKey: rawKey,
-	}, nil
+	return &CreateAPIKeyResult{APIKey: apiKey, RawKey: rawKey}, nil
 }
 
 func (p *PostgresService) GetAPIKey(ctx context.Context, tenantID, keyID string) (*APIKey, error) {
-	query := `
+	var k APIKey
+	var scopesBytes []byte
+	var exp sql.NullInt64
+	err := p.db.QueryRowContext(ctx, `
 		SELECT key_id, tenant_id, project_id, agent_id, name, key_hash, key_prefix, scopes, status,
 		       EXTRACT(EPOCH FROM expires_at)::bigint, EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
 		FROM ap_api_key
 		WHERE key_id = $1;
-	`
-	var k APIKey
-	var scopesBytes []byte
-	var exp sql.NullInt64
-	err := p.db.QueryRowContext(ctx, query, keyID).Scan(
+	`, keyID).Scan(
 		&k.KeyID, &k.TenantID, &k.ProjectID, &k.AgentID, &k.Name, &k.KeyHash, &k.KeyPrefix, &scopesBytes, &k.Status,
 		&exp, &k.CreatedAt, &k.UpdatedAt,
 	)
@@ -1476,12 +1372,9 @@ func (p *PostgresService) RevokeAPIKey(ctx context.Context, tenantID, keyID, act
 		return k, nil
 	}
 
-	_, err = p.db.ExecContext(ctx, `
-		UPDATE ap_api_key
-		SET status = 'revoked', updated_at = NOW()
-		WHERE key_id = $1;
-	`, keyID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `
+		UPDATE ap_api_key SET status = 'revoked', updated_at = NOW() WHERE key_id = $1;
+	`, keyID); err != nil {
 		return nil, err
 	}
 
@@ -1507,169 +1400,29 @@ func (p *PostgresService) RotateAPIKey(ctx context.Context, tenantID, keyID, act
 // Routes
 // ----------------------------------------------------------------------------
 
-func (p *PostgresService) CreateRoute(ctx context.Context, route *Route, actorMemberID string) (*Route, error) {
-	if route == nil {
-		return nil, fmt.Errorf("route cannot be nil")
+func (p *PostgresService) upsertUpstreamAuth(ctx context.Context, tenantID, routeID string, authCfg *UpstreamAuthConfig, now time.Time) error {
+	if authCfg == nil {
+		return nil
 	}
-	if err := p.enforcePermission(ctx, actorMemberID, route.TenantID, PermissionRouteWrite); err != nil {
-		return nil, err
-	}
-
-	cleanPath := strings.TrimSpace(route.PathPattern)
-	if cleanPath == "" || !strings.HasPrefix(cleanPath, "/") {
-		return nil, fmt.Errorf("path_pattern must begin with '/'")
-	}
-
-	var exists bool
-	_ = p.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ap_route WHERE tenant_id = $1 AND path_pattern = $2);`, route.TenantID, cleanPath).Scan(&exists)
-	if exists {
-		return nil, ErrRouteAlreadyExists
-	}
-
-	if route.RouteID == "" {
-		route.RouteID = GenerateRouteID()
-	}
-	route.Slug = NormalizeSlug(route.Slug, cleanPath)
-	route.Title = DefaultTitleFromSlug(route.Title, route.Slug, cleanPath)
-	if strings.TrimSpace(route.Category) == "" {
-		route.Category = "AI & LLM"
-	} else {
-		route.Category = strings.TrimSpace(route.Category)
-	}
-	if strings.TrimSpace(route.Network) == "" {
-		route.Network = "eip155:421614"
-	} else {
-		route.Network = strings.TrimSpace(route.Network)
-	}
-	if route.Tags == nil {
-		route.Tags = []string{}
-	}
-	if route.AllowedPaymentMethods == "" {
-		route.AllowedPaymentMethods = "both"
-	}
-	if route.Asset == "" {
-		if route.AllowedPaymentMethods == "onchain" {
-			route.Asset = "USDC"
-		} else if t, err := p.GetTenant(ctx, route.TenantID); err == nil && t.Currency != "" && (route.AllowedPaymentMethods == "wallet" || t.Currency != "USD") {
-			route.Asset = t.Currency
-		} else {
-			route.Asset = "USDC"
-		}
-	}
-	if route.OnchainAsset == "" && route.AllowedPaymentMethods != "wallet" {
-		route.OnchainAsset = "USDC"
-	}
-	if route.TimeoutMs == 0 {
-		route.TimeoutMs = 30000
-	}
-	if route.RateLimitRPM == 0 {
-		route.RateLimitRPM = 600
-	}
-	if route.Status == "" {
-		route.Status = RouteStatusActive
-	}
-
-	now := time.Now()
-	nowUnix := now.Unix()
-	route.CreatedAt = nowUnix
-	route.UpdatedAt = nowUnix
-
-	var onchainPrice interface{}
-	if route.OnchainPriceBaseUnits != nil {
-		onchainPrice = *route.OnchainPriceBaseUnits
-	}
-	onchainAsset := route.OnchainAsset
-	if onchainAsset == "" {
-		onchainAsset = "USDC"
-	}
-	if len(route.Methods) == 0 {
-		route.Methods = []string{"POST"}
-	}
-	if route.Parameters == nil {
-		route.Parameters = []MarketplaceParameter{}
-	}
-	if route.SampleParams == nil {
-		route.SampleParams = map[string]interface{}{}
-	}
-	if route.SampleResponse == nil {
-		route.SampleResponse = map[string]interface{}{}
-	}
-	tagsJSON, _ := json.Marshal(route.Tags)
-	methodsJSON, _ := json.Marshal(route.Methods)
-	paramsJSON, _ := json.Marshal(route.Parameters)
-	sampleParamsJSON, _ := json.Marshal(route.SampleParams)
-	sampleResponseJSON, _ := json.Marshal(route.SampleResponse)
-
+	paramsJSON, _ := json.Marshal(authCfg.Params)
 	_, err := p.db.ExecContext(ctx, `
-		INSERT INTO ap_route (
-			route_id, tenant_id, project_id, slug, title, summary, provider_name, is_public, category, tags, description_md, network, network_label,
-			path_pattern, methods, upstream_url, price_base_units, asset, onchain_price_base_units, onchain_asset,
-			payee_address, allowed_payment_methods, timeout_ms, rate_limit_rpm, parameters, sample_params, sample_response, status, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $29);
-	`, route.RouteID, route.TenantID, route.ProjectID, route.Slug, route.Title, route.Summary, route.ProviderName, route.IsPublic, route.Category, tagsJSON, route.DescriptionMD, route.Network, route.NetworkLabel,
-		cleanPath, methodsJSON, route.UpstreamURL, route.PriceBaseUnits, route.Asset, onchainPrice, onchainAsset,
-		route.PayeeAddress, route.AllowedPaymentMethods, route.TimeoutMs, route.RateLimitRPM, paramsJSON, sampleParamsJSON, sampleResponseJSON, string(route.Status), now)
-	if err != nil {
-		return nil, err
-	}
-
-	if route.UpstreamAuth != nil {
-		if route.UpstreamAuth.Type == "" {
-			route.UpstreamAuth.Type = "none"
-		}
-		if auth, ok := upstreamauth.Get(route.UpstreamAuth.Type); ok {
-			if err := auth.Validate(route.UpstreamAuth.Params, route.UpstreamAuth.Secrets); err != nil {
-				return nil, fmt.Errorf("upstream_auth validation error: %w", err)
-			}
-		}
-		if len(route.UpstreamAuth.Secrets) > 0 {
-			enc, err := upstreamauth.EncryptSecrets(route.UpstreamAuth.Secrets, nil)
-			if err != nil {
-				return nil, fmt.Errorf("failed to encrypt upstream secrets: %w", err)
-			}
-			route.UpstreamAuth.SecretEnc = enc
-			route.UpstreamAuth.HasSecret = true
-			route.UpstreamAuth.KeyVersion = 1
-			route.UpstreamAuth.Secrets = nil
-		}
-		route.UpstreamAuth.UpdatedAt = nowUnix
-
-		paramsJSON, _ := json.Marshal(route.UpstreamAuth.Params)
-		_, err = p.db.ExecContext(ctx, `
-			INSERT INTO api_auth_configs (id, tenant_id, api_id, type, params, secret_enc, key_version, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (api_id) DO UPDATE SET
-				type = EXCLUDED.type,
-				params = EXCLUDED.params,
-				secret_enc = COALESCE(EXCLUDED.secret_enc, api_auth_configs.secret_enc),
-				key_version = EXCLUDED.key_version,
-				updated_at = EXCLUDED.updated_at;
-		`, "auth_"+route.RouteID, route.TenantID, route.RouteID, route.UpstreamAuth.Type, paramsJSON, route.UpstreamAuth.SecretEnc, route.UpstreamAuth.KeyVersion, now)
-		if err != nil {
-			return nil, fmt.Errorf("failed to save upstream_auth: %w", err)
-		}
-	}
-
-	p.recordAudit(ctx, route.TenantID, actorMemberID, "route.created", "Route", route.RouteID, nil, map[string]interface{}{"path": cleanPath, "slug": route.Slug, "is_public": route.IsPublic}, "127.0.0.1")
-	_ = p.SyncRCU(ctx)
-	return route, nil
+		INSERT INTO api_auth_configs (id, tenant_id, api_id, type, params, secret_enc, key_version, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (api_id) DO UPDATE SET
+			type = EXCLUDED.type,
+			params = EXCLUDED.params,
+			secret_enc = COALESCE(EXCLUDED.secret_enc, api_auth_configs.secret_enc),
+			key_version = EXCLUDED.key_version,
+			updated_at = EXCLUDED.updated_at;
+	`, "auth_"+routeID, tenantID, routeID, authCfg.Type, paramsJSON, authCfg.SecretEnc, authCfg.KeyVersion, now)
+	return err
 }
 
-func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string) (*Route, error) {
-	query := `
-		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''),
-		       COALESCE(r.summary, ''), COALESCE(r.provider_name, ''), r.is_public,
-		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''),
-		       COALESCE(r.network, 'eip155:421614'), COALESCE(r.network_label, ''),
-		       r.path_pattern, COALESCE(r.methods, '["POST"]'::jsonb), r.upstream_url, r.price_base_units, r.asset,
-		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm,
-		       COALESCE(r.parameters, '[]'::jsonb), COALESCE(r.sample_params, '{}'::jsonb), COALESCE(r.sample_response, '{}'::jsonb),
-		       r.status, EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
-		       c.type, c.params, c.secret_enc, c.key_version, EXTRACT(EPOCH FROM c.updated_at)::bigint
-		FROM ap_route r
-		LEFT JOIN api_auth_configs c ON c.api_id = r.route_id
-		WHERE r.route_id = $1;
-	`
+type routeRowScanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanRouteRow(scanner routeRowScanner) (*Route, error) {
 	var r Route
 	var tagsBytes, methodsBytes, paramsBytes, sampleParamsBytes, sampleResponseBytes []byte
 	var onchainPrice sql.NullInt64
@@ -1678,7 +1431,7 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 	var cParamsBytes, cSecretEnc []byte
 	var cKeyVersion, cUpdatedAt sql.NullInt64
 
-	err := p.db.QueryRowContext(ctx, query, routeID).Scan(
+	if err := scanner.Scan(
 		&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title,
 		&r.Summary, &r.ProviderName, &r.IsPublic,
 		&r.Category, &tagsBytes, &r.DescriptionMD,
@@ -1688,16 +1441,10 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 		&paramsBytes, &sampleParamsBytes, &sampleResponseBytes,
 		&r.Status, &r.CreatedAt, &r.UpdatedAt,
 		&cType, &cParamsBytes, &cSecretEnc, &cKeyVersion, &cUpdatedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrRouteNotFound
-	}
-	if err != nil {
+	); err != nil {
 		return nil, err
 	}
-	if tenantID != "" && r.TenantID != tenantID {
-		return nil, ErrRouteNotFound
-	}
+
 	if len(tagsBytes) > 0 {
 		_ = json.Unmarshal(tagsBytes, &r.Tags)
 	}
@@ -1728,6 +1475,7 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 	if r.SampleResponse == nil {
 		r.SampleResponse = map[string]interface{}{}
 	}
+
 	r.Slug = NormalizeSlug(r.Slug, r.PathPattern)
 	r.Title = DefaultTitleFromSlug(r.Title, r.Slug, r.PathPattern)
 	if onchainPrice.Valid {
@@ -1755,23 +1503,101 @@ func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string
 	return &r, nil
 }
 
+func (p *PostgresService) CreateRoute(ctx context.Context, route *Route, actorMemberID string) (*Route, error) {
+	if route == nil {
+		return nil, fmt.Errorf("route cannot be nil")
+	}
+	if err := p.enforcePermission(ctx, actorMemberID, route.TenantID, PermissionRouteWrite); err != nil {
+		return nil, err
+	}
+
+	cleanPath := strings.TrimSpace(route.PathPattern)
+	if cleanPath == "" || !strings.HasPrefix(cleanPath, "/") {
+		return nil, fmt.Errorf("path_pattern must begin with '/'")
+	}
+
+	var exists bool
+	_ = p.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ap_route WHERE tenant_id = $1 AND path_pattern = $2);`, route.TenantID, cleanPath).Scan(&exists)
+	if exists {
+		return nil, ErrRouteAlreadyExists
+	}
+
+	var tenantCurrency string
+	if t, err := p.GetTenant(ctx, route.TenantID); err == nil {
+		tenantCurrency = t.Currency
+	}
+
+	now := time.Now()
+	if err := normalizeNewRoute(route, tenantCurrency, now.Unix()); err != nil {
+		return nil, err
+	}
+
+	var onchainPrice interface{}
+	if route.OnchainPriceBaseUnits != nil {
+		onchainPrice = *route.OnchainPriceBaseUnits
+	}
+	onchainAsset := route.OnchainAsset
+	if onchainAsset == "" {
+		onchainAsset = "USDC"
+	}
+
+	tagsJSON, _ := json.Marshal(route.Tags)
+	methodsJSON, _ := json.Marshal(route.Methods)
+	paramsJSON, _ := json.Marshal(route.Parameters)
+	sampleParamsJSON, _ := json.Marshal(route.SampleParams)
+	sampleResponseJSON, _ := json.Marshal(route.SampleResponse)
+
+	if _, err := p.db.ExecContext(ctx, `
+		INSERT INTO ap_route (
+			route_id, tenant_id, project_id, slug, title, summary, provider_name, is_public, category, tags, description_md, network, network_label,
+			path_pattern, methods, upstream_url, price_base_units, asset, onchain_price_base_units, onchain_asset,
+			payee_address, allowed_payment_methods, timeout_ms, rate_limit_rpm, parameters, sample_params, sample_response, status, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $29);
+	`, route.RouteID, route.TenantID, route.ProjectID, route.Slug, route.Title, route.Summary, route.ProviderName, route.IsPublic, route.Category, tagsJSON, route.DescriptionMD, route.Network, route.NetworkLabel,
+		route.PathPattern, methodsJSON, route.UpstreamURL, route.PriceBaseUnits, route.Asset, onchainPrice, onchainAsset,
+		route.PayeeAddress, route.AllowedPaymentMethods, route.TimeoutMs, route.RateLimitRPM, paramsJSON, sampleParamsJSON, sampleResponseJSON, string(route.Status), now); err != nil {
+		return nil, err
+	}
+
+	if err := p.upsertUpstreamAuth(ctx, route.TenantID, route.RouteID, route.UpstreamAuth, now); err != nil {
+		return nil, fmt.Errorf("failed to save upstream_auth: %w", err)
+	}
+
+	p.recordAudit(ctx, route.TenantID, actorMemberID, "route.created", "Route", route.RouteID, nil, map[string]interface{}{"path": route.PathPattern, "slug": route.Slug, "is_public": route.IsPublic}, "127.0.0.1")
+	_ = p.SyncRCU(ctx)
+	return route, nil
+}
+
+const selectRouteWithAuthCols = `
+	SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''),
+	       COALESCE(r.summary, ''), COALESCE(r.provider_name, ''), r.is_public,
+	       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''),
+	       COALESCE(r.network, 'eip155:421614'), COALESCE(r.network_label, ''),
+	       r.path_pattern, COALESCE(r.methods, '["POST"]'::jsonb), r.upstream_url, r.price_base_units, r.asset,
+	       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm,
+	       COALESCE(r.parameters, '[]'::jsonb), COALESCE(r.sample_params, '{}'::jsonb), COALESCE(r.sample_response, '{}'::jsonb),
+	       r.status, EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
+	       c.type, c.params, c.secret_enc, c.key_version, EXTRACT(EPOCH FROM c.updated_at)::bigint
+	FROM ap_route r
+	LEFT JOIN api_auth_configs c ON c.api_id = r.route_id
+`
+
+func (p *PostgresService) GetRoute(ctx context.Context, tenantID, routeID string) (*Route, error) {
+	r, err := scanRouteRow(p.db.QueryRowContext(ctx, selectRouteWithAuthCols+` WHERE r.route_id = $1;`, routeID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrRouteNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if tenantID != "" && r.TenantID != tenantID {
+		return nil, ErrRouteNotFound
+	}
+	return r, nil
+}
+
 func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*Route, error) {
-	query := `
-		SELECT r.route_id, r.tenant_id, r.project_id, COALESCE(r.slug, ''), COALESCE(r.title, ''),
-		       COALESCE(r.summary, ''), COALESCE(r.provider_name, ''), r.is_public,
-		       COALESCE(r.category, 'General'), COALESCE(r.tags, '[]'::jsonb), COALESCE(r.description_md, ''),
-		       COALESCE(r.network, 'eip155:421614'), COALESCE(r.network_label, ''),
-		       r.path_pattern, COALESCE(r.methods, '["POST"]'::jsonb), r.upstream_url, r.price_base_units, r.asset,
-		       r.onchain_price_base_units, r.onchain_asset, r.payee_address, r.allowed_payment_methods, r.timeout_ms, r.rate_limit_rpm,
-		       COALESCE(r.parameters, '[]'::jsonb), COALESCE(r.sample_params, '{}'::jsonb), COALESCE(r.sample_response, '{}'::jsonb),
-		       r.status, EXTRACT(EPOCH FROM r.created_at)::bigint, EXTRACT(EPOCH FROM r.updated_at)::bigint,
-		       c.type, c.params, c.secret_enc, c.key_version, EXTRACT(EPOCH FROM c.updated_at)::bigint
-		FROM ap_route r
-		LEFT JOIN api_auth_configs c ON c.api_id = r.route_id
-		WHERE r.tenant_id = $1
-		ORDER BY r.created_at DESC;
-	`
-	rows, err := p.db.QueryContext(ctx, query, tenantID)
+	rows, err := p.db.QueryContext(ctx, selectRouteWithAuthCols+` WHERE r.tenant_id = $1 ORDER BY r.created_at DESC;`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -1779,81 +1605,11 @@ func (p *PostgresService) ListRoutes(ctx context.Context, tenantID string) ([]*R
 
 	routes := make([]*Route, 0)
 	for rows.Next() {
-		var r Route
-		var tagsBytes, methodsBytes, paramsBytes, sampleParamsBytes, sampleResponseBytes []byte
-		var onchainPrice sql.NullInt64
-		var onchainAsset sql.NullString
-		var cType sql.NullString
-		var cParamsBytes, cSecretEnc []byte
-		var cKeyVersion, cUpdatedAt sql.NullInt64
-
-		if err := rows.Scan(
-			&r.RouteID, &r.TenantID, &r.ProjectID, &r.Slug, &r.Title,
-			&r.Summary, &r.ProviderName, &r.IsPublic,
-			&r.Category, &tagsBytes, &r.DescriptionMD,
-			&r.Network, &r.NetworkLabel,
-			&r.PathPattern, &methodsBytes, &r.UpstreamURL, &r.PriceBaseUnits, &r.Asset,
-			&onchainPrice, &onchainAsset, &r.PayeeAddress, &r.AllowedPaymentMethods, &r.TimeoutMs, &r.RateLimitRPM,
-			&paramsBytes, &sampleParamsBytes, &sampleResponseBytes,
-			&r.Status, &r.CreatedAt, &r.UpdatedAt,
-			&cType, &cParamsBytes, &cSecretEnc, &cKeyVersion, &cUpdatedAt,
-		); err != nil {
+		r, err := scanRouteRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		if len(tagsBytes) > 0 {
-			_ = json.Unmarshal(tagsBytes, &r.Tags)
-		}
-		if r.Tags == nil {
-			r.Tags = []string{}
-		}
-		if len(methodsBytes) > 0 {
-			_ = json.Unmarshal(methodsBytes, &r.Methods)
-		}
-		if len(r.Methods) == 0 {
-			r.Methods = []string{"POST"}
-		}
-		if len(paramsBytes) > 0 {
-			_ = json.Unmarshal(paramsBytes, &r.Parameters)
-		}
-		if r.Parameters == nil {
-			r.Parameters = []MarketplaceParameter{}
-		}
-		if len(sampleParamsBytes) > 0 {
-			_ = json.Unmarshal(sampleParamsBytes, &r.SampleParams)
-		}
-		if r.SampleParams == nil {
-			r.SampleParams = map[string]interface{}{}
-		}
-		if len(sampleResponseBytes) > 0 {
-			_ = json.Unmarshal(sampleResponseBytes, &r.SampleResponse)
-		}
-		if r.SampleResponse == nil {
-			r.SampleResponse = map[string]interface{}{}
-		}
-		r.Slug = NormalizeSlug(r.Slug, r.PathPattern)
-		r.Title = DefaultTitleFromSlug(r.Title, r.Slug, r.PathPattern)
-		if onchainPrice.Valid {
-			v := onchainPrice.Int64
-			r.OnchainPriceBaseUnits = &v
-		}
-		if onchainAsset.Valid {
-			r.OnchainAsset = onchainAsset.String
-		}
-		if cType.Valid && cType.String != "" {
-			var params map[string]interface{}
-			if len(cParamsBytes) > 0 {
-				_ = json.Unmarshal(cParamsBytes, &params)
-			}
-			r.UpstreamAuth = &UpstreamAuthConfig{
-				Type:       cType.String,
-				Params:     params,
-				SecretEnc:  cSecretEnc,
-				HasSecret:  len(cSecretEnc) > 0,
-				KeyVersion: int(cKeyVersion.Int64),
-				UpdatedAt:  cUpdatedAt.Int64,
-			}
-		}
-		routes = append(routes, &r)
+		routes = append(routes, r)
 	}
 	return routes, nil
 }
@@ -1882,80 +1638,10 @@ func (p *PostgresService) UpdateRoute(ctx context.Context, input *UpdateRouteInp
 		}
 		r.PathPattern = clean
 	}
-	if input.Slug != nil {
-		r.Slug = NormalizeSlug(*input.Slug, r.PathPattern)
-	} else if r.Slug == "" {
-		r.Slug = NormalizeSlug("", r.PathPattern)
-	}
-	if input.Title != nil {
-		r.Title = DefaultTitleFromSlug(*input.Title, r.Slug, r.PathPattern)
-	}
-	if input.Summary != nil {
-		r.Summary = strings.TrimSpace(*input.Summary)
-	}
-	if input.ProviderName != nil {
-		r.ProviderName = strings.TrimSpace(*input.ProviderName)
-	}
-	if input.Methods != nil {
-		r.Methods = input.Methods
-	}
-	if input.NetworkLabel != nil {
-		r.NetworkLabel = strings.TrimSpace(*input.NetworkLabel)
-	}
-	if input.Parameters != nil {
-		r.Parameters = input.Parameters
-	}
-	if input.SampleParams != nil {
-		r.SampleParams = input.SampleParams
-	}
-	if input.SampleResponse != nil {
-		r.SampleResponse = input.SampleResponse
-	}
-	if input.IsPublic != nil {
-		r.IsPublic = *input.IsPublic
-	}
-	if input.Category != nil {
-		r.Category = strings.TrimSpace(*input.Category)
-	}
-	if input.Tags != nil {
-		r.Tags = input.Tags
-	}
-	if input.DescriptionMD != nil {
-		r.DescriptionMD = *input.DescriptionMD
-	}
-	if input.Network != nil && strings.TrimSpace(*input.Network) != "" {
-		r.Network = strings.TrimSpace(*input.Network)
-	}
-	if input.UpstreamURL != nil {
-		r.UpstreamURL = *input.UpstreamURL
-	}
-	if input.PriceBaseUnits != nil {
-		r.PriceBaseUnits = *input.PriceBaseUnits
-	}
-	if input.Asset != nil {
-		r.Asset = *input.Asset
-	}
-	if input.OnchainPriceBaseUnits != nil {
-		v := *input.OnchainPriceBaseUnits
-		r.OnchainPriceBaseUnits = &v
-	}
-	if input.OnchainAsset != nil {
-		r.OnchainAsset = *input.OnchainAsset
-	}
-	if input.PayeeAddress != nil {
-		r.PayeeAddress = *input.PayeeAddress
-	}
-	if input.AllowedPaymentMethods != nil {
-		r.AllowedPaymentMethods = *input.AllowedPaymentMethods
-	}
-	if input.RateLimitRPM != nil {
-		r.RateLimitRPM = *input.RateLimitRPM
-	}
-	if input.TimeoutMs != nil {
-		r.TimeoutMs = *input.TimeoutMs
-	}
-	if input.Status != nil {
-		r.Status = *input.Status
+
+	now := time.Now()
+	if err := applyRouteUpdateFields(r, input, now.Unix()); err != nil {
+		return nil, err
 	}
 
 	var onchainPrice interface{}
@@ -1985,7 +1671,7 @@ func (p *PostgresService) UpdateRoute(ctx context.Context, input *UpdateRouteInp
 	sampleParamsJSON, _ := json.Marshal(r.SampleParams)
 	sampleResponseJSON, _ := json.Marshal(r.SampleResponse)
 
-	_, err = p.db.ExecContext(ctx, `
+	if _, err := p.db.ExecContext(ctx, `
 		UPDATE ap_route
 		SET path_pattern = $1, upstream_url = $2, price_base_units = $3, asset = $4, onchain_price_base_units = $5, onchain_asset = $6,
 		    payee_address = $7, allowed_payment_methods = $8, timeout_ms = $9, rate_limit_rpm = $10, status = $11,
@@ -1996,60 +1682,16 @@ func (p *PostgresService) UpdateRoute(ctx context.Context, input *UpdateRouteInp
 	`, r.PathPattern, r.UpstreamURL, r.PriceBaseUnits, r.Asset, onchainPrice, onchainAsset,
 		r.PayeeAddress, r.AllowedPaymentMethods, r.TimeoutMs, r.RateLimitRPM, string(r.Status),
 		r.Slug, r.Title, r.Summary, r.ProviderName, r.IsPublic, r.Category, tagsJSON, r.DescriptionMD, r.Network, r.NetworkLabel,
-		methodsJSON, paramsJSON, sampleParamsJSON, sampleResponseJSON, input.RouteID)
-	if err != nil {
+		methodsJSON, paramsJSON, sampleParamsJSON, sampleResponseJSON, input.RouteID); err != nil {
 		return nil, err
 	}
 
 	if input.UpstreamAuth != nil {
-		authCfg := input.UpstreamAuth
-		if authCfg.Type == "" {
-			authCfg.Type = "none"
-		}
-		if auth, ok := upstreamauth.Get(authCfg.Type); ok {
-			if err := auth.Validate(authCfg.Params, authCfg.Secrets); err != nil {
-				return nil, fmt.Errorf("upstream_auth validation error: %w", err)
-			}
-		}
-		nowUnix := time.Now().Unix()
-		if len(authCfg.Secrets) > 0 {
-			enc, err := upstreamauth.EncryptSecrets(authCfg.Secrets, nil)
-			if err != nil {
-				return nil, fmt.Errorf("failed to encrypt upstream secrets: %w", err)
-			}
-			authCfg.SecretEnc = enc
-			authCfg.HasSecret = true
-			if r.UpstreamAuth != nil {
-				authCfg.KeyVersion = r.UpstreamAuth.KeyVersion + 1
-			} else {
-				authCfg.KeyVersion = 1
-			}
-			authCfg.Secrets = nil
-		} else if r.UpstreamAuth != nil && r.UpstreamAuth.Type == authCfg.Type {
-			authCfg.SecretEnc = r.UpstreamAuth.SecretEnc
-			authCfg.HasSecret = r.UpstreamAuth.HasSecret
-			authCfg.KeyVersion = r.UpstreamAuth.KeyVersion
-		}
-		authCfg.UpdatedAt = nowUnix
-
-		paramsJSON, _ := json.Marshal(authCfg.Params)
-		_, err = p.db.ExecContext(ctx, `
-			INSERT INTO api_auth_configs (id, tenant_id, api_id, type, params, secret_enc, key_version, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-			ON CONFLICT (api_id) DO UPDATE SET
-				type = EXCLUDED.type,
-				params = EXCLUDED.params,
-				secret_enc = COALESCE(EXCLUDED.secret_enc, api_auth_configs.secret_enc),
-				key_version = EXCLUDED.key_version,
-				updated_at = NOW();
-		`, "auth_"+input.RouteID, input.TenantID, input.RouteID, authCfg.Type, paramsJSON, authCfg.SecretEnc, authCfg.KeyVersion)
-		if err != nil {
+		if err := p.upsertUpstreamAuth(ctx, input.TenantID, input.RouteID, r.UpstreamAuth, now); err != nil {
 			return nil, fmt.Errorf("failed to update upstream_auth: %w", err)
 		}
-		r.UpstreamAuth = authCfg
 	}
 
-	r.UpdatedAt = time.Now().Unix()
 	p.recordAudit(ctx, input.TenantID, actorMemberID, "route.updated", "Route", input.RouteID, before, map[string]interface{}{"path": r.PathPattern}, "127.0.0.1")
 	_ = p.SyncRCU(ctx)
 	return r, nil
@@ -2059,18 +1701,14 @@ func (p *PostgresService) DeleteRoute(ctx context.Context, tenantID, routeID, ac
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionRouteWrite); err != nil {
 		return err
 	}
-
 	r, err := p.GetRoute(ctx, tenantID, routeID)
 	if err != nil {
 		return err
 	}
-
 	_, _ = p.db.ExecContext(ctx, `DELETE FROM api_auth_configs WHERE api_id = $1;`, routeID)
-	_, err = p.db.ExecContext(ctx, `DELETE FROM ap_route WHERE route_id = $1;`, routeID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM ap_route WHERE route_id = $1;`, routeID); err != nil {
 		return err
 	}
-
 	p.recordAudit(ctx, tenantID, actorMemberID, "route.deleted", "Route", routeID, map[string]interface{}{"path": r.PathPattern}, nil, "127.0.0.1")
 	_ = p.SyncRCU(ctx)
 	return nil
@@ -2119,11 +1757,10 @@ func (p *PostgresService) CreatePolicy(ctx context.Context, pol *Policy, actorMe
 	pol.UpdatedAt = nowUnix
 	pol.IsActive = true
 
-	_, err := p.db.ExecContext(ctx, `
+	if _, err := p.db.ExecContext(ctx, `
 		INSERT INTO ap_policy (policy_id, tenant_id, project_id, agent_id, route_id, max_amount_per_request, rolling_24h_budget_cap, circuit_breaker_max_rpm, whitelisted_payees, whitelisted_networks, whitelisted_routes, is_active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13);
-	`, pol.PolicyID, pol.TenantID, pol.ProjectID, agID, rteID, pol.MaxAmountPerRequest, pol.Rolling24hBudgetCap, pol.CircuitBreakerMaxRPM, payeesBytes, networksBytes, routesBytes, pol.IsActive, now)
-	if err != nil {
+	`, pol.PolicyID, pol.TenantID, pol.ProjectID, agID, rteID, pol.MaxAmountPerRequest, pol.Rolling24hBudgetCap, pol.CircuitBreakerMaxRPM, payeesBytes, networksBytes, routesBytes, pol.IsActive, now); err != nil {
 		return nil, err
 	}
 
@@ -2132,28 +1769,17 @@ func (p *PostgresService) CreatePolicy(ctx context.Context, pol *Policy, actorMe
 	return pol, nil
 }
 
-func (p *PostgresService) GetPolicy(ctx context.Context, tenantID, policyID string) (*Policy, error) {
-	query := `
-		SELECT policy_id, tenant_id, project_id, agent_id, route_id, max_amount_per_request, rolling_24h_budget_cap, circuit_breaker_max_rpm, whitelisted_payees, whitelisted_networks, whitelisted_routes, is_active,
-		       EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
-		FROM ap_policy
-		WHERE policy_id = $1;
-	`
+func scanPolicyRow(scanner routeRowScanner) (*Policy, error) {
 	var pol Policy
 	var agID, rteID sql.NullString
 	var payeesBytes, networksBytes, routesBytes []byte
 
-	err := p.db.QueryRowContext(ctx, query, policyID).Scan(
-		&pol.PolicyID, &pol.TenantID, &pol.ProjectID, &agID, &rteID, &pol.MaxAmountPerRequest, &pol.Rolling24hBudgetCap, &pol.CircuitBreakerMaxRPM, &payeesBytes, &networksBytes, &routesBytes, &pol.IsActive, &pol.CreatedAt, &pol.UpdatedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrPolicyNotFound
-	}
-	if err != nil {
+	if err := scanner.Scan(
+		&pol.PolicyID, &pol.TenantID, &pol.ProjectID, &agID, &rteID,
+		&pol.MaxAmountPerRequest, &pol.Rolling24hBudgetCap, &pol.CircuitBreakerMaxRPM,
+		&payeesBytes, &networksBytes, &routesBytes, &pol.IsActive, &pol.CreatedAt, &pol.UpdatedAt,
+	); err != nil {
 		return nil, err
-	}
-	if tenantID != "" && pol.TenantID != tenantID {
-		return nil, ErrPolicyNotFound
 	}
 	if agID.Valid {
 		pol.AgentID = agID.String
@@ -2165,6 +1791,25 @@ func (p *PostgresService) GetPolicy(ctx context.Context, tenantID, policyID stri
 	_ = json.Unmarshal(networksBytes, &pol.WhitelistedNetworks)
 	_ = json.Unmarshal(routesBytes, &pol.WhitelistedRoutes)
 	return &pol, nil
+}
+
+func (p *PostgresService) GetPolicy(ctx context.Context, tenantID, policyID string) (*Policy, error) {
+	pol, err := scanPolicyRow(p.db.QueryRowContext(ctx, `
+		SELECT policy_id, tenant_id, project_id, agent_id, route_id, max_amount_per_request, rolling_24h_budget_cap, circuit_breaker_max_rpm, whitelisted_payees, whitelisted_networks, whitelisted_routes, is_active,
+		       EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint
+		FROM ap_policy
+		WHERE policy_id = $1;
+	`, policyID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrPolicyNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if tenantID != "" && pol.TenantID != tenantID {
+		return nil, ErrPolicyNotFound
+	}
+	return pol, nil
 }
 
 func (p *PostgresService) ListPolicies(ctx context.Context, tenantID, projectID, agentID string) ([]*Policy, error) {
@@ -2202,23 +1847,11 @@ func (p *PostgresService) ListPolicies(ctx context.Context, tenantID, projectID,
 
 	policies := make([]*Policy, 0)
 	for rows.Next() {
-		var pol Policy
-		var agID, rteID sql.NullString
-		var payeesBytes, networksBytes, routesBytes []byte
-
-		if err := rows.Scan(&pol.PolicyID, &pol.TenantID, &pol.ProjectID, &agID, &rteID, &pol.MaxAmountPerRequest, &pol.Rolling24hBudgetCap, &pol.CircuitBreakerMaxRPM, &payeesBytes, &networksBytes, &routesBytes, &pol.IsActive, &pol.CreatedAt, &pol.UpdatedAt); err != nil {
+		pol, err := scanPolicyRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		if agID.Valid {
-			pol.AgentID = agID.String
-		}
-		if rteID.Valid {
-			pol.RouteID = rteID.String
-		}
-		_ = json.Unmarshal(payeesBytes, &pol.WhitelistedPayees)
-		_ = json.Unmarshal(networksBytes, &pol.WhitelistedNetworks)
-		_ = json.Unmarshal(routesBytes, &pol.WhitelistedRoutes)
-		policies = append(policies, &pol)
+		policies = append(policies, pol)
 	}
 	return policies, nil
 }
@@ -2248,12 +1881,11 @@ func (p *PostgresService) UpdatePolicy(ctx context.Context, pol *Policy, actorMe
 		rteID = sql.NullString{String: pol.RouteID, Valid: true}
 	}
 
-	_, err = p.db.ExecContext(ctx, `
+	if _, err := p.db.ExecContext(ctx, `
 		UPDATE ap_policy
 		SET agent_id = $1, route_id = $2, max_amount_per_request = $3, rolling_24h_budget_cap = $4, circuit_breaker_max_rpm = $5, whitelisted_payees = $6, whitelisted_networks = $7, whitelisted_routes = $8, is_active = $9, updated_at = NOW()
 		WHERE policy_id = $10;
-	`, agID, rteID, pol.MaxAmountPerRequest, pol.Rolling24hBudgetCap, pol.CircuitBreakerMaxRPM, payeesBytes, networksBytes, routesBytes, pol.IsActive, pol.PolicyID)
-	if err != nil {
+	`, agID, rteID, pol.MaxAmountPerRequest, pol.Rolling24hBudgetCap, pol.CircuitBreakerMaxRPM, payeesBytes, networksBytes, routesBytes, pol.IsActive, pol.PolicyID); err != nil {
 		return nil, err
 	}
 
@@ -2268,32 +1900,25 @@ func (p *PostgresService) DeletePolicy(ctx context.Context, tenantID, policyID, 
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionPolicyWrite); err != nil {
 		return err
 	}
-
-	_, err := p.GetPolicy(ctx, tenantID, policyID)
-	if err != nil {
+	if _, err := p.GetPolicy(ctx, tenantID, policyID); err != nil {
 		return err
 	}
-
-	_, err = p.db.ExecContext(ctx, `DELETE FROM ap_policy WHERE policy_id = $1;`, policyID)
-	if err != nil {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM ap_policy WHERE policy_id = $1;`, policyID); err != nil {
 		return err
 	}
-
 	p.recordAudit(ctx, tenantID, actorMemberID, "policy.deleted", "Policy", policyID, nil, nil, "127.0.0.1")
 	_ = p.SyncRCU(ctx)
 	return nil
 }
 
 // ----------------------------------------------------------------------------
-// Config Draft & Validation (T4.3)
+// Config Draft, Validation, Publishing & Rollback (T4.3 & T4.4)
 // ----------------------------------------------------------------------------
 
 func (p *PostgresService) ValidateConfig(ctx context.Context, tenantID string, actorMemberID string) (*ValidationResult, error) {
-	_, err := p.GetTenant(ctx, tenantID)
-	if err != nil {
+	if _, err := p.GetTenant(ctx, tenantID); err != nil {
 		return nil, err
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionRouteRead); err != nil {
 		return nil, err
 	}
@@ -2307,74 +1932,11 @@ func (p *PostgresService) ValidateConfig(ctx context.Context, tenantID string, a
 		return nil, err
 	}
 
-	errorsList := make([]ValidationError, 0)
-	seenPatterns := make(map[string]string)
-
+	res := evaluateConfigValidation(routes, policies)
+	// Also enforce Postgres-specific positive timeout check if configured <= 0
 	for _, r := range routes {
-		if !strings.HasPrefix(r.UpstreamURL, "http://") && !strings.HasPrefix(r.UpstreamURL, "https://") {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "upstream_url",
-				Code:       "INVALID_UPSTREAM_URL",
-				Message:    fmt.Sprintf("上游地址 '%s' 非法，必须以 http:// 或 https:// 开头", r.UpstreamURL),
-			})
-		}
-
-		cleanPath := strings.TrimSpace(r.PathPattern)
-		if cleanPath == "" || !strings.HasPrefix(cleanPath, "/") {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "path_pattern",
-				Code:       "INVALID_PATH_PATTERN",
-				Message:    fmt.Sprintf("路由暴露路径 '%s' 非法，必须以 / 开头", r.PathPattern),
-			})
-		} else {
-			if existingID, seen := seenPatterns[cleanPath]; seen {
-				errorsList = append(errorsList, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "path_pattern",
-					Code:       "DUPLICATE_PATH_PATTERN",
-					Message:    fmt.Sprintf("路由路径 '%s' 与路由 %s 重复冲突", cleanPath, existingID),
-				})
-			} else {
-				seenPatterns[cleanPath] = r.RouteID
-			}
-		}
-
-		if r.AllowedPaymentMethods != "wallet" {
-			if r.PayeeAddress == "" {
-				errorsList = append(errorsList, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "payee_address",
-					Code:       "MISSING_PAYEE_ADDRESS",
-					Message:    "支持链上支付的路由必须配置收款地址 (payee_address)",
-				})
-			} else if !pgEthAddressValidationRegex.MatchString(r.PayeeAddress) {
-				errorsList = append(errorsList, ValidationError{
-					TargetType: "Route",
-					TargetID:   r.RouteID,
-					Field:      "payee_address",
-					Code:       "INVALID_PAYEE_ADDRESS",
-					Message:    fmt.Sprintf("收款地址 '%s' 非法，必须为标准的 0x 开头 40 位十六进制以太坊地址", r.PayeeAddress),
-				})
-			}
-		}
-
-		if r.RateLimitRPM < 0 {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Route",
-				TargetID:   r.RouteID,
-				Field:      "rate_limit_rpm",
-				Code:       "INVALID_RATE_LIMIT",
-				Message:    "限流阈值 RPM 不能小于 0",
-			})
-		}
 		if r.TimeoutMs <= 0 {
-			errorsList = append(errorsList, ValidationError{
+			res.Errors = append(res.Errors, ValidationError{
 				TargetType: "Route",
 				TargetID:   r.RouteID,
 				Field:      "timeout_ms",
@@ -2383,10 +1945,9 @@ func (p *PostgresService) ValidateConfig(ctx context.Context, tenantID string, a
 			})
 		}
 	}
-
 	for _, pol := range policies {
 		if pol.MaxAmountPerRequest <= 0 {
-			errorsList = append(errorsList, ValidationError{
+			res.Errors = append(res.Errors, ValidationError{
 				TargetType: "Policy",
 				TargetID:   pol.PolicyID,
 				Field:      "max_amount_per_request",
@@ -2394,49 +1955,9 @@ func (p *PostgresService) ValidateConfig(ctx context.Context, tenantID string, a
 				Message:    "单笔最大支付金额必须大于 0",
 			})
 		}
-		if pol.Rolling24hBudgetCap < pol.MaxAmountPerRequest {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Policy",
-				TargetID:   pol.PolicyID,
-				Field:      "rolling_24h_budget_cap",
-				Code:       "BUDGET_CAP_LESS_THAN_MAX_PER_TX",
-				Message:    fmt.Sprintf("24h 预算上限 (%d) 不能小于单笔支付上限 (%d)", pol.Rolling24hBudgetCap, pol.MaxAmountPerRequest),
-			})
-		}
-		if pol.CircuitBreakerMaxRPM < 0 {
-			errorsList = append(errorsList, ValidationError{
-				TargetType: "Policy",
-				TargetID:   pol.PolicyID,
-				Field:      "circuit_breaker_max_rpm",
-				Code:       "INVALID_CIRCUIT_BREAKER_RPM",
-				Message:    "熔断阈值 RPM 不能小于 0",
-			})
-		}
-		for _, net := range pol.WhitelistedNetworks {
-			if !pgCaip2ValidationRegex.MatchString(net) {
-				errorsList = append(errorsList, ValidationError{
-					TargetType: "Policy",
-					TargetID:   pol.PolicyID,
-					Field:      "whitelisted_networks",
-					Code:       "INVALID_NETWORK_IDENTIFIER",
-					Message:    fmt.Sprintf("网络标识符 '%s' 不符合 CAIP-2 规范 (如 eip155:1 或 eip155:42161)", net),
-				})
-			}
-		}
 	}
-
-	now := time.Now().Unix()
-	res := &ValidationResult{
-		Valid:  len(errorsList) == 0,
-		Errors: errorsList,
-		Summary: ValidationSummary{
-			TotalRoutes:   len(routes),
-			TotalPolicies: len(policies),
-			ErrorCount:    len(errorsList),
-			WarningCount:  0,
-		},
-		ValidatedAt: now,
-	}
+	res.Valid = len(res.Errors) == 0
+	res.Summary.ErrorCount = len(res.Errors)
 
 	p.mu.Lock()
 	p.lastValidation[tenantID] = res
@@ -2444,7 +1965,7 @@ func (p *PostgresService) ValidateConfig(ctx context.Context, tenantID string, a
 
 	p.recordAudit(ctx, tenantID, actorMemberID, "config.validated", "Tenant", tenantID, nil, map[string]interface{}{
 		"valid":       res.Valid,
-		"error_count": len(errorsList),
+		"error_count": len(res.Errors),
 	}, "127.0.0.1")
 
 	return res, nil
@@ -2461,25 +1982,10 @@ func (p *PostgresService) GetDraftSummary(ctx context.Context, tenantID string) 
 	}
 
 	p.mu.RLock()
-	lastRes, hasLast := p.lastValidation[tenantID]
+	lastRes := p.lastValidation[tenantID]
 	p.mu.RUnlock()
 
-	var lastTime *int64
-	isValidated := false
-	if hasLast && lastRes != nil {
-		lastTime = &lastRes.ValidatedAt
-		isValidated = lastRes.Valid
-	}
-
-	return &ConfigDraftSummary{
-		TenantID:        tenantID,
-		PendingChanges:  len(routes) + len(policies),
-		RoutesCount:     len(routes),
-		PoliciesCount:   len(policies),
-		LastValidatedAt: lastTime,
-		IsValidated:     isValidated,
-		LastResult:      lastRes,
-	}, nil
+	return buildDraftSummary(tenantID, len(routes), len(policies), lastRes), nil
 }
 
 func (p *PostgresService) GetDraftDiff(ctx context.Context, tenantID string) (*ConfigDraftDiff, error) {
@@ -2491,56 +1997,71 @@ func (p *PostgresService) GetDraftDiff(ctx context.Context, tenantID string) (*C
 	if err != nil {
 		return nil, err
 	}
-
-	routeDiffs := make([]RouteDiffItem, len(routes))
-	for i, r := range routes {
-		routeDiffs[i] = RouteDiffItem{
-			RouteID:     r.RouteID,
-			Action:      "added",
-			PathPattern: r.PathPattern,
-			After: map[string]interface{}{
-				"upstream_url":     r.UpstreamURL,
-				"price_base_units": r.PriceBaseUnits,
-			},
-		}
-	}
-
-	policyDiffs := make([]PolicyDiffItem, len(policies))
-	for i, pol := range policies {
-		policyDiffs[i] = PolicyDiffItem{
-			PolicyID: pol.PolicyID,
-			Action:   "added",
-			After: map[string]interface{}{
-				"max_amount_per_request": pol.MaxAmountPerRequest,
-				"rolling_24h_budget_cap": pol.Rolling24hBudgetCap,
-			},
-		}
-	}
-
-	return &ConfigDraftDiff{
-		TenantID:        tenantID,
-		ActiveVersionID: "",
-		HasChanges:      len(routeDiffs) > 0 || len(policyDiffs) > 0,
-		RouteDiffs:      routeDiffs,
-		PolicyDiffs:     policyDiffs,
-	}, nil
+	return buildDraftDiff(tenantID, routes, policies), nil
 }
 
-// ----------------------------------------------------------------------------
-// Config Publishing, Versions & Rollback (T4.4)
-// ----------------------------------------------------------------------------
+func (p *PostgresService) persistNewConfigVersion(ctx context.Context, tenantID, versionID, actorMemberID, summary string, newVersionNumber int64, snap *rcu.ConfigSnapshot) (*ConfigVersion, error) {
+	snapBytes, err := json.Marshal(snap)
+	if err != nil {
+		return nil, fmt.Errorf("marshal snapshot: %w", err)
+	}
 
-func (p *PostgresService) PublishConfig(ctx context.Context, tenantID string, changeSummary string, actorMemberID string) (*ConfigVersion, error) {
-	_, err := p.GetTenant(ctx, tenantID)
+	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
+	defer tx.Rollback()
 
+	if _, err := tx.ExecContext(ctx, "UPDATE ap_config_version SET is_active = FALSE WHERE tenant_id = $1 AND is_active = TRUE", tenantID); err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ap_config_version (
+			version_id, tenant_id, version_number, snapshot_json, published_by, change_summary, is_active, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW())
+	`, versionID, tenantID, newVersionNumber, snapBytes, actorMemberID, summary); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	var publisherEmail string
+	_ = p.db.QueryRowContext(ctx, "SELECT email FROM ap_member WHERE member_id = $1", actorMemberID).Scan(&publisherEmail)
+	if publisherEmail == "" {
+		publisherEmail = actorMemberID
+	}
+
+	if p.rcuMgr != nil {
+		_ = p.rcuMgr.Update(snap)
+	}
+
+	return &ConfigVersion{
+		VersionID:      versionID,
+		TenantID:       tenantID,
+		VersionNumber:  newVersionNumber,
+		SnapshotJSON:   snap,
+		SnapshotHash:   snap.SnapshotHash,
+		PublishedBy:    actorMemberID,
+		PublisherEmail: publisherEmail,
+		ChangeSummary:  summary,
+		IsActive:       true,
+		RoutesCount:    len(snap.Routes),
+		PoliciesCount:  len(snap.Policies),
+		CreatedAt:      snap.PublishedAt,
+	}, nil
+}
+
+func (p *PostgresService) PublishConfig(ctx context.Context, tenantID string, changeSummary string, actorMemberID string) (*ConfigVersion, error) {
+	if _, err := p.GetTenant(ctx, tenantID); err != nil {
+		return nil, err
+	}
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionRouteWrite); err != nil {
 		return nil, err
 	}
 
-	// 1. Static validation matrix gate
 	valResult, err := p.ValidateConfig(ctx, tenantID, actorMemberID)
 	if err != nil {
 		return nil, err
@@ -2558,45 +2079,10 @@ func (p *PostgresService) PublishConfig(ctx context.Context, tenantID string, ch
 		return nil, err
 	}
 
-	rcuRoutes := make([]rcu.RouteConfig, 0, len(routes))
-	for _, r := range routes {
-		rcuRoutes = append(rcuRoutes, rcu.RouteConfig{
-			RouteID:               r.RouteID,
-			ProjectID:             r.ProjectID,
-			Network:               r.Network,
-			PathPattern:           r.PathPattern,
-			UpstreamURL:           r.UpstreamURL,
-			PriceBaseUnits:        r.PriceBaseUnits,
-			Asset:                 r.Asset,
-			OnchainPriceBaseUnits: r.OnchainPriceBaseUnits,
-			OnchainAsset:          r.OnchainAsset,
-			PayeeAddress:          r.PayeeAddress,
-			AllowedPaymentMethods: r.AllowedPaymentMethods,
-			TimeoutMS:             r.TimeoutMs,
-			RateLimitRPM:          r.RateLimitRPM,
-			Status:                string(r.Status),
-			UpstreamAuth:          r.UpstreamAuth,
-		})
-	}
-
-	rcuPolicies := make([]rcu.PolicyConfig, 0, len(policies))
-	for _, pol := range policies {
-		rcuPolicies = append(rcuPolicies, rcu.PolicyConfig{
-			PolicyID:             pol.PolicyID,
-			ProjectID:            pol.ProjectID,
-			RouteID:              &pol.RouteID,
-			MaxAmountPerRequest:  pol.MaxAmountPerRequest,
-			Rolling24hBudgetCap:  pol.Rolling24hBudgetCap,
-			CircuitBreakerMaxRPM: pol.CircuitBreakerMaxRPM,
-			WhitelistedNetworks:  pol.WhitelistedNetworks,
-			WhitelistedRoutes:    pol.WhitelistedRoutes,
-			IsActive:             pol.IsActive,
-		})
-	}
-
+	rcuRoutes, rcuPolicies := buildRCUSnapshotConfigs(routes, policies)
 	snapshotHash := rcu.ComputeCanonicalSnapshotHash(rcuRoutes, rcuPolicies)
 
-	var maxVerNum int64 = 0
+	var maxVerNum int64
 	_ = p.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version_number), 0) FROM ap_config_version WHERE tenant_id = $1", tenantID).Scan(&maxVerNum)
 	newVersionNumber := maxVerNum + 1
 	versionID := GenerateConfigVersionID()
@@ -2620,43 +2106,9 @@ func (p *PostgresService) PublishConfig(ctx context.Context, tenantID string, ch
 		Policies:      rcuPolicies,
 	}
 
-	snapBytes, err := json.Marshal(snap)
-	if err != nil {
-		return nil, fmt.Errorf("marshal snapshot: %w", err)
-	}
-
-	tx, err := p.db.BeginTx(ctx, nil)
+	ver, err := p.persistNewConfigVersion(ctx, tenantID, versionID, actorMemberID, summary, newVersionNumber, snap)
 	if err != nil {
 		return nil, err
-	}
-	defer tx.Rollback()
-
-	_, err = tx.ExecContext(ctx, "UPDATE ap_config_version SET is_active = FALSE WHERE tenant_id = $1 AND is_active = TRUE", tenantID)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO ap_config_version (
-			version_id, tenant_id, version_number, snapshot_json, published_by, change_summary, is_active, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW())
-	`, versionID, tenantID, newVersionNumber, snapBytes, actorMemberID, summary)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	var publisherEmail string
-	_ = p.db.QueryRowContext(ctx, "SELECT email FROM ap_member WHERE member_id = $1", actorMemberID).Scan(&publisherEmail)
-	if publisherEmail == "" {
-		publisherEmail = actorMemberID
-	}
-
-	if p.rcuMgr != nil {
-		_ = p.rcuMgr.Update(snap)
 	}
 
 	p.recordAudit(ctx, tenantID, actorMemberID, "config.published", "ConfigVersion", versionID, nil, map[string]interface{}{
@@ -2667,20 +2119,33 @@ func (p *PostgresService) PublishConfig(ctx context.Context, tenantID string, ch
 		"policies_count": len(rcuPolicies),
 	}, "127.0.0.1")
 
-	return &ConfigVersion{
-		VersionID:      versionID,
-		TenantID:       tenantID,
-		VersionNumber:  newVersionNumber,
-		SnapshotJSON:   snap,
-		SnapshotHash:   snapshotHash,
-		PublishedBy:    actorMemberID,
-		PublisherEmail: publisherEmail,
-		ChangeSummary:  summary,
-		IsActive:       true,
-		RoutesCount:    len(rcuRoutes),
-		PoliciesCount:  len(rcuPolicies),
-		CreatedAt:      now,
-	}, nil
+	return ver, nil
+}
+
+func scanConfigVersionRow(scanner routeRowScanner) (*ConfigVersion, error) {
+	var v ConfigVersion
+	var snapBytes []byte
+	if err := scanner.Scan(
+		&v.VersionID,
+		&v.TenantID,
+		&v.VersionNumber,
+		&snapBytes,
+		&v.PublishedBy,
+		&v.PublisherEmail,
+		&v.ChangeSummary,
+		&v.IsActive,
+		&v.CreatedAt,
+	); err != nil {
+		return nil, err
+	}
+	var snap rcu.ConfigSnapshot
+	if err := json.Unmarshal(snapBytes, &snap); err == nil {
+		v.SnapshotJSON = &snap
+		v.SnapshotHash = snap.SnapshotHash
+		v.RoutesCount = len(snap.Routes)
+		v.PoliciesCount = len(snap.Policies)
+	}
+	return &v, nil
 }
 
 func (p *PostgresService) ListConfigVersions(ctx context.Context, tenantID string) ([]*ConfigVersion, error) {
@@ -2698,65 +2163,26 @@ func (p *PostgresService) ListConfigVersions(ctx context.Context, tenantID strin
 
 	list := make([]*ConfigVersion, 0)
 	for rows.Next() {
-		var v ConfigVersion
-		var snapBytes []byte
-		err := rows.Scan(
-			&v.VersionID,
-			&v.TenantID,
-			&v.VersionNumber,
-			&snapBytes,
-			&v.PublishedBy,
-			&v.PublisherEmail,
-			&v.ChangeSummary,
-			&v.IsActive,
-			&v.CreatedAt,
-		)
+		v, err := scanConfigVersionRow(rows)
 		if err != nil {
 			return nil, err
 		}
-		var snap rcu.ConfigSnapshot
-		if err := json.Unmarshal(snapBytes, &snap); err == nil {
-			v.SnapshotJSON = &snap
-			v.SnapshotHash = snap.SnapshotHash
-			v.RoutesCount = len(snap.Routes)
-			v.PoliciesCount = len(snap.Policies)
-		}
-		list = append(list, &v)
+		list = append(list, v)
 	}
 	return list, nil
 }
 
 func (p *PostgresService) GetConfigVersion(ctx context.Context, tenantID, versionID string) (*ConfigVersion, error) {
-	var v ConfigVersion
-	var snapBytes []byte
-	err := p.db.QueryRowContext(ctx, `
+	v, err := scanConfigVersionRow(p.db.QueryRowContext(ctx, `
 		SELECT v.version_id, v.tenant_id, v.version_number, v.snapshot_json, v.published_by, COALESCE(m.email, v.published_by), v.change_summary, v.is_active, EXTRACT(EPOCH FROM v.created_at)::BIGINT
 		FROM ap_config_version v
 		LEFT JOIN ap_member m ON v.published_by = m.member_id
 		WHERE v.tenant_id = $1 AND v.version_id = $2
-	`, tenantID, versionID).Scan(
-		&v.VersionID,
-		&v.TenantID,
-		&v.VersionNumber,
-		&snapBytes,
-		&v.PublishedBy,
-		&v.PublisherEmail,
-		&v.ChangeSummary,
-		&v.IsActive,
-		&v.CreatedAt,
-	)
+	`, tenantID, versionID))
 	if err != nil {
 		return nil, ErrConfigVersionNotFound
 	}
-
-	var snap rcu.ConfigSnapshot
-	if err := json.Unmarshal(snapBytes, &snap); err == nil {
-		v.SnapshotJSON = &snap
-		v.SnapshotHash = snap.SnapshotHash
-		v.RoutesCount = len(snap.Routes)
-		v.PoliciesCount = len(snap.Policies)
-	}
-	return &v, nil
+	return v, nil
 }
 
 func (p *PostgresService) RollbackConfig(ctx context.Context, tenantID, targetVersionID, reason, actorMemberID string) (*ConfigVersion, error) {
@@ -2772,76 +2198,22 @@ func (p *PostgresService) RollbackConfig(ctx context.Context, tenantID, targetVe
 		return nil, ErrCannotRollbackToActive
 	}
 
-	var maxVerNum int64 = 0
+	var maxVerNum int64
 	_ = p.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version_number), 0) FROM ap_config_version WHERE tenant_id = $1", tenantID).Scan(&maxVerNum)
 	newVersionNumber := maxVerNum + 1
 	versionID := GenerateConfigVersionID()
 	now := time.Now().Unix()
 
-	summary := fmt.Sprintf("Rollback to version v%d", targetVer.VersionNumber)
-	if strings.TrimSpace(reason) != "" {
-		summary = fmt.Sprintf("Rollback to version v%d: %s", targetVer.VersionNumber, strings.TrimSpace(reason))
-	}
+	restoredSnap, summary := buildRestoredSnapshot(tenantID, versionID, actorMemberID, reason, newVersionNumber, now, targetVer)
 
-	restoredRoutes := make([]rcu.RouteConfig, len(targetVer.SnapshotJSON.Routes))
-	copy(restoredRoutes, targetVer.SnapshotJSON.Routes)
-	restoredPolicies := make([]rcu.PolicyConfig, len(targetVer.SnapshotJSON.Policies))
-	copy(restoredPolicies, targetVer.SnapshotJSON.Policies)
-
-	restoredSnap := &rcu.ConfigSnapshot{
-		SchemaVersion: "2.0.0",
-		TenantID:      tenantID,
-		VersionID:     versionID,
-		VersionNumber: newVersionNumber,
-		PublishedAt:   now,
-		PublishedBy:   actorMemberID,
-		ChangeSummary: summary,
-		SnapshotHash:  targetVer.SnapshotHash,
-		Routes:        restoredRoutes,
-		Policies:      restoredPolicies,
-	}
-
-	snapBytes, err := json.Marshal(restoredSnap)
+	ver, err := p.persistNewConfigVersion(ctx, tenantID, versionID, actorMemberID, summary, newVersionNumber, restoredSnap)
 	if err != nil {
 		return nil, err
-	}
-
-	tx, err := p.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	_, err = tx.ExecContext(ctx, "UPDATE ap_config_version SET is_active = FALSE WHERE tenant_id = $1 AND is_active = TRUE", tenantID)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO ap_config_version (
-			version_id, tenant_id, version_number, snapshot_json, published_by, change_summary, is_active, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW())
-	`, versionID, tenantID, newVersionNumber, snapBytes, actorMemberID, summary)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	var publisherEmail string
-	_ = p.db.QueryRowContext(ctx, "SELECT email FROM ap_member WHERE member_id = $1", actorMemberID).Scan(&publisherEmail)
-	if publisherEmail == "" {
-		publisherEmail = actorMemberID
-	}
-
-	if p.rcuMgr != nil {
-		_ = p.rcuMgr.Update(restoredSnap)
 	}
 
 	p.recordAudit(ctx, tenantID, actorMemberID, "config.rolled_back", "ConfigVersion", versionID, map[string]interface{}{
-		"target_version_id": targetVer.VersionID,
+		"target_version_id":     targetVer.VersionID,
+		"target_version_number": targetVer.VersionNumber,
 	}, map[string]interface{}{
 		"new_version_id":     versionID,
 		"new_version_number": newVersionNumber,
@@ -2849,25 +2221,11 @@ func (p *PostgresService) RollbackConfig(ctx context.Context, tenantID, targetVe
 		"reason":             reason,
 	}, "127.0.0.1")
 
-	return &ConfigVersion{
-		VersionID:      versionID,
-		TenantID:       tenantID,
-		VersionNumber:  newVersionNumber,
-		SnapshotJSON:   restoredSnap,
-		SnapshotHash:   targetVer.SnapshotHash,
-		PublishedBy:    actorMemberID,
-		PublisherEmail: publisherEmail,
-		ChangeSummary:  summary,
-		IsActive:       true,
-		RoutesCount:    len(restoredRoutes),
-		PoliciesCount:  len(restoredPolicies),
-		CreatedAt:      now,
-	}, nil
+	return ver, nil
 }
 
 func (p *PostgresService) GetConfigVersionDiff(ctx context.Context, tenantID, baseVersionID, targetVersionID string) (*ConfigDraftDiff, error) {
-	var baseSnap *rcu.ConfigSnapshot
-	var targetSnap *rcu.ConfigSnapshot
+	var baseSnap, targetSnap *rcu.ConfigSnapshot
 
 	if baseVersionID != "" {
 		v, err := p.GetConfigVersion(ctx, tenantID, baseVersionID)
@@ -2895,78 +2253,7 @@ func (p *PostgresService) GetConfigVersionDiff(ctx context.Context, tenantID, ba
 		targetSnap = v.SnapshotJSON
 	}
 
-	routeDiffs := make([]RouteDiffItem, 0)
-	policyDiffs := make([]PolicyDiffItem, 0)
-
-	baseRouteMap := make(map[string]rcu.RouteConfig)
-	if baseSnap != nil {
-		for _, r := range baseSnap.Routes {
-			baseRouteMap[r.RouteID] = r
-		}
-	}
-
-	targetRouteMap := make(map[string]rcu.RouteConfig)
-	if targetSnap != nil {
-		for _, r := range targetSnap.Routes {
-			targetRouteMap[r.RouteID] = r
-		}
-	}
-
-	for id, tr := range targetRouteMap {
-		br, exists := baseRouteMap[id]
-		if !exists {
-			routeDiffs = append(routeDiffs, RouteDiffItem{
-				RouteID:     id,
-				Action:      "added",
-				PathPattern: tr.PathPattern,
-				After: map[string]interface{}{
-					"upstream_url":     tr.UpstreamURL,
-					"price_base_units": tr.PriceBaseUnits,
-				},
-			})
-		} else if br.UpstreamURL != tr.UpstreamURL || br.PriceBaseUnits != tr.PriceBaseUnits || br.PathPattern != tr.PathPattern {
-			routeDiffs = append(routeDiffs, RouteDiffItem{
-				RouteID:     id,
-				Action:      "modified",
-				PathPattern: tr.PathPattern,
-				Before: map[string]interface{}{
-					"upstream_url":     br.UpstreamURL,
-					"price_base_units": br.PriceBaseUnits,
-				},
-				After: map[string]interface{}{
-					"upstream_url":     tr.UpstreamURL,
-					"price_base_units": tr.PriceBaseUnits,
-				},
-			})
-		}
-	}
-
-	for id, br := range baseRouteMap {
-		if _, exists := targetRouteMap[id]; !exists {
-			routeDiffs = append(routeDiffs, RouteDiffItem{
-				RouteID:     id,
-				Action:      "deleted",
-				PathPattern: br.PathPattern,
-				Before: map[string]interface{}{
-					"upstream_url":     br.UpstreamURL,
-					"price_base_units": br.PriceBaseUnits,
-				},
-			})
-		}
-	}
-
-	activeVerID := ""
-	if baseSnap != nil {
-		activeVerID = baseSnap.VersionID
-	}
-
-	return &ConfigDraftDiff{
-		TenantID:        tenantID,
-		ActiveVersionID: activeVerID,
-		HasChanges:      len(routeDiffs) > 0 || len(policyDiffs) > 0,
-		RouteDiffs:      routeDiffs,
-		PolicyDiffs:     policyDiffs,
-	}, nil
+	return computeSnapshotDiff(tenantID, baseSnap, targetSnap), nil
 }
 
 // ----------------------------------------------------------------------------
@@ -2981,7 +2268,6 @@ func (p *PostgresService) AdminGrantWallet(ctx context.Context, tenantID string,
 	if amount <= 0 {
 		return ErrInvalidAmount
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionWalletAdjust); err != nil {
 		return err
 	}
@@ -2991,8 +2277,9 @@ func (p *PostgresService) AdminGrantWallet(ctx context.Context, tenantID string,
 		return ErrWalletNotFound
 	}
 
+	now := time.Now()
 	order := &wallet.TopUpOrder{
-		TopUpID:     fmt.Sprintf("ord_%s_%d", tenantID, time.Now().UnixNano()),
+		TopUpID:     fmt.Sprintf("ord_%s_%d", tenantID, now.UnixNano()),
 		WalletID:    w.WalletID,
 		TenantID:    tenantID,
 		Channel:     wallet.ChannelAdminGrant,
@@ -3001,10 +2288,9 @@ func (p *PostgresService) AdminGrantWallet(ctx context.Context, tenantID string,
 		ExternalRef: idempotencyKey,
 		Reason:      cleanReason,
 		Status:      wallet.TopUpStatusConfirmed,
-		CreatedAt:   time.Now(),
-		ConfirmedAt: time.Now(),
+		CreatedAt:   now,
+		ConfirmedAt: now,
 	}
-
 	if err := p.walletSvc.CreditTopUp(ctx, order); err != nil {
 		return err
 	}
@@ -3023,11 +2309,9 @@ func (p *PostgresService) AdjustWallet(ctx context.Context, walletID string, amo
 	if err != nil {
 		return ErrWalletNotFound
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, w.TenantID, PermissionWalletAdjust); err != nil {
 		return err
 	}
-
 	if err := p.walletSvc.AdjustBalance(ctx, walletID, amount, cleanReason, idempotencyKey, actorMemberID); err != nil {
 		return err
 	}
@@ -3046,11 +2330,9 @@ func (p *PostgresService) FreezeWallet(ctx context.Context, walletID string, rea
 	if err != nil {
 		return ErrWalletNotFound
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, w.TenantID, PermissionWalletAdjust); err != nil {
 		return err
 	}
-
 	if err := p.walletSvc.SetWalletStatus(ctx, walletID, wallet.StatusFrozen); err != nil {
 		return err
 	}
@@ -3069,15 +2351,12 @@ func (p *PostgresService) UnfreezeWallet(ctx context.Context, walletID string, r
 	if err != nil {
 		return ErrWalletNotFound
 	}
-
 	if err := p.enforcePermission(ctx, actorMemberID, w.TenantID, PermissionWalletAdjust); err != nil {
 		return err
 	}
-
 	if w.Status == wallet.StatusFrozenArrears && w.AvailableCache < 0 {
 		return fmt.Errorf("cannot unfreeze wallet in arrears")
 	}
-
 	if err := p.walletSvc.SetWalletStatus(ctx, walletID, wallet.StatusActive); err != nil {
 		return err
 	}
@@ -3087,17 +2366,14 @@ func (p *PostgresService) UnfreezeWallet(ctx context.Context, walletID string, r
 }
 
 func (p *PostgresService) RecalculateWallet(ctx context.Context, walletID string, actorMemberID string) (map[string]interface{}, error) {
-	rep, err := p.walletSvc.ReconcileBalance(ctx, walletID)
+	w, err := p.walletSvc.GetWallet(ctx, walletID)
 	if err != nil {
+		return nil, ErrWalletNotFound
+	}
+	if err := p.enforcePermission(ctx, actorMemberID, w.TenantID, PermissionWalletRead); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{
-		"wallet_id":   walletID,
-		"cached":      rep.AvailableCache,
-		"calculated":  rep.SumLedgerEntries,
-		"consistent":  rep.IsBalanced,
-		"is_balanced": rep.IsBalanced,
-	}, nil
+	return recalculateWalletBalanceMap(ctx, p.walletSvc, walletID)
 }
 
 func (p *PostgresService) GetWallet(ctx context.Context, tenantID string) (*wallet.Wallet, error) {
@@ -3189,96 +2465,18 @@ func (p *PostgresService) TestUpstream(ctx context.Context, tenantID string, inp
 	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionRouteRead); err != nil {
 		return nil, err
 	}
-
-	if input == nil || strings.TrimSpace(input.UpstreamURL) == "" {
-		return &TestUpstreamResult{
-			Success: false,
-			Error:   "upstream_url is required",
-		}, nil
+	result, cleanURL, testErr := executeUpstreamTest(ctx, input)
+	if testErr != nil {
+		return nil, testErr
 	}
-
-	cleanURL := strings.TrimSpace(input.UpstreamURL)
-	targetURL, err := url.Parse(cleanURL)
-	if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
-		return &TestUpstreamResult{
-			Success: false,
-			Error:   "invalid upstream_url: must include scheme (http/https) and host",
-		}, nil
+	if cleanURL != "" && result.StatusCode > 0 || result.Error != "" && strings.HasPrefix(result.Error, "upstream connection error:") {
+		p.recordAudit(ctx, tenantID, actorMemberID, "route.tested", "Route", "", nil, map[string]interface{}{
+			"url":         cleanURL,
+			"auth_type":   "",
+			"success":     result.Success,
+			"status_code": result.StatusCode,
+		}, "127.0.0.1")
 	}
-
-	method := strings.ToUpper(strings.TrimSpace(input.Method))
-	if method == "" {
-		method = http.MethodGet
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, cleanURL, nil)
-	if err != nil {
-		return &TestUpstreamResult{
-			Success: false,
-			Error:   fmt.Sprintf("failed to construct test request: %v", err),
-		}, nil
-	}
-
-	// Apply configured upstream authentication
-	if input.UpstreamAuth != nil && input.UpstreamAuth.Type != "" && input.UpstreamAuth.Type != "none" {
-		if auth, ok := upstreamauth.Get(input.UpstreamAuth.Type); ok {
-			secrets := input.UpstreamAuth.Secrets
-			if len(secrets) == 0 && len(input.UpstreamAuth.SecretEnc) > 0 {
-				dec, _ := upstreamauth.DecryptSecrets(input.UpstreamAuth.SecretEnc, nil)
-				secrets = dec
-			}
-			if err := auth.Apply(ctx, req, input.UpstreamAuth.Params, secrets); err != nil {
-				return &TestUpstreamResult{
-					Success: false,
-					Error:   fmt.Sprintf("failed to apply upstream auth: %v", err),
-				}, nil
-			}
-		}
-	}
-
-	// Sanitize request headers for display
-	sentHeaders := make(map[string]string)
-	for k, vv := range req.Header {
-		val := strings.Join(vv, ", ")
-		sentHeaders[k] = upstreamauth.MaskHeader(k, val)
-	}
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return errors.New("stopped after 3 redirects")
-			}
-			return nil
-		},
-	}
-
-	start := time.Now()
-	resp, err := client.Do(req)
-	latency := time.Since(start).Milliseconds()
-
-	result := &TestUpstreamResult{
-		SentHeaders: sentHeaders,
-		LatencyMs:   latency,
-	}
-
-	if err != nil {
-		result.Success = false
-		result.Error = fmt.Sprintf("upstream connection error: %v", err)
-	} else {
-		defer resp.Body.Close()
-		result.StatusCode = resp.StatusCode
-		result.StatusText = resp.Status
-		result.Success = resp.StatusCode >= 200 && resp.StatusCode < 400
-	}
-
-	p.recordAudit(ctx, tenantID, actorMemberID, "route.tested", "Route", "", nil, map[string]interface{}{
-		"url":         cleanURL,
-		"auth_type":   "",
-		"success":     result.Success,
-		"status_code": result.StatusCode,
-	}, "127.0.0.1")
-
 	return result, nil
 }
 
@@ -3387,57 +2585,19 @@ func (p *PostgresService) SyncRCU(ctx context.Context) error {
 		}
 	}
 
-	// Merge with bootstrap routes and policies if any
-	curr := mgr.Current()
-	if curr != nil {
-		if len(routes) == 0 && len(policies) == 0 {
-			return nil
-		}
-		existingRoutes := make(map[string]bool)
-		for _, r := range routes {
-			existingRoutes[r.PathPattern] = true
-		}
-		for _, br := range curr.Routes {
-			if !existingRoutes[br.PathPattern] && br.Status == "active" {
-				routes = append(routes, br)
-			}
-		}
-
-		existingPolicies := make(map[string]bool)
-		for _, p := range policies {
-			existingPolicies[p.PolicyID] = true
-		}
-		for _, bp := range curr.Policies {
-			if !existingPolicies[bp.PolicyID] && bp.IsActive {
-				policies = append(policies, bp)
-			}
-		}
-	} else if len(routes) == 0 && len(policies) == 0 {
-		return nil
-	}
-
-	newSnap := &rcu.ConfigSnapshot{
-		SchemaVersion: "2.0.0",
-		TenantID:      "global",
-		VersionID:     fmt.Sprintf("ver_sync_%d", time.Now().UnixNano()),
-		VersionNumber: time.Now().Unix(),
-		PublishedAt:   time.Now().Unix(),
-		PublishedBy:   "admin_postgres_sync",
-		Routes:        routes,
-		Policies:      policies,
-	}
-
-	return mgr.Update(newSnap)
+	return mergeAndApplyRCUSnapshot(mgr, routes, policies, "admin_postgres_sync")
 }
 
-// SetUsageService configures a custom usage service on PostgresService.
+// ----------------------------------------------------------------------------
+// Observability: Usage, Payment Correlation & Timeline (T5.1, T5.2, T5.8)
+// ----------------------------------------------------------------------------
+
 func (p *PostgresService) SetUsageService(svc usage.Service) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.usageSvc = svc
 }
 
-// GetUsageService returns the active usage service or initializes a PostgreSQL-backed one.
 func (p *PostgresService) GetUsageService() usage.Service {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -3447,56 +2607,42 @@ func (p *PostgresService) GetUsageService() usage.Service {
 	return p.usageSvc
 }
 
-// ListRequestRecords retrieves request records with RBAC and tenant boundary enforcement.
 func (p *PostgresService) ListRequestRecords(ctx context.Context, tenantID string, filter usage.RequestFilter, actorMemberID string) ([]*usage.RequestRecord, int64, error) {
-	if actorMemberID != "" {
-		if err := p.enforcePermission(ctx, tenantID, actorMemberID, PermissionAuditRead); err != nil {
-			return nil, 0, err
-		}
+	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
+		return nil, 0, err
 	}
 	filter.TenantID = tenantID
 	return p.GetUsageService().ListRequestRecords(ctx, filter)
 }
 
-// GetRequestRecord retrieves a single request record by ID with RBAC and tenant boundary enforcement.
 func (p *PostgresService) GetRequestRecord(ctx context.Context, tenantID, requestID string, actorMemberID string) (*usage.RequestRecord, error) {
-	if actorMemberID != "" {
-		if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
-			return nil, err
-		}
+	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
+		return nil, err
 	}
 	return p.GetUsageService().GetRequestRecord(ctx, tenantID, requestID)
 }
 
-// ListUsageEvents retrieves usage events with RBAC and tenant boundary enforcement.
 func (p *PostgresService) ListUsageEvents(ctx context.Context, tenantID string, filter usage.UsageFilter, actorMemberID string) ([]*usage.UsageEvent, int64, error) {
-	if actorMemberID != "" {
-		if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
-			return nil, 0, err
-		}
+	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
+		return nil, 0, err
 	}
 	filter.TenantID = tenantID
 	return p.GetUsageService().ListUsageEvents(ctx, filter)
 }
 
-// GetUsageEvent retrieves a single usage event by ID with RBAC and tenant boundary enforcement.
 func (p *PostgresService) GetUsageEvent(ctx context.Context, tenantID, eventID string, actorMemberID string) (*usage.UsageEvent, error) {
-	if actorMemberID != "" {
-		if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
-			return nil, err
-		}
+	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
+		return nil, err
 	}
 	return p.GetUsageService().GetUsageEvent(ctx, tenantID, eventID)
 }
 
-// SetPaymentService configures the payment correlation service.
 func (p *PostgresService) SetPaymentService(svc payment.Service) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.paymentSvc = svc
 }
 
-// GetPaymentService returns the active payment correlation service.
 func (p *PostgresService) GetPaymentService() payment.Service {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -3506,45 +2652,34 @@ func (p *PostgresService) GetPaymentService() payment.Service {
 	return p.paymentSvc
 }
 
-// GetPaymentAudit retrieves a single payment correlation audit record with RBAC and tenant boundary check.
 func (p *PostgresService) GetPaymentAudit(ctx context.Context, tenantID, intentID string, actorMemberID string) (*payment.PaymentAuditRecord, error) {
-	if actorMemberID != "" {
-		if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
-			return nil, err
-		}
+	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
+		return nil, err
 	}
 	return p.GetPaymentService().GetPaymentAudit(ctx, tenantID, intentID)
 }
 
-// GetPaymentAuditByRequestID retrieves a payment correlation record by request_id.
 func (p *PostgresService) GetPaymentAuditByRequestID(ctx context.Context, tenantID, requestID string, actorMemberID string) (*payment.PaymentAuditRecord, error) {
-	if actorMemberID != "" {
-		if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
-			return nil, err
-		}
+	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
+		return nil, err
 	}
 	return p.GetPaymentService().GetPaymentAuditByRequestID(ctx, tenantID, requestID)
 }
 
-// ListPaymentAudits retrieves a paginated list of payment correlation records with RBAC.
 func (p *PostgresService) ListPaymentAudits(ctx context.Context, tenantID string, filter payment.PaymentAuditFilter, actorMemberID string) ([]*payment.PaymentAuditRecord, int64, error) {
-	if actorMemberID != "" {
-		if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
-			return nil, 0, err
-		}
+	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
+		return nil, 0, err
 	}
 	filter.TenantID = tenantID
 	return p.GetPaymentService().ListPaymentAudits(ctx, filter)
 }
 
-// SetTimelineService configures the timeline service.
 func (p *PostgresService) SetTimelineService(svc timeline.Service) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.timelineSvc = svc
 }
 
-// GetTimelineService returns the active timeline service.
 func (p *PostgresService) GetTimelineService() timeline.Service {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -3554,14 +2689,10 @@ func (p *PostgresService) GetTimelineService() timeline.Service {
 	return p.timelineSvc
 }
 
-// GetAgentTimeline retrieves agent timeline events with RBAC, tenant ownership, and session aggregation.
 func (p *PostgresService) GetAgentTimeline(ctx context.Context, tenantID, agentID string, filter timeline.TimelineFilter, actorMemberID string) ([]*timeline.TimelineEvent, int64, []string, error) {
-	if actorMemberID != "" {
-		if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
-			return nil, 0, nil, err
-		}
+	if err := p.enforcePermission(ctx, actorMemberID, tenantID, PermissionAuditRead); err != nil {
+		return nil, 0, nil, err
 	}
-
 	ag, err := p.GetAgent(ctx, tenantID, agentID)
 	if err != nil {
 		return nil, 0, nil, err
@@ -3569,11 +2700,7 @@ func (p *PostgresService) GetAgentTimeline(ctx context.Context, tenantID, agentI
 	if ag == nil || ag.TenantID != tenantID {
 		return nil, 0, nil, ErrAgentNotFound
 	}
-
 	filter.TenantID = tenantID
 	filter.AgentID = agentID
 	return p.GetTimelineService().GetTimeline(ctx, tenantID, agentID, filter)
 }
-
-
-

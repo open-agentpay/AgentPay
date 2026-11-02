@@ -7,18 +7,26 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/open-agentpay/agentpay-gateway-go/internal/auth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/upstreamauth"
 )
 
 func TestUpstreamAuthEndpointsAndLifecycle(t *testing.T) {
-	svc := NewMemoryService(nil, nil)
-	handler := NewHandler(svc)
+	if err := upstreamauth.ConfigureKeyRing(1, "0123456789abcdef0123456789abcdef", nil); err != nil {
+		t.Fatalf("failed to configure keyring: %v", err)
+	}
 
-	tenant, _, err := svc.CreateTenant(context.Background(), "Upstream Auth Org", "ten_upstream_001", "admin@upstream.io")
+	svc := NewMemoryService(nil, nil)
+	jwtMgr := auth.MustNewJWTManager("test-admin-secret-key-for-unit-testing-32b!", 24*time.Hour)
+	handler := NewHandlerWithJWT(svc, jwtMgr)
+
+	tenant, owner, err := svc.CreateTenant(context.Background(), "Upstream Auth Org", "ten_upstream_001", "admin@upstream.io")
 	if err != nil {
 		t.Fatalf("failed to create tenant: %v", err)
 	}
+	ownerToken, _ := jwtMgr.GenerateToken(owner.MemberID, owner.Email, tenant.TenantID, string(owner.Role))
 
 	// 1. Test GET /api/v1/auth-types
 	reqTypes := httptest.NewRequest(http.MethodGet, "/api/v1/auth-types", nil)
@@ -59,6 +67,7 @@ func TestUpstreamAuthEndpointsAndLifecycle(t *testing.T) {
 	bodyBytes, _ := json.Marshal(routePayload)
 	reqCreate := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenant.TenantID+"/routes", bytes.NewReader(bodyBytes))
 	reqCreate.Header.Set("Content-Type", "application/json")
+	reqCreate.Header.Set("Authorization", "Bearer "+ownerToken)
 	recCreate := httptest.NewRecorder()
 	handler.ServeHTTP(recCreate, reqCreate)
 
@@ -103,6 +112,7 @@ func TestUpstreamAuthEndpointsAndLifecycle(t *testing.T) {
 	updateBytes, _ := json.Marshal(updatePayload)
 	reqUpdate := httptest.NewRequest(http.MethodPatch, "/api/v1/tenants/"+tenant.TenantID+"/routes/"+createdRoute.RouteID, bytes.NewReader(updateBytes))
 	reqUpdate.Header.Set("Content-Type", "application/json")
+	reqUpdate.Header.Set("Authorization", "Bearer "+ownerToken)
 	recUpdate := httptest.NewRecorder()
 	handler.ServeHTTP(recUpdate, reqUpdate)
 
@@ -131,6 +141,7 @@ func TestUpstreamAuthEndpointsAndLifecycle(t *testing.T) {
 	testBytes, _ := json.Marshal(testPayload)
 	reqTest := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenant.TenantID+"/routes/test-upstream", bytes.NewReader(testBytes))
 	reqTest.Header.Set("Content-Type", "application/json")
+	reqTest.Header.Set("Authorization", "Bearer "+ownerToken)
 	recTest := httptest.NewRecorder()
 	handler.ServeHTTP(recTest, reqTest)
 
@@ -156,5 +167,22 @@ func TestUpstreamAuthEndpointsAndLifecycle(t *testing.T) {
 	}
 	if authHeader != "" && !bytes.Contains([]byte(authHeader), []byte("●●●●●●")) {
 		t.Errorf("expected masked Authorization header, got: %s", authHeader)
+	}
+
+	// 5. Test SSRF rejection on test-upstream (e.g. cloud metadata 169.254.169.254 & loopback 127.0.0.1)
+	for _, ssrfURL := range []string{"http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8080/internal"} {
+		ssrfPayload, _ := json.Marshal(map[string]any{
+			"upstream_url": ssrfURL,
+			"method":       "GET",
+		})
+		reqSSRF := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tenant.TenantID+"/routes/test-upstream", bytes.NewReader(ssrfPayload))
+		reqSSRF.Header.Set("Content-Type", "application/json")
+		reqSSRF.Header.Set("Authorization", "Bearer "+ownerToken)
+		recSSRF := httptest.NewRecorder()
+		handler.ServeHTTP(recSSRF, reqSSRF)
+
+		if recSSRF.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden for SSRF test-upstream %s, got %d: %s", ssrfURL, recSSRF.Code, recSSRF.Body.String())
+		}
 	}
 }

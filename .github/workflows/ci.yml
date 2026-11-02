@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  AGENTPAY_JWT_SECRET: "ci-test-jwt-secret-key-at-least-32-characters-long"
+  AGENTPAY_UPSTREAM_MASTER_KEY: "0123456789abcdef0123456789abcdef"
+
 jobs:
   python-lint-and-test:
     name: Python ${{ matrix.python-version }} Check
@@ -54,7 +58,7 @@ jobs:
           python scripts/validate_vectors.py specs/conformance/test-vectors
 
   gateway-go-test:
-    name: Go Gateway Test
+    name: Go Gateway & Facilitator Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -64,8 +68,42 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache-dependency-path: services/gateway/go.sum
+          cache-dependency-path: |
+            services/gateway/go.sum
+            services/facilitator/go.sum
 
       - name: Run Go Gateway Tests
         run: |
           make gateway-test
+
+      - name: Run Go Facilitator Tests
+        run: |
+          make facilitator-test
+
+  typescript-and-frontend-test:
+    name: TypeScript SDK & Console Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install and Test TypeScript SDK
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter "./sdk/typescript/packages/*" test
+
+      - name: Test Console
+        working-directory: apps/console
+        run: |
+          pnpm test

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"testing"
 
@@ -157,5 +158,77 @@ func TestVerifyOnChainUsedNonce(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected verify to fail when nonce is used on-chain")
+	}
+}
+
+func TestP05PayeeAllowlistSettleReverifyAndLowGasHalt(t *testing.T) {
+	mockClient := agentevm.NewMockClient(big.NewInt(84532))
+	svc := createTestService(mockClient)
+	ctx := context.Background()
+
+	ch, auth := getValidTestData()
+
+	// 1. Payee allowlist: non-whitelisted payee is rejected
+	svc.SetAllowedPayees([]string{"0x1111111111111111111111111111111111111111"})
+	_, err := svc.Verify(ctx, &models.VerifyRequest{
+		Challenge:     *ch,
+		Authorization: *auth,
+	})
+	if !errors.Is(err, ErrPayeeNotAllowed) {
+		t.Fatalf("expected ErrPayeeNotAllowed for non-whitelisted payee, got %v", err)
+	}
+
+	// Whitelist the valid payee
+	svc.SetAllowedPayees([]string{ch.Payee})
+	verifyResp, err := svc.Verify(ctx, &models.VerifyRequest{
+		Challenge:     *ch,
+		Authorization: *auth,
+	})
+	if err != nil {
+		t.Fatalf("unexpected verify error with whitelisted payee: %v", err)
+	}
+
+	// 2. Settle with tampered authorization (altered payer or corrupted signature) returns ErrInvalidSignature
+	tamperedAuth := *auth
+	tamperedAuth.Payer = "0x9999999999999999999999999999999999999999"
+	_, err = svc.Settle(ctx, &models.SettleRequest{
+		VerificationToken: verifyResp.VerificationToken,
+		Authorization:     tamperedAuth,
+	})
+	if !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("expected ErrInvalidSignature for tampered payer on Settle, got %v", err)
+	}
+
+	tamperedSigAuth := *auth
+	tamperedSigAuth.Signature.R = "0x1111111111111111111111111111111111111111111111111111111111111111"
+	tamperedSigAuth.Signature.Serialized = "11111111111111111111111111111111111111111111111111111111111111112eacb1d50c27d4f5052b776e4bb5f1b42ce5c17fb7f553d44d0c42105444f4f11b"
+	_, err = svc.Settle(ctx, &models.SettleRequest{
+		VerificationToken: verifyResp.VerificationToken,
+		Authorization:     tamperedSigAuth,
+	})
+	if !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("expected ErrInvalidSignature for tampered signature on Settle, got %v", err)
+	}
+
+	// 3. Low gas balance halts Verify and Settle
+	svc.SetMinGasBalanceWei(big.NewInt(10_000_000_000_000_000)) // 0.01 ETH threshold
+	mockClient.SetBalance(big.NewInt(100_000))                  // well below threshold
+
+	_, err = svc.Settle(ctx, &models.SettleRequest{
+		VerificationToken: verifyResp.VerificationToken,
+		Authorization:     *auth,
+	})
+	if !errors.Is(err, ErrInsufficientGasBalance) {
+		t.Fatalf("expected ErrInsufficientGasBalance when gas balance is low, got %v", err)
+	}
+
+	// Restore gas balance -> Settle succeeds
+	mockClient.SetBalance(big.NewInt(1_000_000_000_000_000_000))
+	settleResp, err := svc.Settle(ctx, &models.SettleRequest{
+		VerificationToken: verifyResp.VerificationToken,
+		Authorization:     *auth,
+	})
+	if err != nil || settleResp.SettlementID == "" {
+		t.Fatalf("expected Settle to succeed after gas balance restored, got err=%v", err)
 	}
 }

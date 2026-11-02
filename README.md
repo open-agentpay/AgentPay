@@ -38,7 +38,9 @@
 
 > [!IMPORTANT]
 > **What is AgentPay?**
-> AgentPay is an open-source, non-custodial financial firewall and HTTP-based micro-payment protocol for autonomous AI agents. Built on **HTTP 402 Payment Required (x402 V2)**, it lets AI agents pay for APIs, tools, and compute using **Circle USDC** without holding volatile native gas tokens (ETH), while strictly enforcing a **local financial firewall** that stops wallet drains caused by LLM hallucinations and runaway infinite loops.
+> AgentPay is an open-source financial firewall and dual-rail HTTP micro-payment infrastructure for autonomous AI agents. Built on **HTTP 402 Payment Required (x402 V2)**, it supports:
+> 1. **Non-Custodial On-Chain Mode (`EIP-3009`)**: AI agents hold their own keys locally and sign gasless **Circle USDC** `TransferWithAuthorization` payloads while a local financial firewall stops wallet drains from LLM hallucinations and runaway loops.
+> 2. **Enterprise Prepaid Virtual Wallet Mode (`agentpay-wallet`)**: Organizations fund tenant-isolated internal virtual wallets on their self-hosted Go Gateway, using atomic `Hold -> Fulfill -> Capture/Release` double-entry accounting for sub-millisecond tool calls without per-request blockchain latency.
 
 ---
 
@@ -363,9 +365,10 @@ AgentPay/
 | **Python Reference Gateway (`agentpay-gateway`)** | 🟢 Complete | v0.1.0 (2026) | Lightweight reference reverse proxy, challenge manager |
 | **Arbitrum Sepolia EIP-3009 Settlement** | 🟢 Complete | v0.1.0 (2026) | Circle USDC, EIP-1559 Facilitator, 1.5x BaseFee buffer |
 | **Runaway Agent Circuit Breaker Demo** | 🟢 Complete | v0.1.0 (2026) | `make demo` (simulation) & `make demo-live` (testnet) |
-| **Mode 2: Dynamic Gas Surcharge** | ⚪ Planned | 2027 Q1 (v0.2.0) | Oracle-based gas fee surcharge added to USDC challenge |
-| **Mode 3: Batch Settlement & Channels** | ⚪ Planned | 2027 Q2 (v0.3.0) | High-frequency streaming micro-payments & channels |
-| **TypeScript Buyer / Seller SDKs** | ⚪ Planned | 2027 Q2 (v0.3.0) | Express / Fastify middleware & TS agent client |
+| **TypeScript Buyer / Seller SDK (`@open-agentpay/sdk`)** | 🟢 Complete | v0.2.7 (2026) | Dual-rail buyer client, policy engine, Express/Fastify/Next.js seller middleware, MCP wrapper |
+| **Marketplace Web (`apps/marketplace-web`)** | 🟢 Complete | v0.2.0 (2026) | Next.js 15 route discovery portal & interactive sandbox |
+| **Mode 2: Dynamic Gas Surcharge** | ⚪ Planned | 2027 Q1 (v0.3.0) | Oracle-based gas fee surcharge added to USDC challenge |
+| **Mode 3: Batch Settlement & Channels** | ⚪ Planned | 2027 Q2 (v0.4.0) | High-frequency streaming micro-payments & channels |
 
 ---
 

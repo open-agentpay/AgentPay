@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/open-agentpay/agentpay-gateway-go/internal/admin"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/auth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/config"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/metrics"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/rcu"
@@ -25,6 +27,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Auth.JWTSecret = "test-jwt-secret-key-32-bytes-long!!"
+	cfg.Auth.UpstreamMasterKey = "0123456789abcdef0123456789abcdef"
 	snap := &rcu.ConfigSnapshot{
 		SchemaVersion: "2.0.0",
 		TenantID:      "ten_default",
@@ -129,22 +132,34 @@ func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 		t.Errorf("expected 404 for unregistered path, got %d", w404.Code)
 	}
 
-	// 6. Test Control Plane Admin REST API
+	// 6. Test Control Plane Admin REST API requires JWT (P0-1)
 	reqAdmin := httptest.NewRequest("GET", "/api/v1/tenants", nil)
 	wAdmin := httptest.NewRecorder()
 	handler.ServeHTTP(wAdmin, reqAdmin)
 
-	if wAdmin.Code != http.StatusOK {
-		t.Errorf("expected 200 for /api/v1/tenants, got %d", wAdmin.Code)
+	if wAdmin.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for unauthenticated /api/v1/tenants, got %d", wAdmin.Code)
 	}
 
 	// 7. Test proxy route under /api/v1/... (e.g. /api/v1/simple-weather) with upstream auth
 	adminSvc := srv.AdminService()
-	tenant, _, err := adminSvc.Register(reqAdmin.Context(), "AI漫剧租户", "user@aimanju.com", "Password123!")
+	tenant, owner, err := adminSvc.Register(reqAdmin.Context(), "AI漫剧租户", "user@aimanju.com", "Password123!")
 	if err != nil {
 		t.Fatalf("failed to register tenant: %v", err)
 	}
-	proj, err := adminSvc.CreateProject(reqAdmin.Context(), tenant.TenantID, "AI漫剧项目", 10000000, "", "")
+
+	// Verify authenticated GET /api/v1/tenants succeeds for the authenticated tenant
+	jwtMgr, _ := auth.NewJWTManager(cfg.Auth.JWTSecret, 24*time.Hour)
+	token, _ := jwtMgr.GenerateToken(owner.MemberID, owner.Email, tenant.TenantID, string(owner.Role))
+	reqAdminAuth := httptest.NewRequest("GET", "/api/v1/tenants", nil)
+	reqAdminAuth.Header.Set("Authorization", "Bearer "+token)
+	wAdminAuth := httptest.NewRecorder()
+	handler.ServeHTTP(wAdminAuth, reqAdminAuth)
+	if wAdminAuth.Code != http.StatusOK {
+		t.Errorf("expected 200 for authenticated /api/v1/tenants, got %d", wAdminAuth.Code)
+	}
+
+	proj, err := adminSvc.CreateProject(reqAdmin.Context(), tenant.TenantID, "AI漫剧项目", 10000000, "", owner.MemberID)
 	if err != nil {
 		t.Fatalf("failed to create project: %v", err)
 	}
@@ -168,7 +183,7 @@ func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 				"value": "juhe_secret_weather_key",
 			},
 		},
-	}, "")
+	}, owner.MemberID)
 	if err != nil {
 		t.Fatalf("failed to create route: %v", err)
 	}
@@ -184,7 +199,7 @@ func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 		t.Errorf("expected Secrets to be empty (write-only), got %v", createdRoute.UpstreamAuth.Secrets)
 	}
 
-	// Test 7a: Calling /api/v1/simple-weather directly without credentials returns 402 challenge, NOT 404!
+	// Test 7a: Calling /api/v1/simple-weather directly without credentials returns 401 wallet auth required, NOT 404!
 	reqWeatherUnauth := httptest.NewRequest("GET", "/api/v1/simple-weather", nil)
 	wWeatherUnauth := httptest.NewRecorder()
 	handler.ServeHTTP(wWeatherUnauth, reqWeatherUnauth)
@@ -224,8 +239,6 @@ func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 			t.Fatalf("failed to decode wallet challenge: %v", err)
 		}
 		challenge := challengeResponse.Error.Details.Challenge
-		reqWeatherAuth.Header.Set("PAYMENT-SIGNATURE", fmt.Sprintf(`{"version":%q,"challengeId":%q,"scheme":%q,"nonce":"0x%064x","validAfter":%d,"validBefore":%d,"amount":%q,"resourceUri":%q,"requestBinding":%q}`,
-			challenge.Version, challenge.ChallengeID, challenge.Scheme, 1, challenge.ValidAfter, challenge.ValidBefore, challenge.Amount, challenge.ResourceURI, challenge.Extensions["requestBinding"]))
 		reqWeatherAuth = httptest.NewRequest("GET", "/api/v1/simple-weather?city=Shanghai", nil)
 		reqWeatherAuth.Header.Set("Authorization", "Bearer apk_live_valid123")
 		reqWeatherAuth.Header.Set("PAYMENT-SIGNATURE", fmt.Sprintf(`{"version":%q,"challengeId":%q,"scheme":%q,"nonce":"0x%064x","validAfter":%d,"validBefore":%d,"amount":%q,"resourceUri":%q,"requestBinding":%q}`,
@@ -243,6 +256,7 @@ func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 func TestServerRejectsEmptyJWTSecret(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Auth.JWTSecret = ""
+	cfg.Auth.UpstreamMasterKey = "0123456789abcdef0123456789abcdef"
 	snap := &rcu.ConfigSnapshot{
 		SchemaVersion: "2.0.0",
 		TenantID:      "ten_default",
@@ -261,9 +275,32 @@ func TestServerRejectsEmptyJWTSecret(t *testing.T) {
 	}
 }
 
+func TestServerRejectsEmptyUpstreamMasterKey(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Auth.JWTSecret = "test-secret-at-least-32-characters-long"
+	cfg.Auth.UpstreamMasterKey = ""
+	t.Setenv("AGENTPAY_UPSTREAM_MASTER_KEY", "")
+	snap := &rcu.ConfigSnapshot{
+		SchemaVersion: "2.0.0",
+		TenantID:      "ten_default",
+		VersionID:     "ver_init",
+		Routes:        []rcu.RouteConfig{},
+	}
+	rcuMgr, err := rcu.NewManager(snap)
+	if err != nil {
+		t.Fatalf("failed to init rcu: %v", err)
+	}
+
+	_, err = New(&cfg, rcuMgr, metrics.New())
+	if err == nil {
+		t.Fatalf("expected server.New to fail when UpstreamMasterKey is empty, got nil")
+	}
+}
+
 func TestServerNewWiresFacilitatorVerifier(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Auth.JWTSecret = "test-secret-at-least-32-characters-long"
+	cfg.Auth.UpstreamMasterKey = "0123456789abcdef0123456789abcdef"
 	cfg.Facilitator.URL = "http://127.0.0.1:8001"
 	cfg.Facilitator.TimeoutSeconds = 5.0
 

@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/open-agentpay/agentpay-gateway-go/internal/agent"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/auth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/wallet"
 )
 
@@ -36,6 +38,12 @@ func TestTenantAndProjectLifecycle(t *testing.T) {
 	_, _, err = svc.CreateTenant(ctx, "Acme Corp", "", "other@acme.com")
 	if err != ErrTenantAlreadyExists {
 		t.Fatalf("expected ErrTenantAlreadyExists, got %v", err)
+	}
+
+	// Empty actorMemberID must be rejected
+	_, err = svc.CreateProject(ctx, tenant.TenantID, "Unauthorized Project", 50000000, "prj_unauth", "")
+	if err != ErrPermissionDenied {
+		t.Fatalf("expected ErrPermissionDenied for empty actorMemberID, got %v", err)
 	}
 
 	// 2. Create Project
@@ -212,7 +220,7 @@ func TestVirtualWalletAdminAndLedger(t *testing.T) {
 		t.Fatalf("expected 0 balance, got %d", wlt.AvailableCache)
 	}
 
-	// 0. Unauthorized role (Viewer) rejection
+	// 0. Unauthorized role (Viewer) or empty actorMemberID rejection
 	viewer, err := svc.AddMember(ctx, tenant.TenantID, "viewer@ledger.com", RoleViewer, owner.MemberID)
 	if err != nil {
 		t.Fatalf("failed to add viewer: %v", err)
@@ -224,6 +232,10 @@ func TestVirtualWalletAdminAndLedger(t *testing.T) {
 	err = svc.AdjustWallet(ctx, wlt.WalletID, 1000000, "Unauthorized adjust", "bad_02", viewer.MemberID, "127.0.0.1")
 	if err != ErrPermissionDenied {
 		t.Fatalf("expected ErrPermissionDenied for viewer adjust, got %v", err)
+	}
+	err = svc.AdjustWallet(ctx, wlt.WalletID, 1000000, "Anonymous adjust", "bad_03", "", "127.0.0.1")
+	if err != ErrPermissionDenied {
+		t.Fatalf("expected ErrPermissionDenied for empty actorMemberID adjust, got %v", err)
 	}
 
 	// 1. Admin grant with reason (Owner succeeds)
@@ -278,33 +290,36 @@ func TestVirtualWalletAdminAndLedger(t *testing.T) {
 
 func TestControlPlaneRESTAPI(t *testing.T) {
 	svc, _, _ := setupTestService()
-	handler := NewHandler(svc)
+	jwtMgr := auth.MustNewJWTManager("test-admin-secret-key-for-unit-testing-32b!", 24*time.Hour)
+	handler := NewHandlerWithJWT(svc, jwtMgr)
 
-	// 1. POST /api/v1/tenants
-	tBody, _ := json.Marshal(map[string]interface{}{
-		"name":        "API Org",
-		"owner_email": "api_owner@org.com",
+	// 1. POST /api/v1/auth/register
+	regBody, _ := json.Marshal(map[string]interface{}{
+		"tenant_name": "API Org",
+		"email":       "api_owner@org.com",
+		"password":    "Password123!",
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants", bytes.NewReader(tBody))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(regBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("failed to create tenant via REST: status %d, body: %s", rec.Code, rec.Body.String())
+		t.Fatalf("failed to register tenant via REST: status %d, body: %s", rec.Code, rec.Body.String())
 	}
-	var tResp struct {
+	var regResp struct {
+		Token  string  `json:"token"`
 		Tenant *Tenant `json:"tenant"`
-		Owner  *Member `json:"owner"`
+		User   *Member `json:"user"`
 	}
-	if err := json.NewDecoder(rec.Body).Decode(&tResp); err != nil {
-		t.Fatalf("failed to decode tenant response: %v", err)
+	if err := json.NewDecoder(rec.Body).Decode(&regResp); err != nil {
+		t.Fatalf("failed to decode register response: %v", err)
 	}
-	if tResp.Tenant == nil || tResp.Owner == nil {
-		t.Fatalf("nil tenant or owner in response: %+v", tResp)
+	if regResp.Tenant == nil || regResp.User == nil || regResp.Token == "" {
+		t.Fatalf("nil tenant, user, or token in response: %+v", regResp)
 	}
-	tID := tResp.Tenant.TenantID
-	ownerID := tResp.Owner.MemberID
+	tID := regResp.Tenant.TenantID
+	ownerToken := regResp.Token
 
 	// 2. POST /api/v1/tenants/{tenant_id}/projects
 	pBody, _ := json.Marshal(map[string]interface{}{
@@ -312,7 +327,7 @@ func TestControlPlaneRESTAPI(t *testing.T) {
 	})
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tID+"/projects", bytes.NewReader(pBody))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Actor-Member-Id", ownerID)
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -332,7 +347,7 @@ func TestControlPlaneRESTAPI(t *testing.T) {
 	})
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tID+"/agents", bytes.NewReader(agBody))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Actor-Member-Id", ownerID)
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -351,7 +366,7 @@ func TestControlPlaneRESTAPI(t *testing.T) {
 	})
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+tID+"/agents/"+agID+"/kill", bytes.NewReader(killBodyNoReason))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Actor-Member-Id", ownerID)
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -366,8 +381,7 @@ func TestControlPlaneRESTAPI(t *testing.T) {
 	})
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/agents/"+agID+"/kill", bytes.NewReader(killBody))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Actor-Member-Id", ownerID)
-	req.Header.Set("X-Tenant-Id", tID)
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -385,6 +399,7 @@ func TestControlPlaneRESTAPI(t *testing.T) {
 
 	// 6. GET /api/v1/audit/events
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?tenant_id="+tID, nil)
+	req.Header.Set("Authorization", "Bearer "+ownerToken)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

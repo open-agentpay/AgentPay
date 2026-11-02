@@ -97,6 +97,8 @@ func main() {
 		DefaultChainID:   cfg.BigChainID(),
 		DefaultTokenAddr: cfg.EVM.TokenAddress,
 		AutoPollReceipts: cfg.EVM.AutoPollReceipts,
+		AllowedPayees:    cfg.Security.AllowedPayees,
+		MinGasBalanceWei: cfg.BigMinGasBalanceWei(),
 	})
 	if err != nil {
 		slog.Error("failed to initialize Facilitator service", slog.Any("error", err))

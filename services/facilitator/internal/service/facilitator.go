@@ -23,11 +23,14 @@ import (
 )
 
 var (
-	ErrNonceAlreadyUsed   = errors.New("NONCE_ALREADY_USED")
-	ErrChallengeExpired   = errors.New("CHALLENGE_EXPIRED")
-	ErrInvalidRequest     = errors.New("INVALID_REQUEST")
-	ErrInvalidSignature   = errors.New("INVALID_SIGNATURE")
-	ErrSettlementNotFound = errors.New("SETTLEMENT_NOT_FOUND")
+	ErrNonceAlreadyUsed       = errors.New("NONCE_ALREADY_USED")
+	ErrChallengeExpired       = errors.New("CHALLENGE_EXPIRED")
+	ErrInvalidRequest         = errors.New("INVALID_REQUEST")
+	ErrInvalidSignature       = errors.New("INVALID_SIGNATURE")
+	ErrSettlementNotFound     = errors.New("SETTLEMENT_NOT_FOUND")
+	ErrUnauthorized           = errors.New("UNAUTHORIZED")
+	ErrPayeeNotAllowed        = errors.New("PAYEE_NOT_ALLOWED")
+	ErrInsufficientGasBalance = errors.New("INSUFFICIENT_FACILITATOR_GAS")
 )
 
 type VerificationRecord struct {
@@ -48,6 +51,8 @@ type FacilitatorService struct {
 	defaultChainID     *big.Int
 	defaultTokenAddr   common.Address
 	autoPollReceipts   bool
+	allowedPayees      map[string]bool
+	minGasBalanceWei   *big.Int
 
 	nonceStore         *MemoryNonceStore
 	verificationTokens map[string]*VerificationRecord
@@ -63,6 +68,8 @@ type Options struct {
 	DefaultChainID   *big.Int
 	DefaultTokenAddr string
 	AutoPollReceipts bool
+	AllowedPayees    []string
+	MinGasBalanceWei *big.Int
 }
 
 // NewFacilitatorService creates a configured FacilitatorService.
@@ -102,6 +109,14 @@ func NewFacilitatorService(opts Options) (*FacilitatorService, error) {
 		tokenAddr = common.HexToAddress(opts.DefaultTokenAddr)
 	}
 
+	payees := make(map[string]bool, len(opts.AllowedPayees))
+	for _, p := range opts.AllowedPayees {
+		clean := strings.ToLower(strings.TrimSpace(p))
+		if clean != "" {
+			payees[clean] = true
+		}
+	}
+
 	return &FacilitatorService{
 		clock:              clock,
 		evmClient:          opts.EVMClient,
@@ -110,6 +125,8 @@ func NewFacilitatorService(opts Options) (*FacilitatorService, error) {
 		defaultChainID:     chainID,
 		defaultTokenAddr:   tokenAddr,
 		autoPollReceipts:   opts.AutoPollReceipts,
+		allowedPayees:      payees,
+		minGasBalanceWei:   opts.MinGasBalanceWei,
 		nonceStore:         NewMemoryNonceStore(),
 		verificationTokens: make(map[string]*VerificationRecord),
 		settlements:        make(map[string]*models.SettlementStatus),
@@ -125,7 +142,67 @@ func (s *FacilitatorService) Now() int64 {
 	return s.clock()
 }
 
+// SetAllowedPayees updates the payee allowlist dynamically.
+func (s *FacilitatorService) SetAllowedPayees(payees []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := make(map[string]bool, len(payees))
+	for _, p := range payees {
+		clean := strings.ToLower(strings.TrimSpace(p))
+		if clean != "" {
+			m[clean] = true
+		}
+	}
+	s.allowedPayees = m
+}
+
+// SetMinGasBalanceWei configures the minimum gas balance threshold before halting new orders.
+func (s *FacilitatorService) SetMinGasBalanceWei(minWei *big.Int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.minGasBalanceWei = minWei
+}
+
+func (s *FacilitatorService) checkPayeeAllowed(payee string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.allowedPayees) == 0 {
+		return nil
+	}
+	clean := strings.ToLower(strings.TrimSpace(payee))
+	if !s.allowedPayees[clean] {
+		return fmt.Errorf("%w: payee %s is not in allowed payees whitelist", ErrPayeeNotAllowed, payee)
+	}
+	return nil
+}
+
+func (s *FacilitatorService) checkGasBalance(ctx context.Context) error {
+	s.mu.RLock()
+	minWei := s.minGasBalanceWei
+	client := s.evmClient
+	addr := s.facilitatorAddress
+	s.mu.RUnlock()
+
+	if client == nil || minWei == nil || minWei.Sign() <= 0 {
+		return nil
+	}
+	bal, err := client.BalanceAt(ctx, addr)
+	if err != nil {
+		return nil
+	}
+	if bal != nil && bal.Cmp(minWei) < 0 {
+		slog.Error("CRITICAL: facilitator gas balance below minimum threshold; halting order acceptance",
+			slog.String("facilitator_address", addr.Hex()),
+			slog.String("balance_wei", bal.String()),
+			slog.String("min_threshold_wei", minWei.String()),
+		)
+		return fmt.Errorf("%w: gas balance %s wei is below threshold %s wei", ErrInsufficientGasBalance, bal.String(), minWei.String())
+	}
+	return nil
+}
+
 // Verify implements POST /v1/verify.
+// # SECURITY-REVIEW
 func (s *FacilitatorService) Verify(ctx context.Context, req *models.VerifyRequest) (*models.VerifyResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("%w: empty verify request body", ErrInvalidRequest)
@@ -134,6 +211,14 @@ func (s *FacilitatorService) Verify(ctx context.Context, req *models.VerifyReque
 	ch := &req.Challenge
 	auth := &req.Authorization
 	now := s.Now()
+
+	// 0. Payee allowlist & Gas balance threshold checks
+	if err := s.checkPayeeAllowed(ch.Payee); err != nil {
+		return nil, err
+	}
+	if err := s.checkGasBalance(ctx); err != nil {
+		return nil, err
+	}
 
 	// 1. Time bounds checks
 	if now > ch.ValidBefore {
@@ -208,6 +293,7 @@ func (s *FacilitatorService) Verify(ctx context.Context, req *models.VerifyReque
 }
 
 // Settle implements POST /v1/settle.
+// # SECURITY-REVIEW
 func (s *FacilitatorService) Settle(ctx context.Context, req *models.SettleRequest) (*models.SettleResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("%w: empty settle request body", ErrInvalidRequest)
@@ -216,6 +302,11 @@ func (s *FacilitatorService) Settle(ctx context.Context, req *models.SettleReque
 	auth := &req.Authorization
 	vtok := req.VerificationToken
 	now := s.Now()
+
+	// Check gas balance threshold before accepting settlement
+	if err := s.checkGasBalance(ctx); err != nil {
+		return nil, err
+	}
 
 	// Idempotency cache check
 	if req.IdempotencyKey != "" {
@@ -228,20 +319,38 @@ func (s *FacilitatorService) Settle(ctx context.Context, req *models.SettleReque
 		s.mu.RUnlock()
 	}
 
-	s.mu.Lock()
+	s.mu.RLock()
 	record, exists := s.verificationTokens[vtok]
+	s.mu.RUnlock()
 	if !exists {
-		s.mu.Unlock()
 		return nil, fmt.Errorf("%w: unknown or expired verification token: %s", ErrInvalidRequest, vtok)
 	}
 
 	if now > record.ExpiresAt {
-		s.mu.Unlock()
 		return nil, fmt.Errorf("%w: verification token expired", ErrChallengeExpired)
 	}
 
-	// Atomically reserve nonce
 	ch := record.Challenge
+	if err := s.checkPayeeAllowed(ch.Payee); err != nil {
+		return nil, err
+	}
+
+	// Verify authorization fields match the verified record and re-verify EIP-712 signature
+	if !strings.EqualFold(auth.Payer, record.Authorization.Payer) ||
+		!strings.EqualFold(auth.Nonce, record.Authorization.Nonce) ||
+		auth.ChallengeID != record.Authorization.ChallengeID ||
+		auth.ValidAfter != record.Authorization.ValidAfter ||
+		auth.ValidBefore != record.Authorization.ValidBefore {
+		return nil, fmt.Errorf("%w: settle authorization does not match verified record", ErrInvalidSignature)
+	}
+
+	isValid, recovered, err := agentcrypto.VerifyAuthorization(auth, &ch, "", "2")
+	if err != nil || !isValid || !strings.EqualFold(recovered, record.Authorization.Payer) {
+		return nil, fmt.Errorf("%w: settle signature re-verification failed: recovered=%s expected=%s err=%v", ErrInvalidSignature, recovered, record.Authorization.Payer, err)
+	}
+
+	// Atomically reserve nonce
+	s.mu.Lock()
 	recorded, _ := s.nonceStore.CheckAndRecord(ch.Network, ch.Asset, auth.Payer, auth.Nonce)
 	if !recorded {
 		s.mu.Unlock()

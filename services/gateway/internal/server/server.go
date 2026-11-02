@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -21,6 +22,7 @@ import (
 	"github.com/open-agentpay/agentpay-gateway-go/internal/proxy"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/rcu"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/timeline"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/upstreamauth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/usage"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/wallet"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/x402"
@@ -40,6 +42,8 @@ type GatewayServer struct {
 	paymentSvc  payment.Service
 	timelineSvc timeline.Service
 	startTime   time.Time
+	stopOnce    sync.Once
+	stopCh      chan struct{}
 }
 
 // New creates an initialized GatewayServer using default network transport.
@@ -68,6 +72,22 @@ func NewWithWalletAndTransport(
 	}
 	if m == nil {
 		m = metrics.New()
+	}
+
+	// SECURITY-REVIEW (P0-2): Require upstream master key at startup (fail-closed, no hardcoded fallback).
+	masterKey := strings.TrimSpace(cfg.Auth.UpstreamMasterKey)
+	if masterKey == "" {
+		masterKey = strings.TrimSpace(os.Getenv("AGENTPAY_UPSTREAM_MASTER_KEY"))
+	}
+	if masterKey == "" {
+		return nil, fmt.Errorf("upstream master key cannot be empty: configure auth.upstream_master_key or AGENTPAY_UPSTREAM_MASTER_KEY (refusing to start with insecure defaults)")
+	}
+	keyVersion := cfg.Auth.UpstreamMasterKeyVersion
+	if keyVersion <= 0 {
+		keyVersion = 1
+	}
+	if err := upstreamauth.ConfigureKeyRing(masterKey, keyVersion, cfg.Auth.UpstreamPreviousMasterKeys); err != nil {
+		return nil, fmt.Errorf("failed to configure upstream master key ring: %w", err)
 	}
 
 	proxyHandler := proxy.NewHandler(m, transport)
@@ -149,11 +169,22 @@ func NewWithWalletAndTransport(
 		if timeout <= 0 {
 			timeout = 5 * time.Second
 		}
-		verifier = x402.NewFacilitatorVerifier(cfg.Facilitator.URL, timeout)
+		verifier = x402.NewFacilitatorVerifierWithAuth(cfg.Facilitator.URL, cfg.Facilitator.APIKey, timeout)
 		slog.Info("AgentPay Payment Verifier operating with live Facilitator", slog.String("facilitator_url", cfg.Facilitator.URL))
 	}
 
-	processor := x402.NewPaymentProcessor(verifier, nil, walletSvc, proxyHandler, m)
+	// SECURITY-REVIEW (P0-4): Use persistent PostgreSQL or file-backed NonceStore when available.
+	var nonceStore x402.NonceStore
+	if _, isMem := walletSvc.(*wallet.MemoryService); !isMem && isPostgresReady {
+		nonceStore = x402.NewPostgresNonceStore(dbConn)
+		slog.Info("AgentPay x402 NonceStore operating in PostgreSQL persistence mode")
+	} else if nonceFile := strings.TrimSpace(os.Getenv("AGENTPAY_NONCE_STORE_FILE")); nonceFile != "" {
+		if fs, err := x402.NewPersistentFileNonceStore(nonceFile); err == nil {
+			nonceStore = fs
+		}
+	}
+
+	processor := x402.NewPaymentProcessor(verifier, nonceStore, walletSvc, proxyHandler, m)
 	if cfg != nil {
 		if cfg.Facilitator.URL != "" {
 			processor.SetFacilitatorURL(cfg.Facilitator.URL)
@@ -298,7 +329,7 @@ func NewWithWalletAndTransport(
 		IdleTimeout:  cfg.Server.IdleTimeout(),
 	}
 
-	return &GatewayServer{
+	srv := &GatewayServer{
 		cfg:         cfg,
 		httpServer:  httpSrv,
 		db:          dbConn,
@@ -311,7 +342,29 @@ func NewWithWalletAndTransport(
 		paymentSvc:  paymentSvc,
 		timelineSvc: timelineSvc,
 		startTime:   startTime,
-	}, nil
+		stopCh:      make(chan struct{}),
+	}
+
+	// SECURITY-REVIEW (P0-3): Start background reconciliation and expired hold sweep loop.
+	go srv.runBackgroundReconciliation()
+
+	return srv, nil
+}
+
+func (s *GatewayServer) runBackgroundReconciliation() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case now := <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			_, _ = s.processor.ReconcileSettlements(ctx)
+			_, _ = s.processor.SweepExpiredHolds(ctx, now)
+			cancel()
+		}
+	}
 }
 
 // Start listens on the configured network address.
@@ -338,6 +391,9 @@ func (s *GatewayServer) Start() error {
 // Shutdown gracefully stops the server within the specified context.
 func (s *GatewayServer) Shutdown(ctx context.Context) error {
 	slog.Info("shutting down HTTP server gracefully")
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+	})
 	err := s.httpServer.Shutdown(ctx)
 	if s.db != nil {
 		_ = s.db.Close()
@@ -379,4 +435,3 @@ func (s *GatewayServer) PaymentService() payment.Service {
 func (s *GatewayServer) TimelineService() timeline.Service {
 	return s.timelineSvc
 }
-

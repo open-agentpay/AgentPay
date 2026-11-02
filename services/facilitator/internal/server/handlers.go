@@ -21,6 +21,15 @@ func writeError(w http.ResponseWriter, err error) {
 	errCode := "INTERNAL_SERVER_ERROR"
 
 	switch {
+	case errors.Is(err, service.ErrUnauthorized):
+		status = http.StatusUnauthorized
+		errCode = "UNAUTHORIZED"
+	case errors.Is(err, service.ErrPayeeNotAllowed):
+		status = http.StatusForbidden
+		errCode = "PAYEE_NOT_ALLOWED"
+	case errors.Is(err, service.ErrInsufficientGasBalance):
+		status = http.StatusServiceUnavailable
+		errCode = "INSUFFICIENT_FACILITATOR_GAS"
 	case errors.Is(err, service.ErrNonceAlreadyUsed):
 		status = http.StatusConflict
 		errCode = "NONCE_ALREADY_USED"

@@ -327,6 +327,41 @@ func (p *PostgresService) UpdateSettlementStatus(ctx context.Context, settlement
 	return nil
 }
 
+func (p *PostgresService) ListNonTerminalSettlements(ctx context.Context) ([]*SettlementRecord, error) {
+	query := `
+		SELECT
+			s.settlement_id, s.intent_id, COALESCE(i.payment_method, 'onchain'),
+			s.network_id, s.asset_address, s.payer_address, s.payee_address,
+			s.amount_base_units, s.nonce, COALESCE(s.tx_hash, ''), s.block_number,
+			s.status, COALESCE(s.error_message, ''), s.created_at, s.updated_at
+		FROM ap_settlement_record s
+		LEFT JOIN ap_payment_intent i ON i.intent_id = s.intent_id
+		WHERE COALESCE(i.payment_method, 'onchain') = 'onchain'
+		  AND s.status IN ('submitted', 'pending', 'unknown')
+		ORDER BY s.created_at ASC
+		LIMIT 200
+	`
+	rows, err := p.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*SettlementRecord
+	for rows.Next() {
+		var s SettlementRecord
+		if err := rows.Scan(
+			&s.SettlementID, &s.IntentID, &s.PaymentMethod,
+			&s.NetworkID, &s.AssetAddress, &s.PayerAddress, &s.PayeeAddress,
+			&s.AmountBaseUnits, &s.Nonce, &s.TxHash, &s.BlockNumber,
+			&s.Status, &s.ErrorMessage, &s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, &s)
+	}
+	return out, rows.Err()
+}
+
 func (p *PostgresService) RecordFulfillment(ctx context.Context, f *FulfillmentRecord) error {
 	if f == nil || f.FulfillmentID == "" || f.IntentID == "" {
 		return errors.New("invalid fulfillment record")
@@ -442,6 +477,22 @@ func (p *PostgresService) LinkWalletAssociation(ctx context.Context, intentID st
 	// Holds and Ledgers are written directly to ap_hold and ap_ledger_entry in wallet.Service.
 	// Postgres joins them automatically on payment_intent_id / ref_id.
 	return nil
+}
+
+func (p *PostgresService) ExpireStaleHolds(ctx context.Context, before time.Time) (int64, error) {
+	res, err := p.db.ExecContext(ctx, `
+		UPDATE ap_settlement_record s
+		SET status = 'released', updated_at = CURRENT_TIMESTAMP
+		FROM ap_hold h
+		WHERE h.payment_intent_id = s.intent_id
+		  AND h.status = 'expired'
+		  AND s.status = 'held'
+	`)
+	if err != nil {
+		return 0, err
+	}
+	count, _ := res.RowsAffected()
+	return count, nil
 }
 
 func (p *PostgresService) GetPaymentAudit(ctx context.Context, tenantID, intentID string) (*PaymentAuditRecord, error) {

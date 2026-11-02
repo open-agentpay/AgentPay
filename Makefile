@@ -20,7 +20,7 @@ test-e2e:
 
 # Validate language-agnostic conformance test vectors
 vectors:
-	$(PYTHON) scripts/validate_vectors.py specs/test-vectors
+	$(PYTHON) scripts/validate_vectors.py specs/conformance/test-vectors
 
 # Check code linting with ruff
 lint:

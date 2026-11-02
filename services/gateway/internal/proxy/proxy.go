@@ -77,14 +77,16 @@ type Handler struct {
 }
 
 // NewHandler creates a reverse proxy handler with an optimized Transport pool.
+// # SECURITY-REVIEW
 func NewHandler(m *metrics.Metrics, transport http.RoundTripper) *Handler {
 	if transport == nil {
+		dialer := &net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}
 		transport = &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   5 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           upstreamauth.SafeDialContext(dialer),
 			ForceAttemptHTTP2:     true,
 			MaxIdleConns:          100,
 			MaxIdleConnsPerHost:   20,
@@ -312,7 +314,7 @@ func (h *Handler) Forward(w http.ResponseWriter, r *http.Request, route *rcu.Rou
 				if auth, ok := upstreamauth.Get(route.UpstreamAuth.Type); ok {
 					secrets := route.UpstreamSecrets
 					if secrets == nil && len(route.UpstreamAuth.SecretEnc) > 0 {
-						decrypted, err := upstreamauth.DecryptSecrets(route.UpstreamAuth.SecretEnc, nil)
+						decrypted, err := upstreamauth.DecryptSecretsVersioned(route.UpstreamAuth.SecretEnc, route.UpstreamAuth.KeyVersion)
 						if err == nil {
 							secrets = decrypted
 						}
@@ -657,4 +659,3 @@ func (h *Handler) ForwardWithCapture(w http.ResponseWriter, r *http.Request, rou
 		Body:       cw.Body.Bytes(),
 	}, nil
 }
-

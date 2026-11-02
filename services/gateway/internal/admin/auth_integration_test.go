@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -320,3 +321,102 @@ func TestAddMemberWithPasswordAndSelfPasswordChange(t *testing.T) {
 	}
 }
 
+func TestP01UnauthenticatedSpoofedAndCrossTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := setupTestService()
+	jwtMgr := auth.MustNewJWTManager("test-jwt-secret-key-32-bytes!!", 1*time.Hour)
+	handler := auth.Middleware(jwtMgr)(NewHandlerWithJWT(svc, jwtMgr))
+
+	// Setup Tenant A and Tenant B
+	tenA, ownerA, _ := svc.CreateTenant(ctx, "Tenant Alpha", "ten_alpha", "owner@alpha.io")
+	prjA, _ := svc.CreateProject(ctx, tenA.TenantID, "Alpha Project", 1000000, "prj_alpha", ownerA.MemberID)
+	agA, _ := svc.CreateAgent(ctx, tenA.TenantID, prjA.ProjectID, "AlphaBot", nil, ownerA.MemberID)
+	wltA, _ := svc.GetWallet(ctx, tenA.TenantID)
+	viewerA, _ := svc.AddMember(ctx, tenA.TenantID, "viewer@alpha.io", RoleViewer, ownerA.MemberID)
+
+	tenB, ownerB, _ := svc.CreateTenant(ctx, "Tenant Beta", "ten_beta", "owner@beta.io")
+	prjB, _ := svc.CreateProject(ctx, tenB.TenantID, "Beta Project", 1000000, "prj_beta", ownerB.MemberID)
+	agB, _ := svc.CreateAgent(ctx, tenB.TenantID, prjB.ProjectID, "BetaBot", nil, ownerB.MemberID)
+	wltB, _ := svc.GetWallet(ctx, tenB.TenantID)
+
+	tokenOwnerA, _ := jwtMgr.GenerateToken(ownerA.MemberID, ownerA.Email, tenA.TenantID, string(ownerA.Role))
+	tokenViewerA, _ := jwtMgr.GenerateToken(viewerA.MemberID, viewerA.Email, tenA.TenantID, string(viewerA.Role))
+	_ = prjB
+
+	// 1. Unauthenticated access (even with spoofed X-Tenant-Id / X-Actor-Member-Id) MUST return 401
+	unauthCases := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/v1/tenants", ""},
+		{http.MethodGet, "/api/v1/tenants/" + tenA.TenantID, ""},
+		{http.MethodGet, "/api/v1/tenants/" + tenA.TenantID + "/members", ""},
+		{http.MethodPost, "/api/v1/tenants/" + tenA.TenantID + "/projects", `{"name":"HackProj"}`},
+		{http.MethodGet, "/api/v1/wallets/" + wltA.WalletID, ""},
+		{http.MethodPost, "/api/v1/wallets/" + wltA.WalletID + "/adjust", `{"amount":999999999,"reason":"hack"}`},
+		{http.MethodGet, "/api/v1/agents/" + agA.AgentID, ""},
+		{http.MethodGet, "/api/v1/audit/events?tenant_id=" + tenA.TenantID, ""},
+	}
+
+	for _, tc := range unauthCases {
+		req := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+		req.Header.Set("X-Tenant-Id", tenA.TenantID)
+		req.Header.Set("X-Actor-Member-Id", ownerA.MemberID)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized for unauthenticated %s %s, got %d: %s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+
+	// 2. Viewer token accessing write endpoints MUST return 403
+	viewerWriteCases := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPost, "/api/v1/tenants/" + tenA.TenantID + "/projects", `{"name":"ViewerProj"}`},
+		{http.MethodPost, "/api/v1/wallets/" + wltA.WalletID + "/adjust", `{"amount":1000,"reason":"viewer try"}`},
+		{http.MethodPost, "/api/v1/agents/" + agA.AgentID + "/kill", `{"reason":"viewer try"}`},
+	}
+
+	for _, tc := range viewerWriteCases {
+		req := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+		req.Header.Set("Authorization", "Bearer "+tokenViewerA)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("expected 403 Forbidden for viewer %s %s, got %d: %s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+
+	// 3. Tenant A Owner token accessing Tenant B resources MUST return 403
+	crossTenantCases := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/v1/tenants/" + tenB.TenantID, ""},
+		{http.MethodGet, "/api/v1/tenants/" + tenB.TenantID + "/members", ""},
+		{http.MethodPost, "/api/v1/tenants/" + tenB.TenantID + "/projects", `{"name":"CrossTenantProj"}`},
+		{http.MethodGet, "/api/v1/wallets/" + wltB.WalletID, ""},
+		{http.MethodPost, "/api/v1/wallets/" + wltB.WalletID + "/adjust", `{"amount":999999,"reason":"cross tenant"}`},
+		{http.MethodGet, "/api/v1/agents/" + agB.AgentID, ""},
+		{http.MethodPost, "/api/v1/agents/" + agB.AgentID + "/kill", `{"reason":"cross tenant kill"}`},
+		{http.MethodGet, "/api/v1/audit/events?tenant_id=" + tenB.TenantID, ""},
+	}
+
+	for _, tc := range crossTenantCases {
+		req := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+		req.Header.Set("Authorization", "Bearer "+tokenOwnerA)
+		// Even if client tries to spoof X-Tenant-Id for Tenant B
+		req.Header.Set("X-Tenant-Id", tenB.TenantID)
+		req.Header.Set("X-Actor-Member-Id", ownerB.MemberID)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("expected 403 Forbidden for cross-tenant %s %s, got %d: %s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+}

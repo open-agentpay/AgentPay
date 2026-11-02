@@ -17,12 +17,12 @@ func TestConfigDraftAndValidation(t *testing.T) {
 	handler := auth.Middleware(jwtMgr)(NewHandlerWithJWT(svc, jwtMgr))
 
 	ctx := context.Background()
-	tenant, owner, err := svc.CreateTenant(ctx, "Validation Corp", "owner@valcorp.io", "Password123!")
+	tenant, owner, err := svc.CreateTenant(ctx, "Validation Corp", "ten_val", "owner@valcorp.io")
 	if err != nil {
 		t.Fatalf("failed to create tenant: %v", err)
 	}
 
-	ownerToken, _ := jwtMgr.GenerateToken(owner.MemberID, tenant.TenantID, string(owner.Role), owner.Email)
+	ownerToken, _ := jwtMgr.GenerateToken(owner.MemberID, owner.Email, tenant.TenantID, string(owner.Role))
 
 	// 1. Initial draft summary - should show default project
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+tenant.TenantID+"/config/draft", nil)

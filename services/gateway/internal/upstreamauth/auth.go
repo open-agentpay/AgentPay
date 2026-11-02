@@ -5,11 +5,17 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -23,6 +29,9 @@ const (
 	KindSwitch   FieldKind = "switch"
 	KindTextarea FieldKind = "textarea"
 )
+
+// ErrMasterKeyNotConfigured is returned when encryption or decryption is attempted without a configured master key.
+var ErrMasterKeyNotConfigured = errors.New("upstream master key is not configured: set AGENTPAY_UPSTREAM_MASTER_KEY or configure keyring")
 
 // FieldSchema defines an input field for the frontend schema-driven form.
 type FieldSchema struct {
@@ -118,15 +127,250 @@ func ListSchemas() []AuthTypeSchema {
 }
 
 // ----------------------------------------------------------------------------
-// AES-256-GCM Envelope Encryption for Secrets
+// AES-256-GCM Envelope Encryption & Versioned KeyRing for Secrets
+// # SECURITY-REVIEW
 // ----------------------------------------------------------------------------
 
-var defaultMasterKey = []byte("agentpay-upstream-auth-key-32b!!") // exactly 32 bytes
+var (
+	keyRingMu      sync.RWMutex
+	activeVersion  int
+	masterKeyRing  = map[int][]byte{}
+)
 
-// EncryptSecrets encrypts the secrets map with AES-256-GCM using masterKey.
+// ParseMasterKey parses a 32-byte AES-256 key from raw 32-byte string, 64-char hex, or base64.
+func ParseMasterKey(raw string) ([]byte, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, ErrMasterKeyNotConfigured
+	}
+	if len(trimmed) == 32 {
+		return []byte(trimmed), nil
+	}
+	if len(trimmed) == 64 {
+		if decoded, err := hex.DecodeString(trimmed); err == nil && len(decoded) == 32 {
+			return decoded, nil
+		}
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	return nil, errors.New("master key must be 32 bytes (raw, 64-char hex, or base64)")
+}
+
+// ConfigureKeyRing configures the active master key and optional historical keys for rotation.
+func ConfigureKeyRing(currentVersion int, activeKeyRaw string, previousKeysRaw map[int]string) error {
+	if currentVersion <= 0 {
+		currentVersion = 1
+	}
+	activeKey, err := ParseMasterKey(activeKeyRaw)
+	if err != nil {
+		return fmt.Errorf("invalid active master key: %w", err)
+	}
+
+	newRing := make(map[int][]byte, len(previousKeysRaw)+1)
+	for ver, raw := range previousKeysRaw {
+		if ver <= 0 {
+			return fmt.Errorf("key version must be positive, got %d", ver)
+		}
+		k, err := ParseMasterKey(raw)
+		if err != nil {
+			return fmt.Errorf("invalid previous master key for version %d: %w", ver, err)
+		}
+		newRing[ver] = k
+	}
+	newRing[currentVersion] = activeKey
+
+	keyRingMu.Lock()
+	defer keyRingMu.Unlock()
+	activeVersion = currentVersion
+	masterKeyRing = newRing
+	return nil
+}
+
+// ResetKeyRing clears all configured master keys (used in tests).
+func ResetKeyRing() {
+	keyRingMu.Lock()
+	defer keyRingMu.Unlock()
+	activeVersion = 0
+	masterKeyRing = map[int][]byte{}
+}
+
+// CurrentKeyVersion returns the active master key version (or 0 if unconfigured).
+func CurrentKeyVersion() int {
+	keyRingMu.RLock()
+	ver := activeVersion
+	keyRingMu.RUnlock()
+	if ver > 0 {
+		return ver
+	}
+	if envKey := strings.TrimSpace(os.Getenv("AGENTPAY_UPSTREAM_MASTER_KEY")); envKey != "" {
+		if err := loadFromEnvIfUnconfigured(); err == nil {
+			keyRingMu.RLock()
+			ver = activeVersion
+			keyRingMu.RUnlock()
+		}
+	}
+	return ver
+}
+
+func loadFromEnvIfUnconfigured() error {
+	envKey := strings.TrimSpace(os.Getenv("AGENTPAY_UPSTREAM_MASTER_KEY"))
+	if envKey == "" {
+		return ErrMasterKeyNotConfigured
+	}
+	ver := 1
+	if vStr := strings.TrimSpace(os.Getenv("AGENTPAY_UPSTREAM_MASTER_KEY_VERSION")); vStr != "" {
+		if parsed, err := strconv.Atoi(vStr); err == nil && parsed > 0 {
+			ver = parsed
+		}
+	}
+	prevMap := make(map[int]string)
+	if prevEnv := strings.TrimSpace(os.Getenv("AGENTPAY_UPSTREAM_PREVIOUS_MASTER_KEYS")); prevEnv != "" {
+		for _, pair := range strings.Split(prevEnv, ",") {
+			parts := strings.SplitN(strings.TrimSpace(pair), ":", 2)
+			if len(parts) == 2 {
+				if pVer, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil && pVer > 0 {
+					prevMap[pVer] = strings.TrimSpace(parts[1])
+				}
+			}
+		}
+	}
+	return ConfigureKeyRing(ver, envKey, prevMap)
+}
+
+func resolveActiveKey() ([]byte, int, error) {
+	keyRingMu.RLock()
+	ver := activeVersion
+	k := masterKeyRing[ver]
+	keyRingMu.RUnlock()
+	if len(k) == 32 && ver > 0 {
+		cp := make([]byte, 32)
+		copy(cp, k)
+		return cp, ver, nil
+	}
+	if err := loadFromEnvIfUnconfigured(); err != nil {
+		return nil, 0, err
+	}
+	keyRingMu.RLock()
+	ver = activeVersion
+	k = masterKeyRing[ver]
+	keyRingMu.RUnlock()
+	if len(k) != 32 {
+		return nil, 0, ErrMasterKeyNotConfigured
+	}
+	cp := make([]byte, 32)
+	copy(cp, k)
+	return cp, ver, nil
+}
+
+func resolveCandidateKeys(preferredVersion int) ([][]byte, error) {
+	keyRingMu.RLock()
+	ringLen := len(masterKeyRing)
+	keyRingMu.RUnlock()
+	if ringLen == 0 {
+		if err := loadFromEnvIfUnconfigured(); err != nil {
+			return nil, err
+		}
+	}
+
+	keyRingMu.RLock()
+	defer keyRingMu.RUnlock()
+	if len(masterKeyRing) == 0 {
+		return nil, ErrMasterKeyNotConfigured
+	}
+
+	var candidates [][]byte
+	seen := make(map[int]bool)
+	if preferredVersion > 0 {
+		if k, ok := masterKeyRing[preferredVersion]; ok && len(k) == 32 {
+			cp := make([]byte, 32)
+			copy(cp, k)
+			candidates = append(candidates, cp)
+			seen[preferredVersion] = true
+		}
+	}
+	if activeVersion > 0 && !seen[activeVersion] {
+		if k, ok := masterKeyRing[activeVersion]; ok && len(k) == 32 {
+			cp := make([]byte, 32)
+			copy(cp, k)
+			candidates = append(candidates, cp)
+			seen[activeVersion] = true
+		}
+	}
+	versions := make([]int, 0, len(masterKeyRing))
+	for v := range masterKeyRing {
+		if !seen[v] {
+			versions = append(versions, v)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(versions)))
+	for _, v := range versions {
+		k := masterKeyRing[v]
+		if len(k) == 32 {
+			cp := make([]byte, 32)
+			copy(cp, k)
+			candidates = append(candidates, cp)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, ErrMasterKeyNotConfigured
+	}
+	return candidates, nil
+}
+
+// EncryptSecretsVersioned encrypts secrets using the active master key in the keyring and returns the ciphertext and key version.
+func EncryptSecretsVersioned(secrets map[string]string) ([]byte, int, error) {
+	key, ver, err := resolveActiveKey()
+	if err != nil {
+		return nil, 0, err
+	}
+	ct, err := EncryptSecrets(secrets, key)
+	if err != nil {
+		return nil, 0, err
+	}
+	return ct, ver, nil
+}
+
+// DecryptSecretsVersioned decrypts ciphertext using the specified keyVersion (or fallback versions in the keyring).
+func DecryptSecretsVersioned(ciphertext []byte, keyVersion int) (map[string]string, error) {
+	if len(ciphertext) == 0 {
+		return map[string]string{}, nil
+	}
+	candidates, err := resolveCandidateKeys(keyVersion)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for _, k := range candidates {
+		dec, err := decryptWithKey(ciphertext, k)
+		if err == nil {
+			return dec, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// ReencryptSecrets decrypts ciphertext with old key version and re-encrypts with the current active key version.
+func ReencryptSecrets(ciphertext []byte, keyVersion int) ([]byte, int, error) {
+	secrets, err := DecryptSecretsVersioned(ciphertext, keyVersion)
+	if err != nil {
+		return nil, 0, err
+	}
+	return EncryptSecretsVersioned(secrets)
+}
+
+// EncryptSecrets encrypts the secrets map with AES-256-GCM using the provided 32-byte key (or active keyring if key is empty).
 func EncryptSecrets(secrets map[string]string, key []byte) ([]byte, error) {
 	if len(key) == 0 {
-		key = defaultMasterKey
+		resolved, _, err := resolveActiveKey()
+		if err != nil {
+			return nil, err
+		}
+		key = resolved
 	}
 	if len(key) != 32 {
 		return nil, errors.New("master key must be exactly 32 bytes for AES-256")
@@ -159,8 +403,12 @@ func DecryptSecrets(ciphertext []byte, key []byte) (map[string]string, error) {
 		return map[string]string{}, nil
 	}
 	if len(key) == 0 {
-		key = defaultMasterKey
+		return DecryptSecretsVersioned(ciphertext, 0)
 	}
+	return decryptWithKey(ciphertext, key)
+}
+
+func decryptWithKey(ciphertext []byte, key []byte) (map[string]string, error) {
 	if len(key) != 32 {
 		return nil, errors.New("master key must be exactly 32 bytes for AES-256")
 	}

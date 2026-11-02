@@ -109,7 +109,7 @@ func TestAuthorizationCodecsRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode auth failed: %v", err)
 	}
-	if parsed.Payer != auth.Payer || parsed.Nonce != auth.Nonce {
+	if parsed.Payer != strings.ToLower(auth.Payer) || parsed.Nonce != strings.ToLower(auth.Nonce) {
 		t.Errorf("auth fields mismatch: %+v", parsed)
 	}
 	if parsed.Signature.Hex() != "0xd90ab6b3serialized" {

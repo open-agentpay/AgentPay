@@ -24,6 +24,7 @@ type Client interface {
 	TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
 	ChainID() *big.Int
 	CodeAt(ctx context.Context, account common.Address) ([]byte, error)
+	BalanceAt(ctx context.Context, account common.Address) (*big.Int, error)
 }
 
 // RPCClient wraps go-ethereum's ethclient.
@@ -60,6 +61,10 @@ func (r *RPCClient) ChainID() *big.Int {
 
 func (r *RPCClient) CodeAt(ctx context.Context, account common.Address) ([]byte, error) {
 	return r.client.CodeAt(ctx, account, nil)
+}
+
+func (r *RPCClient) BalanceAt(ctx context.Context, account common.Address) (*big.Int, error) {
+	return r.client.BalanceAt(ctx, account, nil)
 }
 
 func (r *RPCClient) CheckAuthorizationState(ctx context.Context, tokenContract common.Address, authorizer common.Address, nonce [32]byte) (bool, error) {
@@ -112,6 +117,7 @@ type MockClient struct {
 	txNonce        uint64
 	GasPriceVal    *big.Int
 	GasTipCapVal   *big.Int
+	BalanceVal     *big.Int
 }
 
 // NewMockClient creates an in-memory client.
@@ -123,8 +129,9 @@ func NewMockClient(chainID *big.Int) *MockClient {
 		chainID:        chainID,
 		usedAuthNonces: make(map[string]bool),
 		receipts:       make(map[common.Hash]*types.Receipt),
-		GasPriceVal:    big.NewInt(100_000_000), // 0.1 Gwei
-		GasTipCapVal:   big.NewInt(1_000_000),   // 0.001 Gwei
+		GasPriceVal:    big.NewInt(100_000_000),           // 0.1 Gwei
+		GasTipCapVal:   big.NewInt(1_000_000),             // 0.001 Gwei
+		BalanceVal:     big.NewInt(1_000_000_000_000_000_000), // 1 ETH default
 	}
 }
 
@@ -134,6 +141,27 @@ func (m *MockClient) ChainID() *big.Int {
 
 func (m *MockClient) CodeAt(ctx context.Context, account common.Address) ([]byte, error) {
 	return nil, nil
+}
+
+func (m *MockClient) BalanceAt(ctx context.Context, account common.Address) (*big.Int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.BalanceVal == nil {
+		return big.NewInt(1_000_000_000_000_000_000), nil
+	}
+	return new(big.Int).Set(m.BalanceVal), nil
+}
+
+func (m *MockClient) SetBalance(b *big.Int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.BalanceVal = b
+}
+
+func (m *MockClient) SetReceipt(txHash common.Hash, receipt *types.Receipt) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.receipts[txHash] = receipt
 }
 
 func (m *MockClient) CheckAuthorizationState(ctx context.Context, tokenContract common.Address, authorizer common.Address, nonce [32]byte) (bool, error) {

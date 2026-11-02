@@ -125,10 +125,12 @@ func TestAuthMiddleware(t *testing.T) {
 
 	wrapped := middleware(nextHandler)
 
-	// Case 1: Valid Bearer token
+	// Case 1: Valid Bearer token overwrites any spoofed client headers
 	token, _ := jwtMgr.GenerateToken("usr_bob", "bob@agentpay.io", "ten_corp", "admin")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Actor-Member-Id", "spoofed_member")
+	req.Header.Set("X-Tenant-Id", "spoofed_tenant")
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)
@@ -145,9 +147,11 @@ func TestAuthMiddleware(t *testing.T) {
 	if capturedTenantID != "ten_corp" {
 		t.Errorf("expected capturedTenantID ten_corp, got: %s", capturedTenantID)
 	}
-	// Check propagated headers
 	if req.Header.Get("X-Actor-Member-Id") != "usr_bob" {
-		t.Errorf("expected X-Actor-Member-Id header to be propagated, got: %s", req.Header.Get("X-Actor-Member-Id"))
+		t.Errorf("expected X-Actor-Member-Id header to be usr_bob, got: %s", req.Header.Get("X-Actor-Member-Id"))
+	}
+	if req.Header.Get("X-Tenant-Id") != "ten_corp" {
+		t.Errorf("expected X-Tenant-Id header to be ten_corp, got: %s", req.Header.Get("X-Tenant-Id"))
 	}
 
 	// Case 2: Invalid Bearer token
@@ -161,9 +165,11 @@ func TestAuthMiddleware(t *testing.T) {
 		t.Fatalf("expected 401 Unauthorized, got: %d", recInvalid.Code)
 	}
 
-	// Case 3: No Authorization header (Pass-through)
+	// Case 3: No Authorization header strips spoofed X-Actor-Member-Id / X-Tenant-Id headers
 	handlerExecuted = false
 	reqNoAuth := httptest.NewRequest(http.MethodGet, "/api/v1/public", nil)
+	reqNoAuth.Header.Set("X-Actor-Member-Id", "evil_actor")
+	reqNoAuth.Header.Set("X-Tenant-Id", "evil_tenant")
 	recNoAuth := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(recNoAuth, reqNoAuth)
@@ -173,5 +179,11 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 	if !handlerExecuted {
 		t.Fatalf("expected nextHandler to be called for passthrough")
+	}
+	if reqNoAuth.Header.Get("X-Actor-Member-Id") != "" {
+		t.Errorf("expected spoofed X-Actor-Member-Id to be stripped, got: %s", reqNoAuth.Header.Get("X-Actor-Member-Id"))
+	}
+	if reqNoAuth.Header.Get("X-Tenant-Id") != "" {
+		t.Errorf("expected spoofed X-Tenant-Id to be stripped, got: %s", reqNoAuth.Header.Get("X-Tenant-Id"))
 	}
 }

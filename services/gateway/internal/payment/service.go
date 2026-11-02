@@ -23,6 +23,7 @@ type Service interface {
 	GetSettlement(ctx context.Context, settlementID string) (*SettlementRecord, error)
 	GetSettlementByIntent(ctx context.Context, intentID string) (*SettlementRecord, error)
 	UpdateSettlementStatus(ctx context.Context, settlementID string, status string, txHash string, blockNumber *int64, errMsg string) error
+	ListNonTerminalSettlements(ctx context.Context) ([]*SettlementRecord, error)
 
 	RecordFulfillment(ctx context.Context, fulfillment *FulfillmentRecord) error
 	GetFulfillment(ctx context.Context, fulfillmentID string) (*FulfillmentRecord, error)
@@ -31,6 +32,7 @@ type Service interface {
 
 	// LinkWalletAssociation associates wallet hold and ledger entry with an intent
 	LinkWalletAssociation(ctx context.Context, intentID string, hold *WalletHoldAssociation, ledger *LedgerAssociation) error
+	ExpireStaleHolds(ctx context.Context, before time.Time) (int64, error)
 
 	// Composite Query APIs
 	GetPaymentAudit(ctx context.Context, tenantID, intentID string) (*PaymentAuditRecord, error)
@@ -262,6 +264,20 @@ func (m *MemoryService) UpdateSettlementStatus(ctx context.Context, settlementID
 	return nil
 }
 
+func (m *MemoryService) ListNonTerminalSettlements(ctx context.Context) ([]*SettlementRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var out []*SettlementRecord
+	for _, s := range m.settlements {
+		if s.PaymentMethod == "onchain" && (s.Status == SettlementStatusSubmitted || s.Status == SettlementStatusPending || s.Status == SettlementStatusUnknown) {
+			cp := *s
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
 func (m *MemoryService) RecordFulfillment(ctx context.Context, fulfillment *FulfillmentRecord) error {
 	if fulfillment == nil || fulfillment.FulfillmentID == "" || fulfillment.IntentID == "" {
 		return errors.New("invalid fulfillment record")
@@ -344,6 +360,30 @@ func (m *MemoryService) LinkWalletAssociation(ctx context.Context, intentID stri
 		m.ledgersByIntent[intentID] = &lCopy
 	}
 	return nil
+}
+
+func (m *MemoryService) ExpireStaleHolds(ctx context.Context, before time.Time) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var count int64
+	for intentID, h := range m.holdsByIntent {
+		if h.Status == "held" && !h.ExpiresAt.IsZero() && h.ExpiresAt.Before(before) {
+			h.Status = "expired"
+			if sID, ok := m.settlementByIntent[intentID]; ok {
+				if s, exists := m.settlements[sID]; exists && s.Status == SettlementStatusHeld {
+					s.Status = SettlementStatusReleased
+					s.UpdatedAt = before
+				}
+			}
+			if intent, exists := m.intents[intentID]; exists && intent.Status == IntentStatusAuthorized {
+				intent.Status = IntentStatusExpired
+				intent.UpdatedAt = before
+			}
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (m *MemoryService) buildAuditRecordLocked(intent *PaymentIntent) *PaymentAuditRecord {

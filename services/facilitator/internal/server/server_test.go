@@ -16,6 +16,7 @@ import (
 
 func TestHTTPServerEndpoints(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.Security.APIKey = "fac_test_secret_api_key_001"
 	mockClient := agentevm.NewMockClient(big.NewInt(84532))
 
 	currentTime := int64(1729000100)
@@ -33,7 +34,7 @@ func TestHTTPServerEndpoints(t *testing.T) {
 	srv := New(cfg, svc)
 	handler := srv.Handler()
 
-	// 1. Health check
+	// 1. Health check (public)
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -42,7 +43,17 @@ func TestHTTPServerEndpoints(t *testing.T) {
 		t.Fatalf("expected 200 OK from /health, got %d", rec.Code)
 	}
 
-	// 2. POST /v1/verify
+	// 1b. Unauthenticated calls to /v1/verify and /v1/settle MUST return 401 UNAUTHORIZED
+	for _, path := range []string{"/v1/verify", "/v1/settle"} {
+		unauthReq := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(`{}`))
+		unauthRec := httptest.NewRecorder()
+		handler.ServeHTTP(unauthRec, unauthReq)
+		if unauthRec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401 Unauthorized for unauthenticated %s, got %d: %s", path, unauthRec.Code, unauthRec.Body.String())
+		}
+	}
+
+	// 2. POST /v1/verify with valid API key
 	ch := models.PaymentChallenge{
 		Version:     "2.0",
 		ChallengeID: "ch_http_test",
@@ -79,6 +90,7 @@ func TestHTTPServerEndpoints(t *testing.T) {
 	})
 
 	vReq := httptest.NewRequest(http.MethodPost, "/v1/verify", bytes.NewBuffer(verifyBody))
+	vReq.Header.Set("Authorization", "Bearer "+cfg.Security.APIKey)
 	vRec := httptest.NewRecorder()
 	handler.ServeHTTP(vRec, vReq)
 
@@ -94,7 +106,7 @@ func TestHTTPServerEndpoints(t *testing.T) {
 		t.Fatalf("expected valid verifyResult, got %+v", verifyResult)
 	}
 
-	// 3. POST /v1/settle
+	// 3. POST /v1/settle with valid API key
 	settleBody, _ := json.Marshal(models.SettleRequest{
 		VerificationToken: verifyResult.VerificationToken,
 		Authorization:     auth,
@@ -102,6 +114,7 @@ func TestHTTPServerEndpoints(t *testing.T) {
 	})
 
 	sReq := httptest.NewRequest(http.MethodPost, "/v1/settle", bytes.NewBuffer(settleBody))
+	sReq.Header.Set("Authorization", "Bearer "+cfg.Security.APIKey)
 	sRec := httptest.NewRecorder()
 	handler.ServeHTTP(sRec, sReq)
 
@@ -116,6 +129,7 @@ func TestHTTPServerEndpoints(t *testing.T) {
 
 	// 4. GET /v1/settle/{id}
 	stReq := httptest.NewRequest(http.MethodGet, "/v1/settle/"+settleResult.SettlementID, nil)
+	stReq.Header.Set("Authorization", "Bearer "+cfg.Security.APIKey)
 	stRec := httptest.NewRecorder()
 	handler.ServeHTTP(stRec, stReq)
 
@@ -133,6 +147,7 @@ func TestHTTPServerEndpoints(t *testing.T) {
 
 	// 5. GET /v1/nonce check
 	nReq := httptest.NewRequest(http.MethodGet, "/v1/nonce?network="+ch.Network+"&asset="+ch.Asset+"&payer="+auth.Payer+"&nonce="+auth.Nonce, nil)
+	nReq.Header.Set("Authorization", "Bearer "+cfg.Security.APIKey)
 	nRec := httptest.NewRecorder()
 	handler.ServeHTTP(nRec, nReq)
 

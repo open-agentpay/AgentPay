@@ -33,6 +33,7 @@ type DatabaseConfig struct {
 // FacilitatorConfig defines connection to the batch settlement facilitator.
 type FacilitatorConfig struct {
 	URL            string  `yaml:"url"`
+	APIKey         string  `yaml:"api_key"`
 	TimeoutSeconds float64 `yaml:"timeout_seconds"`
 }
 
@@ -78,24 +79,29 @@ type RouteDefinition struct {
 
 // AuthConfig defines control plane and administrative API authentication settings.
 type AuthConfig struct {
-	JWTSecret          string `yaml:"jwt_secret"`
-	TokenDurationHours int    `yaml:"token_duration_hours"`
+	JWTSecret                  string         `yaml:"jwt_secret"`
+	TokenDurationHours         int            `yaml:"token_duration_hours"`
+	UpstreamMasterKey          string         `yaml:"upstream_master_key"`
+	UpstreamMasterKeyVersion   int            `yaml:"upstream_master_key_version"`
+	UpstreamPreviousMasterKeys map[int]string `yaml:"upstream_previous_master_keys"`
 }
 
 // GatewayConfig is the root configuration object for the Go Gateway.
 type GatewayConfig struct {
-	Version      string            `yaml:"version"`
-	Server       ServerConfig      `yaml:"server"`
-	Auth         AuthConfig        `yaml:"auth"`
-	Database     DatabaseConfig    `yaml:"database"`
-	Facilitator  FacilitatorConfig `yaml:"facilitator"`
-	Settlement   SettlementConfig  `yaml:"settlement"`
-	Logger       LoggerConfig      `yaml:"logger"`
-	Metrics      MetricsConfig     `yaml:"metrics"`
-	Routes       []RouteDefinition `yaml:"routes"`
+	Version     string            `yaml:"version"`
+	Server      ServerConfig      `yaml:"server"`
+	Auth        AuthConfig        `yaml:"auth"`
+	Database    DatabaseConfig    `yaml:"database"`
+	Facilitator FacilitatorConfig `yaml:"facilitator"`
+	Settlement  SettlementConfig  `yaml:"settlement"`
+	Logger      LoggerConfig      `yaml:"logger"`
+	Metrics     MetricsConfig     `yaml:"metrics"`
+	Routes      []RouteDefinition `yaml:"routes"`
 }
 
 // DefaultConfig returns safe, production-grade defaults.
+// SECURITY-REVIEW: PostgresURL defaults to empty so standalone/unit tests never
+// implicitly connect to or mutate a developer's local PostgreSQL database (P1-2).
 func DefaultConfig() GatewayConfig {
 	return GatewayConfig{
 		Version: "2.0.0",
@@ -108,10 +114,11 @@ func DefaultConfig() GatewayConfig {
 			ShutdownTimeoutSeconds: 10.0,
 		},
 		Auth: AuthConfig{
-			TokenDurationHours: 24,
+			TokenDurationHours:       24,
+			UpstreamMasterKeyVersion: 1,
 		},
 		Database: DatabaseConfig{
-			PostgresURL:            "postgres://postgres:postgres@localhost:5432/agentpay?sslmode=disable",
+			PostgresURL:            "",
 			MaxOpenConns:           25,
 			MaxIdleConns:           10,
 			ConnMaxLifetimeSeconds: 300,
@@ -180,6 +187,9 @@ func applyEnvOverrides(cfg *GatewayConfig) {
 	if facURL := os.Getenv("AGENTPAY_FACILITATOR_URL"); facURL != "" {
 		cfg.Facilitator.URL = facURL
 	}
+	if facKey := os.Getenv("AGENTPAY_FACILITATOR_API_KEY"); facKey != "" {
+		cfg.Facilitator.APIKey = facKey
+	}
 	if logLevel := os.Getenv("AGENTPAY_LOG_LEVEL"); logLevel != "" {
 		cfg.Logger.Level = logLevel
 	}
@@ -188,6 +198,14 @@ func applyEnvOverrides(cfg *GatewayConfig) {
 	}
 	if jwtSecret := os.Getenv("AGENTPAY_JWT_SECRET"); jwtSecret != "" {
 		cfg.Auth.JWTSecret = jwtSecret
+	}
+	if masterKey := os.Getenv("AGENTPAY_UPSTREAM_MASTER_KEY"); masterKey != "" {
+		cfg.Auth.UpstreamMasterKey = masterKey
+	}
+	if keyVerStr := os.Getenv("AGENTPAY_UPSTREAM_MASTER_KEY_VERSION"); keyVerStr != "" {
+		if v, err := strconv.Atoi(keyVerStr); err == nil && v > 0 {
+			cfg.Auth.UpstreamMasterKeyVersion = v
+		}
 	}
 }
 

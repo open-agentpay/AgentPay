@@ -193,6 +193,10 @@ func logIfErr(msg, key, id string, err error) {
 }
 
 func (s *reqScope) updateCorrelationOutcome(intentID, settlementID, fulfillmentID string, statusCode int) {
+	s.updateCorrelationOutcomeWithMode(intentID, settlementID, fulfillmentID, statusCode, true)
+}
+
+func (s *reqScope) updateCorrelationOutcomeWithMode(intentID, settlementID, fulfillmentID string, statusCode int, confirmSettlement bool) {
 	ps := s.p.paymentService
 	if ps == nil {
 		return
@@ -202,12 +206,14 @@ func (s *reqScope) updateCorrelationOutcome(intentID, settlementID, fulfillmentI
 
 	switch {
 	case statusCode >= 200 && statusCode < 300:
-		logIfErr("failed to update settlement status confirmed", "settlement_id", settlementID,
-			ps.UpdateSettlementStatus(ctx, settlementID, payment.SettlementStatusConfirmed, "", nil, ""))
 		logIfErr("failed to update fulfillment succeeded", "fulfillment_id", fulfillmentID,
 			ps.UpdateFulfillment(ctx, fulfillmentID, payment.FulfillmentStatusSucceeded, statusCode, durationMs, ""))
-		logIfErr("failed to update intent completed", "intent_id", intentID,
-			ps.UpdateIntentStatus(ctx, intentID, payment.IntentStatusCompleted))
+		if confirmSettlement {
+			logIfErr("failed to update settlement status confirmed", "settlement_id", settlementID,
+				ps.UpdateSettlementStatus(ctx, settlementID, payment.SettlementStatusConfirmed, "", nil, ""))
+			logIfErr("failed to update intent completed", "intent_id", intentID,
+				ps.UpdateIntentStatus(ctx, intentID, payment.IntentStatusCompleted))
+		}
 	case statusCode >= 400 && statusCode < 500:
 		logIfErr("failed to update fulfillment failed", "fulfillment_id", fulfillmentID,
 			ps.UpdateFulfillment(ctx, fulfillmentID, payment.FulfillmentStatusFailed, statusCode, durationMs, ""))
