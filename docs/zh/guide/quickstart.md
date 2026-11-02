@@ -1,14 +1,14 @@
 ---
-title: 5 分钟快速开始
-description: 在本地运行 AgentPay 网关，用 Python SDK 完成第一次受策略管控的付费调用，并亲眼看到金融防火墙拦截失控 Agent。
+title: 5 分钟快速上手
+description: 在本地运行 AgentPay 网关，用 Python SDK 完成第一次受企业级防火墙管控的付费调用，并亲眼看到金融防火墙在第 3 秒拦截失控死循环。
 ---
 
-# 5 分钟快速开始
+# 5 分钟快速上手
 
-本指南带你在本机运行 AgentPay 网关，用 Python Agent 完成一次付费 API 调用，然后观察防火墙如何工作。全程**不需要钱包、测试网资金或真实资金**。
+本指南带你在本机启动 AgentPay 网关，用 Python Agent 完成一次付费 API 调用，然后直观观察**金融防火墙如何执行单笔限额、突发死循环秒级熔断与行为审计留痕**。全程**不需要任何区块链钱包、无需测试币或真实资金**。
 
-::: warning 仅限沙箱
-AgentPay 仍是实验性项目，尚未经过独立审计。本指南的所有操作都在本地使用开发数据运行，切勿接入主网资金。
+::: tip 企业级沙箱环境
+本快速开始默认基于国内常用的 **企业虚拟账本（API Key）模式**，全程在本地沙箱中安全运行，几分钟内即可完整验证风控与微支付全流程。
 :::
 
 <!--
@@ -143,42 +143,36 @@ npm install open-agentpay
 
 ```python [first_request.py (Python)]
 import os
-
-from agentpay import AgentPayClient, LocalSigner
+from agentpay import AgentPayClient
 from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-# 1. 签名器。钱包模式不需要链上签名，这里仅作占位。
-#    ⚠️ 仅限测试网开发：此公钥对应 Hardhat/Anvil 默认公开测试密钥，切勿转入任何主网真实资产！
-dev_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
-signer = LocalSigner(dev_key)
-
-# 2. 本地财务防火墙：防止 Agent 陷入循环刷爆预算。
-#    金额为最小单位整数；钱包挑战使用 USD 计价。
+# 1. 贴身金融防火墙：防止 Agent 陷入死循环刷爆预算
+#    金额为 6 位微单位整数 (1 元 = 1,000,000 base units)
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="quickstart_firewall",
-        name="Quickstart Firewall",
-        wallet_address=signer.address,
-        max_per_tx_base_units=1_000_000,       # 单笔最多 1 USD
-        rolling_budget_24h_base_units=10_000_000, # 24 小时最多 10 USD
+        name="开发环境金融防火墙",
+        max_per_tx_base_units=1_000_000,          # 单笔最多 1.00 元
+        rolling_budget_24h_base_units=10_000_000, # 24 小时最多 10.00 元
+        circuit_max_rpm=5,                        # 1 分钟超过 5 次立即拉闸熔断
         whitelist_domains=frozenset(["127.0.0.1", "localhost"]),
+        # 可选：配置飞书 Webhook，超额调用自动弹审批卡片
+        # feishu_webhook_url=os.getenv("FEISHU_WEBHOOK"),
     )
 )
 
-# 3. 为 Agent 颁发的 API Key（开发密钥，已预置测试钱包余额）。
+# 2. 为 Agent 颁发的专属 API Key（开发环境默认预置测试租户与钱包余额）
 api_key = os.getenv("AGENTPAY_API_KEY", "apk_live_valid123")
 
-# 4. 开启价格感知钱包模式。SDK 先接收 402 报价，用本地策略检查确切金额，
-#    获准后再携带钱包授权重试请求。
+# 3. 构造安全防护客户端（纯 API Key 模式，零区块链私钥依赖）
 client = AgentPayClient(
-    signer=signer,
     policy=policy,
     headers={"Authorization": f"Bearer {api_key}"},
     wallet_challenge_mode=True,
 )
 
-# 首次请求会收到价格挑战。只有本地策略批准后 SDK 才重试；随后网关冻结租户钱包余额，
-# 并调用上游。
+# 4. 发起调用：网关返回 402 价格挑战，本地策略引擎确认金额在预算内后自动放行，
+#    网关原子执行 Hold 冻结、调用上游，成功后 Capture 扣费并记录不可篡改审计日志！
 response = client.get("http://127.0.0.1:8080/weather/current?city=SanFrancisco")
 print("Response status:", response.status_code)
 print("Data:", response.json())

@@ -4,7 +4,7 @@ export const zh: Translations = {
   nav: {
     home: '首页',
     hubTitle: 'X402 HUB',
-    subtitle: '智能体支付网络与本地财务防火墙',
+    subtitle: '智能体预算防火墙与双轨微支付网关',
     storefront: 'API 功能商店',
     exampleRoute: '标杆路由示例',
     docs: '核心文档',
@@ -13,10 +13,10 @@ export const zh: Translations = {
     langSwitch: '语言 / Lang',
   },
   homePage: {
-    heroBadge: '开源微支付网络与本地财务防火墙',
-    heroTitle: 'AgentPay — 为自主 AI Agent 注入安全微支付能力',
+    heroBadge: 'AI Agent 预算防火墙与双轨微支付网关',
+    heroTitle: 'AgentPay — 让 AI 自主调用付费工具，但绝不突破预算边界',
     heroSubtitle:
-      '大模型可以提议支付，但永远不能授权支付。私钥不离机、零 Gas 磨损、按次微支付（Pay-Per-Request），彻底解决 Agent 失控死循环与钱包掏空风险。',
+      '大模型可以提议支付，但永远不能自行授权支付。原生支持「企业多币种虚拟钱包（CNY/USD）」与「x402 链上零 Gas」双轨按次微支付，内置单笔限额、24h 滚动预算与死循环自动熔断，彻底杜绝 Agent 刷爆账单与钱包掏空风险。',
     btnGoMarketplace: '前往 API 功能商店 (体验 SDK)',
     btnReadDocs: '查阅技术文档',
     btnCopyPip: 'pip install open-agentpay',
@@ -26,12 +26,12 @@ export const zh: Translations = {
     whatIsBadge: '产品定位',
     whatIsTitle: '什么是 AgentPay？',
     whatIsP1:
-      'AgentPay 是一套专为 AI Agent 与机器经济设计的开源非托管本地财务防火墙与 HTTP 原生微支付协议网关。随着自主智能体在各领域自动化执行任务（Tool Calling、MCP、LangChain、CrewAI），越来越多的外部工具与数据服务变成了付费资源。',
+      'AgentPay 是一套专为 AI Agent 与企业智能体编队设计的开源财务防火墙（AI FinOps Firewall）与 HTTP 原生微支付网关。随着自主智能体在各领域自动化执行任务（Tool Calling、MCP、Dify、Coze、LangChain），越来越多的外部工具、商业数据与高价值算力变成了按次付费资源。',
     whatIsP2:
-      'HTTP 402 协议解决了“Agent 怎样向 HTTP 资源付费”的通道问题；而 AgentPay 解决了随之而来更关键的管控问题：“该 Agent 是否被允许支付？最多付多少？付给谁？发生网络超时或异常时资金如何保护？”',
+      'HTTP 402 协议解决了“Agent 怎样向 HTTP 资源按次付费”的通道问题；而 AgentPay 解决了更关键的企业内控与安全问题：“该 Agent 是否被允许支付？单次最多花多少？超额如何触发审批或熔断？发生上游超时或异常时如何保证绝不重复扣款？”',
     risksBadge: '安全护栏',
     risksTitle: 'AgentPay 解决的 7 大核心生产级风险',
-    risksSubtitle: '针对大模型幻觉、黑客注入攻击与不可靠分布式网络的系统级防御矩阵',
+    risksSubtitle: '针对大模型幻觉、提示词注入攻击与不可靠分布式网络的系统级防御矩阵',
     risksList: [
       {
         title: '1. 逃逸死循环 (Runaway Loops)',
@@ -40,13 +40,13 @@ export const zh: Translations = {
       },
       {
         title: '2. 提示词注入攻击 (Prompt Injection)',
-        problem: '恶意上游或被污染的输入诱导 Agent 将钱包资金转账给黑客地址或虚高标价。',
-        solution: '零信任边界，收款方/网络/币种白名单在模型外部由本地策略引擎强制拦截。',
+        problem: '恶意上游或被污染的输入诱导 Agent 调用非授权高价接口或将资金转给恶意收款方。',
+        solution: '零信任边界，路由/收款方/币种白名单在模型外部由本地确定性策略引擎强制拦截。',
       },
       {
-        title: '3. 私钥泄露 (Key Exposure)',
-        problem: '钱包私钥意外混入 Prompt 上下文导致在日志中打印或泄露给外部模型服务商。',
-        solution: '非托管纯本地签名，私钥 100% 留在买方环境，绝不传入网络或网关。',
+        title: '3. 凭证与私钥泄露 (Credential & Key Exposure)',
+        problem: '上游主账号 API Key 或钱包私钥意外混入 Prompt 上下文，导致在日志中泄露或被越权滥用。',
+        solution: 'Agent 仅持受限子凭证，上游凭证由网关托管注入，链上私钥 100% 留存买方本地。',
       },
       {
         title: '4. 超时双重扣款 (Double Charging)',
@@ -71,21 +71,21 @@ export const zh: Translations = {
     ],
     dualRailBadge: '架构双通道',
     dualRailTitle: '确定性双通道支付架构 (Dual-Rail Architecture)',
-    dualRailSubtitle: '根据请求携带凭证自动智能切换，满足企业团队内部管理与开放互联两种场景',
-    railATitle: '通道 A：虚拟钱包与内部账本 (Virtual Wallet)',
-    railASubtitle: '面向企业内部多智能体编队、部门额度分配与记账审计',
+    dualRailSubtitle: '同一套策略防火墙内核，无缝覆盖国内企业人民币/法币内控与海外跨组织链上微支付',
+    railATitle: '通道 A：多币种虚拟钱包与内部账本 (CNY / USD Wallet)',
+    railASubtitle: '面向国内及企业内部多智能体编队、人民币/美元毫厘级计费与预算审计',
     railADesc:
-      'Agent 仅需持有受管控的 API Key，网关支持行级锁资金冻结 (HOLD)、交付成功扣除 (CAPTURE) 与异常解冻 (RELEASE)，全流程自动沉淀审计流水。',
+      '支持租户级 CNY / USD / EUR 6 位微单位账本（¥0.000001 精度）。Agent 仅需持有受管控的 API Key，网关基于行级锁自动完成冻结 (HOLD)、交付成功实扣 (CAPTURE) 与失败解冻 (RELEASE)，无需接触任何区块链或加密代币。',
     railASteps: [
-      '1. Agent 携带 Bearer Key 发起请求',
-      '2. 网关鉴权并校验租户/项目/Agent 额度策略',
-      '3. 租户钱包原子冻结价格 (HOLD)',
-      '4. 转发上游 (2xx CAPTURE, 4xx RELEASE, 5xx 冻结待人工复核)',
+      '1. Agent 携带受限 API Key 发起请求，网关下发 x402 虚拟钱包挑战',
+      '2. 本地策略防火墙核验单笔限额与 24h 预算，提交挑战授权',
+      '3. 租户 CNY/USD 虚拟钱包原子冻结额度 (HOLD)',
+      '4. 转发上游 (2xx 实扣 CAPTURE，4xx 零损解冻 RELEASE，5xx 挂起复核)',
     ],
     railBTitle: '通道 B：原生链上 x402 协议 (On-Chain x402 V2)',
-    railBSubtitle: '面向无须预充值、无须信用卡的跨组织机器自主经济',
+    railBSubtitle: '面向出海应用与无须预充值、无须绑卡的跨组织机器自主经济',
     railBDesc:
-      '基于 Circle USDC 与 EIP-3009 离线授权签名，实现零 Gas 磨损、毫秒级按次微支付 (Pay-Per-Request)，买方钱包仅需持有 USDC。',
+      '基于 Circle USDC 与 EIP-3009 离线授权签名，实现零 Gas 磨损、毫秒级按次微支付 (Pay-Per-Request)，买方钱包仅需持有 USDC，无需准备 ETH 等原生 Gas 代币。',
     railBSteps: [
       '1. Agent 发起标准 HTTP GET/POST 请求',
       '2. 网关返回 HTTP 402 Payment Required 挑战',
@@ -95,78 +95,78 @@ export const zh: Translations = {
     terminalDemoTitle: '内置终端仿真验证 (Terminal Demo)',
     terminalDemoSubtitle: '只需一行 make demo，10 秒内即可亲身体验 3 阶段财务防火墙与死循环熔断保护',
     quickstartTitle: '5 分钟极速上手 (Quickstart)',
-    quickstartSubtitle: '支持 Python 与 TypeScript SDK 极简集成，无论是为 Agent 注入安全防护，还是对外变现现有 API',
-    buyerQuickstartTitle: '买方 (Buyer)：5 行代码给 Agent 工具装上安全防火墙',
-    sellerQuickstartTitle: '卖方 (Seller)：1 分钟将已有 API 变现为 X402 接口',
+    quickstartSubtitle: '支持 Python 与 TypeScript SDK 极简集成，可自由选择「虚拟钱包模式 (API Key)」或「链上签名模式 (EIP-3009)」',
+    buyerQuickstartTitle: '买方 (Buyer)：5 行代码给 Agent 工具装上预算防火墙',
+    sellerQuickstartTitle: '卖方 (Seller)：1 分钟将已有 API 变现为按次计费接口',
     marketplaceCtaBadge: '开放验证生态',
     marketplaceCtaTitle: '体验与验证：探索 API 功能商店 (Marketplace)',
     marketplaceCtaDesc:
-      '为了辅助开发者与研究员端到端体验并验证 AgentPay SDK（Python & TypeScript）的微支付与预算拦截能力，我们打造了官方开放的 API 功能商店。精选 Solana 聪明钱、AI 推理、实时搜索等真实接口，并提供 24h 网关真实 SLA 探活。',
+      '为了辅助开发者与团队端到端体验并验证 AgentPay SDK（Python & TypeScript）的微支付与预算拦截能力，我们打造了官方开放的 API 功能商店。汇聚 AI 推理、实时网页抓取、金融研报与链上数据等真实接口，并提供 24h 网关真实 SLA 探活。',
     marketplaceCtaBtn: '立即前往 API 功能商店 🛍️',
   },
   footer: {
-    brandTagline: 'OpenAgentPay — 开源智能体支付与发现网络',
+    brandTagline: 'OpenAgentPay — 开源智能体预算防火墙与微支付网络',
     architectureNote:
       '前店后厂架构：Next.js GEO 公开商店 (openagentpay.dev) • Vue3 控制台 (console.openagentpay.dev) • Go X402 核心网关 (gate.openagentpay.dev)',
     storefront: '功能商店',
     registryApi: '注册表 JSON API',
-    sellerConsole: '卖方控制台',
+    sellerConsole: '管理控制台',
   },
   hero: {
-    badgeEconomy: 'HTTP 402 (x402 V2) 原生机器经济市场',
-    badgeGas: 'EIP-3009 零 Gas 签名直连',
+    badgeEconomy: 'HTTP 402 (x402 V2) 原生机器微支付市场',
+    badgeGas: '支持虚拟钱包 (CNY/USD) 与 EIP-3009 双通道',
     badgeLlmsReady: '/llms.txt 机器目录已就绪',
     titlePre: '发现面向 AI Agent 的',
-    titleHighlight: '按次微支付 X402 API',
+    titleHighlight: '按次计费 API 与工具服务',
     description:
-      '告别繁琐的账号注册、信用卡绑定与月度订阅。一行 Python 或 TypeScript SDK 代码，让你的自主 Agent 自动完成 Search → Decide → 402 Pay & Call 闭环，由 Go 核心网关提供实时 SLA 背书与本地财务防火墙保护。',
+      '告别繁琐的多平台年框采购与失控账单。一行 Python 或 TypeScript SDK 代码，让你的 Agent 自动完成 Search → Decide → 402 Pay & Call 闭环，支持 CNY/USD 虚拟账本与链上零 Gas 双轨结算，由 Go 核心网关提供实时 SLA 背书与本地预算防火墙保护。',
     searchPlaceholder:
-      '搜索 X402 路由、业务关键词（如 Solana 聪明钱、DeepSeek 推理、网页 Markdown 抓取、SEC 财报）...',
+      '搜索按次计费路由、业务关键词（如 DeepSeek 推理、网页 Markdown 抓取、金融财报、Solana 聪明钱）...',
     clear: '清除',
     availableRoutes: '个可用路由',
     hotSearches: '热门检索:',
   },
   agentPayIntro: {
     badge: 'AgentPay 核心产品定位',
-    title: 'AgentPay — 面向自主 AI Agent 的开源支付网络与财务防火墙',
+    title: 'AgentPay — 面向 AI Agent 的预算防火墙与双轨微支付网关',
     subtitle:
-      '为智能体注入自主微支付结算能力，彻底告别繁琐的人工 API Key 预充值与信用卡绑定。',
+      '为智能体注入受控的按次微支付能力，兼顾企业内部 CNY/USD 虚拟账本管控与跨组织链上零 Gas 结算。',
     whatIsTitle: 'AgentPay 是什么？',
     whatIsDesc:
-      'AgentPay 是一套专为 AI Agent 与机器经济设计的开源自主支付协议基础设施。当你的智能体在执行任务需要调用外部 API、链上数据或高价值算力时，AgentPay 能够以秒级完成 HTTP 402 原生握手、EIP-3009 授权签名，实现按次（Pay-Per-Request）微支付结算。',
+      'AgentPay 是一套专为 AI Agent 设计的开源财务防火墙与按次微支付基础设施。当你的智能体在执行任务需要调用外部商业数据、AI 推理或算力工具时，AgentPay 能够在毫秒级完成本地预算核验、HTTP 402 握手与原子扣费（支持虚拟钱包 Hold/Capture 与 EIP-3009 零 Gas 签名双模式）。',
     marketplaceRoleBadge: '关于本商店与 SDK 验证',
     marketplaceRoleTitle: '辅助验证 AgentPay SDK 的官方开放生态',
     marketplaceRoleDesc:
-      '本「API 功能商店」正是为了辅助开发者与研究员快速体验、端到端验证 AgentPay Python 与 TypeScript SDK 而打造的开放验证场！商店中汇聚了精选的真实 x402 接口，你只需引入 AgentPay SDK，即可立即体验无需注册账号、免预充值、带有本地严格预算防护的完整调用闭环。',
-    pillar1Title: '非托管本地财务防火墙 (Firewall)',
+      '本「API 功能商店」正是为了辅助开发者与研究员快速体验、端到端验证 AgentPay Python 与 TypeScript SDK 而打造的开放验证场！商店中汇聚了精选的真实按次计费接口，你只需引入 AgentPay SDK，即可立即体验带有本地严格预算防护与死循环熔断的完整调用闭环。',
+    pillar1Title: '确定性本地财务防火墙 (Firewall)',
     pillar1Desc:
-      '钱包私钥 100% 留在买方本地环境，零托管风险。内置本地策略引擎，可配置单次调用最高限额、24h 滚动预算与逃逸调用熔断器（Circuit Breaker），确保 Agent 绝不失控超支。',
-    pillar2Title: 'HTTP 402 原生机器支付 (x402 V2)',
+      '严格隔离大模型与资金权限。内置本地策略引擎，可配置单次调用最高限额、24h 滚动预算、收款白名单与逃逸调用熔断器（Circuit Breaker），确保 Agent 绝不失控超支。',
+    pillar2Title: '虚拟钱包 + 链上 x402 双轨结算',
     pillar2Desc:
-      '原生实现 HTTP 402 Payment Required 握手协议，支持 Base / Arbitrum 链上 Circle USDC 结合 EIP-3009 授权，做到零 Gas 磨损、毫秒级确认；同时支持虚拟钱包混合通道与双向结算。',
+      '既支持企业租户使用 CNY/USD 虚拟钱包（6 位微单位精度，Hold 冻结 / 2xx 实扣 / 4xx 自动解冻），又支持 Base / Arbitrum 链上 USDC 零 Gas 签名直连。',
     pillar3Title: '极简 1 行代码集成 (Python & TS SDK)',
     pillar3Desc:
-      '支持 pip install open-agentpay (Python) 与 npm install open-agentpay (TypeScript)，像普通 HTTP 客户端一样直接调用网关端点，SDK 自动在底层完成 402 握手拦截、本地预算检查与零 Gas 离线签名。',
-    codeSnippetTitle: '一行代码体验 AgentPay SDK 自动支付闭环',
+      '支持 pip install open-agentpay (Python) 与 npm install open-agentpay (TypeScript)，像普通 HTTP 客户端一样直接调用网关端点，SDK 自动在底层完成 402 握手拦截与预算保护。',
+    codeSnippetTitle: '一行代码体验 AgentPay SDK 自动支付与防火墙闭环',
     codeSnippetDesc:
-      '支持切换 Python 或 TypeScript SDK，在本地直接调用本商店中任意上架 API，亲身体验财务防火墙与零 Gas 微支付：',
+      '支持切换 Python 或 TypeScript SDK，在本地直接调用本商店中任意上架 API，亲身体验预算防火墙与按次微支付：',
   },
   marketplaceHeader: {
     badge: 'SDK 验证场 & 服务发现',
     title: 'API 功能商店 (Marketplace)',
     subtitle:
-      '探索真实可调用的 X402 微支付服务，配合 AgentPay SDK 快速体验与验证端到端支付能力。',
+      '探索真实可调用的 X402 按次计费服务，配合 AgentPay SDK 快速体验与验证端到端预算防护与微支付能力。',
   },
   telemetry: {
     listedRoutes: '上架 X402 路由数',
     online100: '100% 在线',
     successRate24h: '网关 24h 交付成功率',
-    paidCalls24h: '24h 链上微支付调用',
+    paidCalls24h: '24h 微支付调用次数',
     discoveryProtocols: '机器原生发现协议',
   },
   filter: {
     settlementNetwork: '结算网络:',
-    allNetworks: '全部链 (All)',
+    allNetworks: '全部通道 (All)',
     categories: {
       all: '全部 API (All)',
       'Crypto & On-Chain Data': 'Crypto 与链上数据',
@@ -178,7 +178,7 @@ export const zh: Translations = {
   },
   preview: {
     sdkTitle: 'SDK 零摩擦集成 (Python & TypeScript)',
-    sdkSubtitle: '复制下方代码即可直接向网关转发端点发起调用，自动完成 HTTP 402 握手与 EIP-3009 签名。',
+    sdkSubtitle: '复制下方代码即可直接向网关转发端点发起调用，自动完成 HTTP 402 握手与本地预算防火墙校验。',
     copyCode: '复制 SDK 调用代码',
     viewDetails: '查看完整 GEO 详情页',
     close: '关闭',
@@ -196,26 +196,26 @@ export const zh: Translations = {
   },
   empty: {
     noMatchTitle: '未找到匹配 “{query}” 的 X402 路由',
-    noMatchDesc: '请尝试切换分类筛选，或在卖方控制台上架你的自定义 API。',
+    noMatchDesc: '请尝试切换分类筛选，或在管理控制台上架你的自定义 API。',
     resetBtn: '重置筛选条件',
   },
   architecture: {
     box1Title: '1. 人类开发者零摩擦集成 (Storefront)',
     box1Desc:
-      '每个 /hub/[slug] 详情页均采用 Answer-First 结构，内置动态生成的 Python 与 TypeScript SDK 调用代码及原生 HTML 参数表，复制即用，无需注册上游 API Key。',
+      '每个 /hub/[slug] 详情页均采用 Answer-First 结构，内置动态生成的 Python 与 TypeScript SDK 调用代码及原生 HTML 参数表，复制即用，无需逐一注册上游 API Key。',
     box2Title: '2. Go 核心网关真实 SLA 信用背书',
     box2Desc:
-      '所有机器流量经过网关，平台实时统计过去 24h 200 OK 成功率与 P95 延迟，连续失败自动标记维护中，防止买方 Agent 浪费资金。',
+      '所有机器流量经过网关，平台实时统计过去 24h 200 OK 成功率与 P95 延迟，连续失败自动标记维护中，非 2xx 响应自动解冻额度，防止买方白花钱。',
     box3Title: '3. 机器原生发现协议 (/llms.txt & Registry)',
     box3Desc:
       '内置动态 /llms.txt、Schema.org WebAPI JSON-LD 与 AI Bot 内容协商，让 ChatGPT、Claude、Cursor 与自主 Agent 毫秒级检索全站路由。',
   },
   sellerCta: {
     badge: '卖方极速变现 (Monetize Any API in 1 Minute)',
-    heading: '拥有高价值数据、算力或垂直行业 API？一键接入 X402 机器微支付网络',
+    heading: '拥有高价值数据、算力或垂直行业 API？一键接入按次微支付网络',
     description:
-      '在控制台填入上游地址、USDC 单价与收款地址，开启 is_public 开关即可自动同步至公开商店与 /llms.txt。',
-    buttonConsole: '前往卖方控制台上架路由',
+      '在控制台填入上游地址、单次调用价格（支持 CNY/USD 虚拟钱包或链上 USDC）与收款配置，开启 is_public 开关即可自动同步至公开商店与 /llms.txt。',
+    buttonConsole: '前往控制台上架路由',
     buttonLlms: '查看 /llms.txt',
   },
   detail: {
@@ -233,7 +233,7 @@ export const zh: Translations = {
     paidCalls24h: '24h 付费调用次数',
     totalCallsNote: '累计总调用: {total}',
     codeSectionTitle: 'SDK 零摩擦调用代码 (Python & TypeScript)',
-    codeSectionSubtitle: '内置 HTTP 402 自动握手、EIP-3009 离线签名支付与单次最高预算防火墙保护',
+    codeSectionSubtitle: '内置 HTTP 402 自动握手、双轨微支付结算与单次最高预算防火墙保护',
     copySdkCode: '复制 SDK 代码',
     tableSpecsTitle: '路由技术规格与 X402 结算参数表 (Core Specification)',
     tableSpecsSubtitle: '采用语义化原生 HTML 表格呈现，方便人类开发者查阅与大模型搜索引擎精准抽取',
@@ -245,10 +245,10 @@ export const zh: Translations = {
     endpointParam: '网关转发端点 (Endpoint)',
     endpointNote: '支持 {methods} 请求',
     priceParam: 'X402 单次调用价格 (Price)',
-    priceNote: '6 位整数精度，EIP-3009 零 Gas 授权签名',
+    priceNote: '6 位微单位整数精度，支持虚拟钱包或零 Gas 签名',
     networkParam: '支持结算网络 (Network)',
-    networkNote: 'CAIP-2 标准网络标识，支持双通道（链上 + 虚拟钱包）',
-    payeeParam: '卖方收款地址 (Payee)',
+    networkNote: '支持双通道（内部虚拟账本 + CAIP-2 链上网络）',
+    payeeParam: '卖方收款标识 (Payee)',
     payeeNote: '买方本地财务防火墙可配置白名单校验',
     slaParam: '网关 SLA 指标 (24h)',
     slaNote: '频控上限 {rpm} RPM | 超时 {timeout}s',
@@ -266,12 +266,12 @@ export const zh: Translations = {
     curlTitle: '底层 HTTP 402 握手与 AI Markdown 协商测试 (cURL)',
     copyCurl: '复制 cURL',
     firewallTitle: 'OpenAgentPay 网关信用与安全护栏',
-    firewall1Title: '非托管本地防火墙：',
+    firewall1Title: '确定性本地防火墙：',
     firewall1Desc:
-      '私钥 100% 留在买方本地，每次调用前由本地策略引擎校验单笔上限（max_budget_usdc）与 24h 滚动预算。',
+      '每次调用前由本地策略引擎校验单笔上限与 24h 滚动预算，支持虚拟钱包 API Key 与本地私钥双重安全边界。',
     firewall2Title: '三态解耦与超时免重扣：',
     firewall2Desc:
-      '支付意图、链上结算与上游交付独立建模；若上游发生 5xx 或超时，买方重试不重复扣款。',
+      '支付意图、资金结算与上游交付独立建模；若上游发生 4xx 自动释放冻结，5xx 或超时重试绝不重复扣款。',
     firewall3Title: 'AI 搜索引擎与 MCP 原生：',
     firewall3Desc:
       '本页已注入 Schema.org WebAPI JSON-LD，并支持 Accept: text/markdown 直出。',

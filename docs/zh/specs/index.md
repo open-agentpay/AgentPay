@@ -7,6 +7,13 @@ AgentPay 的协议、状态机、数据模型与安全设计都以规范文档�
 机器可读的 JSON Schema 与测试向量在 [`specs/conformance`](https://github.com/open-agentpay/AgentPay/tree/main/specs/conformance) 与 [`specs/test-vectors`](https://github.com/open-agentpay/AgentPay/tree/main/specs/test-vectors)。
 :::
 
+## 国内商业化与企业落地规范 (China Enterprise & FinOps)
+
+| 主题 | 说明 |
+|---|---|
+| [国内产品战术框架与宣发大纲](./cn-strategy) | 企业级 AI 行为审计与资金防火墙定位、Langfuse 深度集成、三阶段作战图与宣发矩阵 |
+| [法币充值与飞书/企微审批规范](./cn-fiat-hitl) | 微信/支付宝/对公汇款充值、CNY 6 位微单位换算、飞书/企微卡片审批状态机与防二清合规 |
+
 ## 核心契约与架构规范
 
 | 主题 | 说明 |

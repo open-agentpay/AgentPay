@@ -1,22 +1,14 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle,
   ArrowRight,
-  ArrowUpRight,
-  CheckCircle2,
   Cpu,
   Database,
-  ExternalLink,
-  Flame,
-  Key,
   Layers,
   Lock,
-  RefreshCw,
   Server,
-  Shield,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -24,7 +16,6 @@ import {
   Zap,
 } from 'lucide-react';
 import {
-  PUBLIC_CONSOLE_URL,
   PUBLIC_DOCS_URL,
   PUBLIC_GATEWAY_URL,
 } from '@/lib/marketplace';
@@ -34,8 +25,78 @@ import { CopyButton } from '@/components/CopyButton';
 export function HomePageView() {
   const { t, locale } = useI18n();
   const [buyerSdkLang, setBuyerSdkLang] = useState<'python' | 'typescript'>('python');
+  const [buyerRailMode, setBuyerRailMode] = useState<'wallet' | 'onchain'>(
+    locale === 'zh' ? 'wallet' : 'onchain'
+  );
+
+  useEffect(() => {
+    setBuyerRailMode(locale === 'zh' ? 'wallet' : 'onchain');
+  }, [locale]);
 
   const buyerPythonSnippet = useMemo(() => {
+    if (buyerRailMode === 'wallet') {
+      if (locale === 'en') {
+        return `import os
+from agentpay import AgentPayClient
+from agentpay.integrations.langchain import paid_tool
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
+
+# 1. Initialize Virtual Wallet mode (API Key auth + local budget firewall, no crypto wallet required)
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="enterprise_firewall",
+        name="Enterprise Budget Firewall",
+        base_currency="USD",
+        max_per_tx_base_units=50_000,           # Per-call cap ($0.05 USD)
+        rolling_budget_24h_base_units=5_000_000, # 24h rolling cap ($5.00 USD)
+        circuit_max_rpm=10,                     # Auto-trip circuit breaker on runaway loops
+    )
+)
+client = AgentPayClient(
+    api_key=os.getenv("AGENTPAY_API_KEY", "apk_live_..."),
+    policy=policy,
+)
+
+# 2. Wrap any LangChain / MCP tool: automatic 402 wallet challenge & Hold/Capture accounting
+@paid_tool(name="market_research", client=client)
+def market_research(query: str) -> dict:
+    resp = client.post(f"${PUBLIC_GATEWAY_URL}/v1/ai/deepseek-research", json={"query": query})
+    return resp.json()
+
+result = market_research.invoke({"query": "Q3 Semiconductor Supply Chain"})
+print(result)`;
+      }
+      return `import os
+from agentpay import AgentPayClient
+from agentpay.integrations.langchain import paid_tool
+from agentpay.policy import PolicyConfig, SQLitePolicyEngine
+
+# 1. 初始化虚拟钱包模式（仅需 API Key + 本地预算防火墙，无需区块链私钥或加密代币）
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="enterprise_firewall",
+        name="企业级 Agent 预算防火墙",
+        base_currency="CNY",
+        max_per_tx_base_units=500_000,           # 单次调用最高限额保护 (¥0.50 CNY)
+        rolling_budget_24h_base_units=20_000_000, # 24h 滚动预算上限保护 (¥20.00 CNY)
+        circuit_max_rpm=10,                      # 异常高频死循环自动触发熔断器
+    )
+)
+client = AgentPayClient(
+    api_key=os.getenv("AGENTPAY_API_KEY", "apk_live_..."),
+    policy=policy,
+)
+
+# 2. 装饰任意 LangChain / Dify / MCP 工具：自动完成 402 虚拟钱包挑战与 Hold/Capture 实扣
+@paid_tool(name="enterprise_research", client=client)
+def enterprise_research(query: str) -> dict:
+    resp = client.post(f"${PUBLIC_GATEWAY_URL}/v1/ai/deepseek-research", json={"query": query})
+    return resp.json()
+
+result = enterprise_research.invoke({"query": "新能源汽车供应链深度研报"})
+print(result)`;
+    }
+
     if (locale === 'en') {
       return `import os
 from agentpay import AgentPayClient, LocalSigner
@@ -70,7 +131,7 @@ from agentpay import AgentPayClient, LocalSigner
 from agentpay.integrations.langchain import paid_tool
 from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-# 1. 初始化客户端，配置本地财务防火墙（私钥永不离机）
+# 1. 初始化链上非托管模式，配置本地财务防火墙（私钥永不离机）
 signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
@@ -92,9 +153,84 @@ def fetch_crypto_intel(token: str) -> dict:
 
 result = fetch_crypto_intel.invoke({"token": "SOL"})
 print(result)`;
-  }, [locale]);
+  }, [locale, buyerRailMode]);
 
   const buyerTsSnippet = useMemo(() => {
+    if (buyerRailMode === 'wallet') {
+      if (locale === 'en') {
+        return `import { AgentPayClient } from 'open-agentpay';
+import { createPaidTool } from 'open-agentpay/langchain';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+// 1. Initialize Virtual Wallet mode (API Key auth + local budget firewall)
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'enterprise_firewall',
+    name: 'Enterprise Budget Firewall',
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: 50_000n,           // Per-call cap ($0.05 USD)
+    rollingBudget24hBaseUnits: 5_000_000n, // 24h rolling cap ($5.00 USD)
+    circuitMaxRpm: 10,                    // Auto-trip circuit breaker on runaway loops
+  })
+);
+const client = new AgentPayClient({
+  apiKey: process.env.AGENTPAY_API_KEY ?? 'apk_live_...',
+  policy,
+});
+
+// 2. Wrap any LangChain.js / MCP tool: automatic 402 wallet challenge & Hold/Capture
+const marketResearch = createPaidTool({
+  name: 'market_research',
+  description: 'Run deep industry research via AgentPay gateway',
+  client,
+  func: async ({ query }: { query: string }, ctx) => {
+    const resp = await ctx!.client!.post('${PUBLIC_GATEWAY_URL}/v1/ai/deepseek-research', {
+      json: { query },
+    });
+    return await resp.json();
+  },
+});
+
+const result = await marketResearch.invoke({ query: 'Q3 Semiconductor Supply Chain' });
+console.log(result);`;
+      }
+      return `import { AgentPayClient } from 'open-agentpay';
+import { createPaidTool } from 'open-agentpay/langchain';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+// 1. 初始化虚拟钱包模式（仅需受控 API Key + 本地预算防火墙，无需区块链私钥）
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'enterprise_firewall',
+    name: '企业级 Agent 预算防火墙',
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: 500_000n,           // 单次调用最高预算保护 (¥0.50 CNY)
+    rollingBudget24hBaseUnits: 20_000_000n, // 24h 滚动预算保护 (¥20.00 CNY)
+    circuitMaxRpm: 10,                     // 异常高频死循环自动触发熔断器
+  })
+);
+const client = new AgentPayClient({
+  apiKey: process.env.AGENTPAY_API_KEY ?? 'apk_live_...',
+  policy,
+});
+
+// 2. 封装任意 LangChain.js / Vercel AI / MCP 工具：自动完成 402 虚拟钱包挑战与原子扣费
+const enterpriseResearch = createPaidTool({
+  name: 'enterprise_research',
+  description: '调用深度行业研报与商业数据查询',
+  client,
+  func: async ({ query }: { query: string }, ctx) => {
+    const resp = await ctx!.client!.post('${PUBLIC_GATEWAY_URL}/v1/ai/deepseek-research', {
+      json: { query },
+    });
+    return await resp.json();
+  },
+});
+
+const result = await enterpriseResearch.invoke({ query: '新能源汽车供应链深度研报' });
+console.log(result);`;
+    }
+
     if (locale === 'en') {
       return `import { AgentPayClient, LocalSigner } from 'open-agentpay';
 import { createPaidTool } from 'open-agentpay/langchain';
@@ -135,7 +271,7 @@ console.log(result);`;
 import { createPaidTool } from 'open-agentpay/langchain';
 import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
 
-// 1. 初始化客户端，配置本地财务防火墙（私钥永不离机）
+// 1. 初始化链上非托管模式，配置本地财务防火墙（私钥永不离机）
 const signer = new LocalSigner(process.env.AGENT_WALLET_KEY ?? '0x...');
 const policy = SQLitePolicyEngine.createInMemory(
   new PolicyConfig({
@@ -165,13 +301,33 @@ const fetchCryptoIntel = createPaidTool({
 
 const result = await fetchCryptoIntel.invoke({ token: 'SOL' });
 console.log(result);`;
-  }, [locale]);
+  }, [locale, buyerRailMode]);
 
   const buyerCodeSnippet = buyerSdkLang === 'python' ? buyerPythonSnippet : buyerTsSnippet;
   const buyerInstallCmd =
     buyerSdkLang === 'python' ? 'pip install open-agentpay' : 'npm install open-agentpay';
 
-  const sellerYamlSnippet = `version: "1.0"
+  const sellerYamlSnippet = useMemo(() => {
+    if (locale === 'zh') {
+      return `version: "1.0"
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+routes:
+  # 同时支持通道 A（CNY 虚拟钱包）与通道 B（链上 USDC 零 Gas）
+  - path: "/v1/ai/deepseek-research"
+    upstream: "https://internal-api.service/v1/research"
+    methods: ["POST"]
+    allowed_payment_methods: "both"   # wallet | onchain | both
+    asset: "CNY"
+    price_base_units: 350000          # 虚拟钱包定价：¥0.35 CNY / 次 (6位微单位)
+    onchain_asset: "USDC"
+    onchain_price_base_units: 50000   # 链上结算定价：$0.05 USDC / 次
+    pay_to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    network: "eip155:8453"`;
+    }
+    return `version: "1.0"
 server:
   host: "0.0.0.0"
   port: 8000
@@ -186,21 +342,22 @@ routes:
     pay_to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
     network: "eip155:8453" # Base / Arbitrum USDC
     asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"`;
+  }, [locale]);
 
   const terminalSimulationOutput = `================================================================================
     AgentPay Financial Firewall & Runaway Circuit Breaker Demo
 ================================================================================
-Target Chain: Arbitrum Sepolia (Chain ID: 421614) | Token: Circle USDC
+Dual-Rail Mode: Virtual Wallet (CNY/USD) & Arbitrum Sepolia USDC
 Firewall Limits: Max $0.10/tx | Daily Budget $1.00 | Max 5 RPM
 
->>> [PHASE 1] Normal Micro-Payment with On-Chain Settlement <<<
-Agent requests market data for 'NVDA' ($0.05 USDC).
-[Facilitator] ON_CHAIN_TRANSACTION_CONFIRMED: Status: CONFIRMED (0 gas for buyer)
+>>> [PHASE 1] Authorized Micro-Payment (Hold -> 200 OK -> Capture) <<<
+Agent requests market data for 'NVDA' ($0.05).
+[Gateway] PAYMENT_CONFIRMED: Status: COMPLETED (Sub-millisecond verification)
 
 >>> [PHASE 2] Single-Transaction Cap Exceeded: Local Defense <<<
-Agent attempts heavy compute ($2.50 USDC, limit is $0.10 USDC).
+Agent attempts heavy compute ($2.50, limit is $0.10).
 [BuyerFirewall] POLICY_VIOLATION_INTERCEPTED (Requested $2.50 > Max $0.10)
-✓ Payment aborted safely: 0.00 USDC left wallet, 0 gas spent
+✓ Payment aborted safely: 0.00 funds deducted, upstream call blocked
 
 >>> [PHASE 3] Runaway Agent Infinite Loop Neutralized by Circuit Breaker <<<
 Agent enters uncontrolled loop: Calls #1..#4 succeeded ($0.01/req).
@@ -286,39 +443,47 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800/80 dark:bg-slate-900/60">
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <Zap className="h-4 w-4 text-emerald-500" />
-            <span>Circle USDC (EIP-3009)</span>
+            <span>
+              {locale === 'zh' ? '双轨微支付 (CNY / USDC)' : 'Circle USDC (EIP-3009)'}
+            </span>
           </div>
           <div className="mt-2 font-mono text-2xl font-extrabold text-slate-900 dark:text-white">
-            0 Gas
+            {locale === 'zh' ? '¥0.000001' : '0 Gas'}
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {locale === 'zh' ? '协调节点赞助链上 Gas，买方仅需持有 USDC' : 'Sponsored on-chain gas, buyer holds USDC only'}
+            {locale === 'zh'
+              ? '支持 6 位微单位 CNY/USD 虚拟账本与零 Gas 链上结算'
+              : 'Sponsored on-chain gas, buyer holds USDC only'}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800/80 dark:bg-slate-900/60">
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <Lock className="h-4 w-4 text-indigo-500" />
-            <span>{locale === 'zh' ? '非托管架构' : 'Non-Custodial'}</span>
+            <span>{locale === 'zh' ? '零信任安全边界' : 'Non-Custodial'}</span>
           </div>
           <div className="mt-2 font-mono text-2xl font-extrabold text-slate-900 dark:text-white">
-            {locale === 'zh' ? '100% 本地' : '100% Local'}
+            {locale === 'zh' ? '100% 本地拦截' : '100% Local'}
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {locale === 'zh' ? '私钥永不传入 Prompt 上下文与网关' : 'Keys never leave buyer local environment'}
+            {locale === 'zh'
+              ? '受限 API Key 租户隔离与本地私钥不出域双重保护'
+              : 'Keys never leave buyer local environment'}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800/80 dark:bg-slate-900/60">
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <Cpu className="h-4 w-4 text-cyan-500" />
-            <span>{locale === 'zh' ? 'Go 网关核签' : 'Go Gateway Verification'}</span>
+            <span>{locale === 'zh' ? 'Go 网关核签与冻结' : 'Go Gateway Verification'}</span>
           </div>
           <div className="mt-2 font-mono text-2xl font-extrabold text-slate-900 dark:text-white">
             &lt; 5 ms
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {locale === 'zh' ? '链下零延迟验签，上链异步结算' : 'Sub-millisecond off-chain verification'}
+            {locale === 'zh'
+              ? '毫秒级虚拟钱包 Hold 冻结与链下签名核验'
+              : 'Sub-millisecond off-chain verification'}
           </div>
         </div>
 
@@ -331,7 +496,9 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
             {locale === 'zh' ? '0 逃逸' : '0 Runaways'}
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {locale === 'zh' ? '检测到高频死循环自动切断资金' : 'Immediate freeze on runaway recursive loops'}
+            {locale === 'zh'
+              ? '检测到高频死循环自动切断资金'
+              : 'Immediate freeze on runaway recursive loops'}
           </div>
         </div>
       </section>
@@ -363,7 +530,7 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
             </h4>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
               {locale === 'zh'
-                ? '即插即用的 Python 与 TypeScript SDK，自动完成 402 挑战协商、离线签名与预算防护，绝不让大模型碰触私钥。'
+                ? '即插即用的 Python 与 TypeScript SDK，支持虚拟钱包 API Key 与链上签名双模式，自动完成 402 握手与预算熔断保护。'
                 : 'Drop-in Python & TypeScript clients that handle HTTP 402, enforce spending limits, and never let models touch private keys.'}
             </p>
           </div>
@@ -377,7 +544,7 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
             </h4>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
               {locale === 'zh'
-                ? '反向代理网关（Go 核心），只需一份 YAML 配置即可将已有 HTTP 接口转变为付费 API，零代码入侵。'
+                ? '反向代理网关（Go 核心），只需一份配置即可将已有 HTTP 接口转变为支持 CNY/USD 钱包或链上结算的按次付费 API。'
                 : 'High-performance Go reverse proxy that turns any existing HTTP API into a paid route with a YAML file.'}
             </p>
           </div>
@@ -391,7 +558,7 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
             </h4>
             <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
               {locale === 'zh'
-                ? '严格的多租户隔离、RBAC 角色权限、Agent 专属 API Key、虚拟账本以及秒级紧急熔断开关。'
+                ? '严格的多租户隔离、RBAC 角色权限、项目预算硬顶、CNY/USD 只追加虚拟账本以及秒级紧急熔断开关。'
                 : 'Multi-tenant isolation, RBAC, per-agent API keys, virtual wallet, audit timeline, and one-click kill switch.'}
             </p>
           </div>
@@ -551,7 +718,34 @@ Calls Attempted: 10 | Paid Calls: 5 | Blocked: 5 | Funds Saved: $2.54 (96.6%)`;
               <span className="text-sm font-bold text-slate-900 dark:text-white">
                 {t.homePage.buyerQuickstartTitle}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Rail Mode Switcher: Virtual Wallet vs On-Chain */}
+                <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs dark:border-slate-800 dark:bg-slate-950">
+                  <button
+                    type="button"
+                    onClick={() => setBuyerRailMode('wallet')}
+                    className={`rounded-md px-2.5 py-1 font-medium transition ${
+                      buyerRailMode === 'wallet'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                    }`}
+                  >
+                    {locale === 'zh' ? '虚拟钱包 (CNY/API Key)' : 'Virtual Wallet'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBuyerRailMode('onchain')}
+                    className={`rounded-md px-2.5 py-1 font-medium transition ${
+                      buyerRailMode === 'onchain'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                    }`}
+                  >
+                    {locale === 'zh' ? '链上签名 (EIP-3009)' : 'On-Chain (EIP-3009)'}
+                  </button>
+                </div>
+
+                {/* Language Switcher: Python vs TypeScript */}
                 <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs dark:border-slate-800 dark:bg-slate-950">
                   <button
                     type="button"

@@ -238,6 +238,13 @@ export default withMermaid(
             '/zh/specs/': [
               { text: '规范总览', link: '/zh/specs/' },
               {
+                text: '国内企业级落地规范',
+                items: [
+                  { text: '国内战术框架与宣发大纲', link: '/zh/specs/cn-strategy' },
+                  { text: '法币充值与飞书/企微审批', link: '/zh/specs/cn-fiat-hitl' },
+                ],
+              },
+              {
                 text: '核心契约',
                 items: [
                   { text: '支付状态机', link: '/zh/specs/state-machine' },

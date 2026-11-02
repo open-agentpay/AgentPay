@@ -43,6 +43,8 @@ const MAP = {
   'architecture.md': 'architecture.md',
   'security-model.md': 'security-model.md',
   'gas-cost-and-settlement-models.md': 'gas-models.md',
+  'cn-enterprise-firewall-and-finops-strategy.md': 'cn-strategy.md',
+  'cn-fiat-and-hitl-approval-spec.md': 'cn-fiat-hitl.md',
   // 'threat-model-v1.md': 'threat-model.md',
 }
 
