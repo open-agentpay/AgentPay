@@ -349,26 +349,33 @@ AgentPay/
 | [**Policy Configuration Reference**](./specs/policy-configuration-reference.md) | Buyer / Risk | Financial Firewall limits, 6-decimal USDC math, circuit breakers, and code samples |
 | [**Public Threat Model**](./specs/security-model.md) | Security | Zero-trust boundaries, in-scope threats (T1-T7), gateway threats, non-goals |
 | [**Payment State Machine**](./specs/payment-state-machine.md) | Reliability | Tri-state decoupling, recovery loops, and reconciliation invariant proofs |
-| [**Gas & Settlement Models**](./specs/gas-cost-and-settlement-models.md) | Economics | L2 gas sponsorship, EIP-1559 dynamic fee formula, and 2027 roadmap |
+| [**Gas & Settlement Models**](./specs/gas-cost-and-settlement-models.md) | Economics | L2 gas sponsorship, EIP-1559 dynamic fee formula, and execution modes |
+| [**Master Roadmap**](./specs/roadmap.md) | Roadmap | Master architecture evolution, enterprise FinOps, and task priorities |
 
 ---
 
 ## 🚦 Roadmap & Delivery Status
 
+> See [**Master Roadmap**](./specs/roadmap.md) for detailed architectural pillars, task priority matrices, and delivery criteria.
+
 | Milestone / Component | Status | Release Target | Details |
 | :--- | :---: | :---: | :--- |
-| **Python Buyer SDK (`agentpay`)** | 🟢 Complete | v0.1.0 (2026) | Transparent 402 interceptor, EIP-712/3009 signing |
-| **Financial Firewall (Policy Engine)** | 🟢 Complete | v0.1.0 (2026) | Per-tx cap, rolling budget, RPM circuit breaker |
-| **LangChain Paid Tools (`@paid_tool`)**| 🟢 Complete | v0.1.0 (2026) | 1-line paid tool decorator for AI agents |
-| **Go Cloud-Native Gateway (`services/gateway`)** | 🟢 Complete | v0.1.0 (2026) | High-performance Go proxy, zero-downtime RCU reload, multitenancy, ledger |
-| **Management Console (`apps/console`)** | 🟢 Complete | v0.1.0 (2026) | Vue 3 + Element Plus multi-tenant web dashboard & API management |
-| **Python Reference Gateway (`agentpay-gateway`)** | 🟢 Complete | v0.1.0 (2026) | Lightweight reference reverse proxy, challenge manager |
-| **Arbitrum Sepolia EIP-3009 Settlement** | 🟢 Complete | v0.1.0 (2026) | Circle USDC, EIP-1559 Facilitator, 1.5x BaseFee buffer |
-| **Runaway Agent Circuit Breaker Demo** | 🟢 Complete | v0.1.0 (2026) | `make demo` (simulation) & `make demo-live` (testnet) |
-| **TypeScript Buyer / Seller SDK (`@open-agentpay/sdk`)** | 🟢 Complete | v0.2.7 (2026) | Dual-rail buyer client, policy engine, Express/Fastify/Next.js seller middleware, MCP wrapper |
-| **Marketplace Web (`apps/marketplace-web`)** | 🟢 Complete | v0.2.0 (2026) | Next.js 15 route discovery portal & interactive sandbox |
-| **Mode 2: Dynamic Gas Surcharge** | ⚪ Planned | 2027 Q1 (v0.3.0) | Oracle-based gas fee surcharge added to USDC challenge |
-| **Mode 3: Batch Settlement & Channels** | ⚪ Planned | 2027 Q2 (v0.4.0) | High-frequency streaming micro-payments & channels |
+| **Python Buyer SDK (`agentpay`)** | 🟢 Complete | Baseline | Transparent 402 interceptor, EIP-712/3009 signing |
+| **Financial Firewall (Policy Engine)** | 🟢 Complete | Baseline | Per-tx cap, rolling budget, RPM circuit breaker |
+| **LangChain Paid Tools (`@paid_tool`)**| 🟢 Complete | Baseline | 1-line paid tool decorator for AI agents |
+| **Go Cloud-Native Gateway (`services/gateway`)** | 🟢 Complete | Baseline | High-performance Go proxy, zero-downtime RCU reload, multitenancy, ledger |
+| **Management Console (`apps/console`)** | 🟢 Complete | Baseline | Vue 3 + Element Plus multi-tenant web dashboard & API management |
+| **Python Reference Gateway (`agentpay-gateway`)** | 🟢 Complete | Baseline | Lightweight reference reverse proxy, challenge manager |
+| **Arbitrum Sepolia EIP-3009 Settlement** | 🟢 Complete | Baseline | Circle USDC, EIP-1559 Facilitator, 1.5x BaseFee buffer |
+| **Runaway Agent Circuit Breaker Demo** | 🟢 Complete | Baseline | `make demo` (simulation) & `make demo-live` (testnet) |
+| **TypeScript Buyer / Seller SDK (`@open-agentpay/sdk`)** | 🟢 Complete | Baseline | Dual-rail buyer client, policy engine, Express/Fastify/Next.js seller middleware, MCP wrapper |
+| **Marketplace Web (`apps/marketplace-web`)** | 🟢 Complete | Baseline | Next.js 15 route discovery portal & interactive sandbox |
+| **Enterprise HITL & Fiat Top-Up** | 🟡 In Progress | P0 Mainline | Feishu/WeCom approval cards, multi-tier quotas, fiat top-up |
+| **Native MCP & Langfuse Integration** | 🟡 In Progress | P0 Mainline | Model Context Protocol middleware & Langfuse co-observability |
+| **Mode 2: Dynamic Gas Surcharge** | ⚪ Planned | P1 Priority | Oracle-based gas fee surcharge added to USDC challenge |
+| **Java / Spring Boot Starter** | ⚪ Planned | P1 Priority | Annotation-driven `@AgentPayGuard` enterprise SDK |
+| **Mode 3: Batch Settlement & Channels** | ⚪ Planned | P2 Priority | High-frequency streaming micro-payments & channels |
+| **KMS/HSM Signers & Sidecar Daemon** | ⚪ Planned | P2 Priority | Hardware security module integration & isolated process daemon |
 
 ---
 

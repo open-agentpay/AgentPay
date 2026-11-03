@@ -191,21 +191,17 @@ AgentPay 明确声明**不做**什么：
 - PostgreSQL 15+ 数据模型，Python / Go / TypeScript 跨语言一致性测试向量
 - Arbitrum Sepolia 测试网结算，以及一条命令复现的**失控循环 Demo**
 
-**进行中 / 下一步**
+**进行中 / 主线路线图**
 
-- 账本对账（五重平账）、用量统计、审计保留与导出
-- 管理操作审计与 YAML 导入 / 导出
-- 性能基准、干净环境部署验证、试点与候选版本发布
+完整技术架构演进与任务矩阵详见 [**核心任务全景规划与路线图**](/specs/zh/roadmap.md)：
 
-**路线图（2027+）**
-
-- **Gas 模式 2（v0.2.0）：** 动态 Gas 加价分摊，并入 USDC 金额
-- **Gas 模式 3（v0.3.0）：** 批量聚合 / 状态通道结算，支持逐 token 微支付
-- 链上充值与法币充值
-- Express / Fastify 卖方中间件
-- Java / Spring Boot Starter
-- 异常检测与告警（默认仅告警）
-- 多节点分布式网关集群、KMS / HSM 签名器
+- **企业协同 HITL 与法币充值闭环（P0 主线）**：飞书 / 企微 / 钉钉 402 审批卡片直连、多层树状配额管控、微信/支付宝/对公汇款合规充值
+- **原生 MCP 支持与 Langfuse 双子星联动（P0 主线）**：Model Context Protocol 官方支付中间件、Langfuse Trace 联合追踪面板
+- **动态 Gas 加价补偿（Mode 2 / P1 演进）**：预言机动态估价并入 USDC Challenge，Facilitator 零亏损垫付
+- **Java / Spring Boot Starter 与卖方中间件（P1 演进）**：`@AgentPayGuard` 注解式 SDK 与 Express/Fastify/NestJS 卖方货币化包
+- **KMS / HSM 硬件签名与进程外 Sidecar 守护（P2 架构）**：签名私钥脱离明文内存、独立低权限进程防御代码注入逃逸
+- **高频批量聚合与状态通道结算（Mode 3 / P2 架构）**：逐 Token 微额流式计费，Gas 摊薄 95%+，多节点分布式网关集群
+- **多链扩展与开放协议标准化（P3 远景）**：扩展至 Solana 与 ERC-4337 抽象账户，正式推进 `x402-v2` 官方标准规范草案
 
 ---
 

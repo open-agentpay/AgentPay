@@ -201,7 +201,7 @@ graph TD
 
 ## 6. v1.0 明确非目标与残留风险说明 (Explicit Non-Goals & Residual Risks)
 
-| 残留风险 / 非目标 | 当前处理边界 | 未来演进路线 (v2.0 / 2027) |
+| 残留风险 / 非目标 | 当前处理边界 | 未来演进路线 (Master Roadmap) |
 | :--- | :--- | :--- |
 | **N1: 宿主机 Root 权限沦陷** | 若攻击者完全控制运行 SDK 的物理机，可读取内存中的明文私钥。平台不为宿主机完全失陷负责。 | 支持 TPM 2.0 / Apple Secure Enclave 硬件加密芯片；支持 AWS KMS / HashiCorp Vault 远程签名器。 |
 | **N2: 恶意上游语义垃圾交付** | 上游 API 收到款后返回 HTTP 200，但内容为毫无价值的乱码或虚假回答。网关仅证明服务交付，不裁决语义质量。 | 引入上游评分质押体系（Staking & Slashing）与买方事后争议仲裁 DAO。 |

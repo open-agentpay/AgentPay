@@ -187,21 +187,17 @@ Read the full [Threat Model](/specs/) for what is and isn't defended.
 - PostgreSQL 15+ schema, Python / Go / TypeScript cross-language conformance vectors
 - Arbitrum Sepolia testnet settlement and a one-command **runaway-loop demo**
 
-**In progress / next**
+**In progress / Master Roadmap**
 
-- Ledger reconciliation (five-way balancing), usage statistics, audit retention & export
-- Admin-operation audit and YAML import / export
-- Performance benchmarks, clean-environment deployment verification, pilot and release candidate
+See [**Master Roadmap & Architecture Evolution**](/specs/roadmap.md) for the complete unified task matrix and technical specifications:
 
-**Roadmap (2027+)**
-
-- **Gas model 2 (v0.2.0):** dynamic gas surcharge folded into the USDC amount
-- **Gas model 3 (v0.3.0):** batched / state-channel settlement for per-token micro-payments
-- On-chain and fiat wallet top-ups
-- Express / Fastify seller middleware for TypeScript
-- Java / Spring Boot starter
-- Anomaly detection and alerting (alert-only by default)
-- Multi-node distributed gateway clusters, KMS / HSM signers
+- **Enterprise HITL & Fiat Top-Up (P0)**: Feishu / WeChat Work / DingTalk interactive approval cards, multi-tier tree quotas, compliant fiat top-up (WeChat/Alipay/bank transfer)
+- **Native MCP & Langfuse Integration (P0)**: Model Context Protocol middleware and Langfuse co-observability
+- **Dynamic Gas Surcharge (P1)**: Oracle-based gas fee surcharge folded into USDC challenges (zero-loss Facilitator reimbursement)
+- **Java / Spring Boot Starter & Seller Middleware (P1)**: `@AgentPayGuard` annotation-driven enterprise SDK and Express/Fastify/NestJS monetization middleware
+- **KMS / HSM Signers & Out-of-Process Sidecar Daemon (P2)**: Keyless local memory and unprivileged process defense against in-process tool compromise
+- **Batch Settlement & State Channels (P2)**: High-frequency streaming micro-payments with >95% gas amortization, distributed gateway clusters
+- **Multi-Chain & Open Protocol Spec (P3)**: Solana and ERC-4337 Account Abstraction expansion; formal `x402-v2` RFC / EIP standardization
 
 ---
 

@@ -134,12 +134,12 @@ sequenceDiagram
 * **Go 反向代理网关 (`services/gateway/`)：** 高吞吐云原生反向代理、内嵌策略引擎、多租户虚拟钱包与账本、低延迟 EIP-712 验签（`geth/crypto`）、结构化日志与极小容器镜像体积。
 * **Python 客户端 SDK (`sdk/python/packages/agentpay`)：** 面向主流 AI Agent 与 LLM 框架生态（LangChain、CrewAI、AutoGen、LlamaIndex），提供透明 HTTP 拦截器（`httpx`、`aiohttp`）与原生 MCP 工具封装。
 
-### 5.2 多语言路线图（2027+）
-* **TypeScript / Node.js 技术栈：** 面向 JS/TS AI Agent（浏览器、Bun、MCP Server）及 Next.js / Express 微服务。
-* **Java 技术栈：** 面向企业级金融后端与 Spring Cloud 网关。
+### 5.2 多语言生态与主线规划
+* **TypeScript / Node.js 技术栈 (`sdk/typescript`)：** 完备的 JS/TS 客户端与服务端 SDK，支持浏览器、Bun、Node.js 运行时、MCP 工具服务及 Next.js / Express 微服务。
+* **Java 技术栈（规划中 - 主线路线图 P2）：** 面向企业级金融后端与 Spring Boot / Spring Cloud 基础设施。
 
 ### 5.3 共享一致性测试向量 (`specs/conformance/test-vectors/`)
-* 跨 `eth-account`/`web3.py`（Python）、`go-ethereum`（Go）及未来 SDK 的 EIP-712 Domain Separator 序列化测试。
+* 跨 `eth-account`/`web3.py`（Python）、`go-ethereum`（Go）、`viem`（TypeScript）及未来 SDK 的 EIP-712 Domain Separator 序列化测试。
 * x402 V2 挑战解析器与签名编码器测试。
 * 状态机迁移边界条件测试。
 * 带 64 位整数溢出保护的策略预算扣减数学验证。
@@ -150,15 +150,15 @@ sequenceDiagram
 
 在 EIP-3009 元交易（`transferWithAuthorization`）机制下，买方 Agent 在密码学层面完全免 Gas（仅需持有 USDC 等支付代币，0 ETH 要求），而由链上交易调用方（`msg.sender` / Facilitator）支付矿工 Gas 费。
 
-AgentPay 正式定义了三种结算代付模式（详见 [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md)）：
+AgentPay 正式定义了三种结算代付模式（详见 [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md) 与 [`specs/zh/roadmap.md`](./roadmap.md)）：
 
-1. **模式 1：卖方补贴型免 Gas 结算（2026 基线 - v0.1.0）：**
+1. **模式 1：卖方补贴型免 Gas 结算（当前基线 - v0.1.0）：**
    * Facilitator 代付 L2 原生 Gas（Arbitrum Sepolia / Base Sepolia，每笔约 $0.001 - $0.005）；买方仅按 API 标价支付 USDC。
    * 适用于高毛利 API 与零摩擦 Agent 微支付。
-2. **模式 2：动态 Gas 附加费补偿（2027 Q1 - v0.2.0）：**
+2. **模式 2：动态 Gas 附加费补偿（规划中 - 主线路线图 P1）：**
    * 网关动态估算 EVM Gas + L1 数据费，通过预言机折算为 USDC 后附加到 Challenge `amount` 中；买方通过一次 USDC 签名同时支付服务费与 Gas 成本，全额补偿 Facilitator。
    * 适用于以太坊 L1、Gas 高峰期或低毛利算力透传 API。
-3. **模式 3：批量聚合与状态通道延迟结算（2027 Q2 - v0.3.0）：**
+3. **模式 3：批量聚合与状态通道延迟结算（规划中 - 主线路线图 P2）：**
    * 网关在链下校验授权并立即响应业务；Facilitator 通过批量合约或状态通道定期汇总上链。
    * 将单笔交易 Gas 摊薄 95% 以上，支持亚美分（$0.0001）级按 Token 流式微支付。
 

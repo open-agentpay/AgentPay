@@ -134,12 +134,12 @@ To serve different operational requirements while guaranteeing identical protoco
 * **Go Reverse Proxy Gateway (`services/gateway/`):** High-throughput cloud-native reverse proxy, embedded Policy Engine, multitenant wallet & ledger, low-latency EIP-712 cryptographic verification (`geth/crypto`), structured logging, and minimal container footprints.
 * **Python Client SDK (`sdk/python/packages/agentpay`):** Targeted at the primary AI Agent and LLM framework ecosystem (LangChain, CrewAI, AutoGen, LlamaIndex), featuring transparent HTTP interceptors (`httpx`, `aiohttp`) and native MCP server tools.
 
-### 5.2 Multi-Language Roadmap (2027+)
-* **TypeScript / Node.js Stack:** Targeted at JS/TS AI agents (Browser, Bun, MCP servers) and Next.js / Express microservices.
-* **Java Stack:** Targeted at enterprise financial backends and Spring Cloud gateways.
+### 5.2 Multi-Language Ecosystem & Roadmap
+* **TypeScript / Node.js Stack (`sdk/typescript`):** Complete client & server SDK for JS/TS AI agents, Browser/Bun/Node runtimes, MCP servers, and Next.js / Express microservices.
+* **Java Stack (Planned - Master Roadmap P2):** Targeted at enterprise financial backends and Spring Boot / Spring Cloud environments.
 
 ### 5.3 Shared Conformance Vectors (`specs/conformance/test-vectors/`)
-* EIP-712 domain separator serialization across `eth-account`/`web3.py` (Python), `go-ethereum` (Go), and future SDKs.
+* EIP-712 domain separator serialization across `eth-account`/`web3.py` (Python), `go-ethereum` (Go), `viem` (TypeScript), and future SDKs.
 * x402 V2 challenge parser and signature encoder.
 * State machine transition edge cases.
 * Policy budget deduction math with 64-bit integer overflow protection.
@@ -150,15 +150,15 @@ To serve different operational requirements while guaranteeing identical protoco
 
 Under EIP-3009 meta-transactions (`transferWithAuthorization`), the Buyer Agent is cryptographically gasless (holds only payment tokens, e.g. USDC, with 0 ETH required), while the EVM transaction caller (`msg.sender` / Facilitator) pays miner gas fees.
 
-AgentPay formally supports three settlement sponsorship modes (detailed in [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md)):
+AgentPay formally supports three settlement sponsorship modes (detailed in [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md) and [`specs/roadmap.md`](./roadmap.md)):
 
-1. **Mode 1: Seller-Subsidized Gasless Settlement (2026 Baseline - v0.1.0):**
+1. **Mode 1: Seller-Subsidized Gasless Settlement (Current Baseline - v0.1.0):**
    * Facilitator sponsors L2 native gas (Arbitrum Sepolia / Base Sepolia, $0.001 - $0.005 per tx); Buyer pays exact API price in USDC.
    * Ideal for high-margin APIs and friction-free agent micro-payments.
-2. **Mode 2: Dynamic Gas Surcharge & Reimbursement (2027 Q1 - v0.2.0):**
+2. **Mode 2: Dynamic Gas Surcharge & Reimbursement (Planned - Master Roadmap P1):**
    * Gateway dynamically estimates EVM gas + L1 data fees, converts to USDC via Oracle, and appends to Challenge `amount`. Buyer pays both via USDC signature, fully reimbursing the Facilitator.
    * Ideal for Ethereum L1, gas spikes, and low-margin / pass-through GPU compute.
-3. **Mode 3: Batch Aggregation & State Channel Delayed Settlement (2027 Q2 - v0.3.0):**
+3. **Mode 3: Batch Aggregation & State Channel Delayed Settlement (Planned - Master Roadmap P2):**
    * Gateway validates authorizations off-chain and fulfills requests immediately; Facilitator flushes payments via batch multicall contracts or state channels.
    * Amortizes transaction gas by >95%, enabling sub-cent ($0.0001) per-token streaming micro-payments.
 

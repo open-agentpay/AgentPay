@@ -110,14 +110,14 @@ The self-hosted gateway explicitly defends against the following 5 seller-side t
 
 The following threats are **EXPLICITLY OUT OF SCOPE** for the v0 milestone:
 
-| Threat Category | Status in v0 | Explanation & 2027 Mitigation Plan |
+| Threat Category | Status in v0 | Explanation & Master Roadmap Mitigation |
 | :--- | :---: | :--- |
-| **N1: Host Machine Root Compromise** | ❌ **Not Protected** | If an attacker has root access or reads memory, they can extract plaintext keys from `LocalSigner`.<br>*2027 Plan:* Hardware security modules (HSM) and Cloud KMS signers. |
+| **N1: Host Machine Root Compromise** | ❌ **Not Protected** | If an attacker has root access or reads memory, they can extract plaintext keys from `LocalSigner`.<br>*Master Roadmap (P2):* Hardware security modules (HSM) and Cloud KMS signers. |
 | **N2: Economic Waste within Budget Quota** | ❌ **Not Protected** | If an agent spends $0.001 within allowed budget on a whitelisted API that produces useless answers, AgentPay cannot judge semantic quality. |
 | **N3: Semantic Data Quality / Garbage Upstream** | ❌ **Not Protected** | If an upstream API returns HTTP 200 with invalid or hallucinated data, AgentPay verifies payment delivery, not content truthfulness. |
 | **N4: Facilitator Complete Denial of Service (DoS)** | ❌ **Not Protected** | If all Facilitator nodes go offline, transactions cannot settle on-chain. Buyer funds are safe (not stolen), but payment flow halts. |
 | **N5: Unsupported Token Contracts** | ❌ **Not Protected** | Tokens that lack native EIP-3009 (`transferWithAuthorization`) support cannot be settled gaslessly. v0 strictly targets standard USDC-compatible contracts. |
-| **N6: Malicious In-Process Tools (P0-4)** | ❌ **Not Protected** | In the v0 embedded library mode, the LLM runtime and the SDK share a Python process. A tool with arbitrary code execution (`eval`) or arbitrary file read/write can bypass the interceptor.<br>*2027 Plan:* Isolated out-of-process local sidecar daemon running under a dedicated OS user. |
+| **N6: Malicious In-Process Tools (P0-4)** | ❌ **Not Protected** | In the v0 embedded library mode, the LLM runtime and the SDK share a Python process. A tool with arbitrary code execution (`eval`) or arbitrary file read/write can bypass the interceptor.<br>*Master Roadmap (P2):* Isolated out-of-process local sidecar daemon running under a dedicated OS user. |
 
 ---
 

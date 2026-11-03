@@ -1,0 +1,59 @@
+# ADR-003: 演进优先级与路线图统合 —— 结算经济性与企业内控 vs. 多链扩展
+
+> **Status**: **Accepted**（已决，并统合至唯一主线规划 [`specs/zh/roadmap.md`](./zh/roadmap.md) / [`specs/roadmap.md`](./roadmap.md)）
+> **Date**: 2026-11-03
+> **Deciders**: Project Maintainers
+> **Related**:
+> - [`specs/zh/roadmap.md`](./zh/roadmap.md) / [`specs/roadmap.md`](./roadmap.md)（权威唯一主线路线图）
+> - [`README.md`](../README.md) § Roadmap & Delivery Status
+> - [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md)（Gas 经济模型与演进路线）
+> - [`specs/currency-and-multichain-spec.md`](./currency-and-multichain-spec.md)（多链 `scheme` 抽象扩展草案）
+
+---
+
+## 1. Context & Problem Statement
+
+此前项目存在多份分散的历史规划与表述差异，且部分规划带有年份硬编码限制：
+1. Gas Mode 2（动态 Gas 加价分摊）与 Mode 3（批量聚合 / 状态通道）。
+2. 可插拔 `scheme` 多链与多资产扩展草案。
+3. 企业内控安全、HITL 人机协同审批与 AI FinOps。
+
+按设计规范，文档冲突与演进决策**不得静默择一**，须统合为统一事实来源（Single Source of Truth）。本 ADR 记录该优先级裁决，并正式废除所有基于具体自然年份的旧版临时碎片规划，以统一的优先级阶梯（P0 ~ P3）为主线路线图。
+
+约束条件：
+1. 工程资源集中优先攻克核心商业与企业生产价值闭环，同一时期保持清晰的主线聚焦。
+2. 现有客户调用量的快速增长对 Gas 与结算成本提出刚性要求。
+3. 企业场景下安全防线（HITL、防套取、预算配额）是落地准入的前提条件。
+
+---
+
+## 2. Options Considered
+
+| 维度 | **A. 先做结算经济性与企业内控**（Gas Mode 2/3 + HITL/FinOps） | **B. 先做多链扩展**（Solana / 多非 EVM 链） |
+| :--- | :--- | :--- |
+| 直接收益 | 高频微支付在规模化后仍保毛利；单笔成本降低 95%+；企业生产环境具备合规准入资格 | 触达新链生态与跨链 Agent 客户 |
+| 依赖与风险 | 低。链上逻辑自持，不依赖外部标准变更 | 中高。需新链的签名方案（非 EIP-3009）、资金安全重审、新 Facilitator 适配 |
+| 对现有架构的破坏性 | 低。网关已有结算抽象与对账闭环，以插件化中间件增强 | **高**。多链会直接冲击现有 EIP-712/3009 状态机模型 |
+| 可验证性 | 强。单笔成本与审批阻断可在现有真实测试链路量化对比 | 弱。需外部生态客户配合验证需求真实性 |
+| 优先级评定 | **最高（P0 / P1 / P2 核心主线）** | **P3 远期探索（视生态需求启动）** |
+
+---
+
+## 3. Decision
+
+**采纳方案 A 并统合为主线路线图**：
+
+1. **统一路线图**：建立唯一且权威的主线规划文档（[`specs/zh/roadmap.md`](./zh/roadmap.md) / [`specs/roadmap.md`](./roadmap.md)），废除零散年份规划。
+2. **结算经济性与企业内控并行演进**：
+   - **P0**：企业人机协同审批（HITL 飞书/企微/钉钉卡片拦截）与安全防套取。
+   - **P1**：AI 财务 FinOps（树状配额与非托管法币对账）与 Gas 模式 2（动态加价分摊）。
+   - **P2**：模式 3（批量聚合 / 状态通道延迟结算）与本地进程外 Sidecar 守护进程。
+   - **P3**：多链扩展（ERC-4337 账户抽象、跨链结算与行业 RFC 标准）。
+3. **架构连续性**：保持 `currency-and-multichain-spec.md` 作为远期架构参考（Planned / Unscheduled），不破坏当前主线焦点。
+
+---
+
+## 4. Consequences
+
+- **Positive**：全局规划收敛至唯一事实来源，消除了所有历史年份描述冲突；开发主线清晰聚焦高价值业务闭环。
+- **Compliance**：项目所有文档与规范均对齐最新主线路线图。

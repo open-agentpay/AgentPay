@@ -65,7 +65,7 @@ Protects upstream services and guarantees strict once-and-only-once execution.
 1. **Integer Base Units Only:**
    * All amounts are strictly stored as `INTEGER` base units (e.g., `100000` = 0.1 USDC with 6 decimals).
    * SQLite enforces: `CHECK (amount_base_units > 0 AND typeof(amount_base_units) = 'integer')`.
-   * **Asset Decimal Constraint (MVP):** The 2026 baseline supports token assets with $\le 6$ decimals (such as USDC/EURC). 18-decimal tokens (e.g. DAI) exceed SQLite's 64-bit signed integer limits ($2^{63}-1 \approx 9.22 \times 10^{18}$) and will be introduced in 2027 using stringified BigInteger storage.
+   * **Asset Decimal Constraint (MVP):** The current baseline supports token assets with $\le 6$ decimals (such as USDC/EURC). 18-decimal tokens (e.g. DAI) exceed SQLite's 64-bit signed integer limits ($2^{63}-1 \approx 9.22 \times 10^{18}$) and are planned for future multi-asset releases using stringified BigInteger storage.
 2. **Unix Timestamps (Seconds):**
    * All timestamps (`created_at`, `updated_at`, `valid_after`, `valid_before`, `expires_at`) are stored as 64-bit integer Unix seconds (`INTEGER`).
 3. **Address Normalization (P1-16):**

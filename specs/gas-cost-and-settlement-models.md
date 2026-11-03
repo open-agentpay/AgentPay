@@ -19,7 +19,7 @@ To achieve production-grade flexibility, AgentPay specifies **three supported Ga
 │                        AgentPay Gas Models                             │
 ├──────────────────────────┬─────────────────────────┬───────────────────┤
 │ Mode 1: Seller-Subsidized│ Mode 2: Dynamic         │ Mode 3: Batch &   │
-│         Gasless (2026)   │         Surcharge (2027)│ Channels (2027)   │
+│         Gasless          │         Surcharge       │ Channels          │
 ├──────────────────────────┼─────────────────────────┼───────────────────┤
 │ • Buyer: 0 Gas (USDC only│ • Buyer: Pays Price +   │ • Buyer: Signs    │
 │ • Facilitator/Seller pays│   Gas Surcharge in USDC │   interim states  │
@@ -74,7 +74,7 @@ When interacting with private chains, custom devnets, or older EVM nodes that do
 
 ---
 
-### 3.2 Mode 2: Dynamic Gas Surcharge & Reimbursement (Planned / 2027 Q1 v0.2.0)
+### 3.2 Mode 2: Dynamic Gas Surcharge & Reimbursement (Planned Evolution)
 
 * **Architecture Role:**
   * **Buyer (AI Agent):** Pays for both the API service and the required gas in a single token (USDC), still needing zero native ETH.
@@ -93,7 +93,7 @@ When interacting with private chains, custom devnets, or older EVM nodes that do
 
 ---
 
-### 3.3 Mode 3: Batch Aggregation & State Channel Delayed Settlement (Planned / 2027 Q2 v0.3.0)
+### 3.3 Mode 3: Batch Aggregation & State Channel Delayed Settlement (Planned Evolution)
 
 * **Architecture Role:**
   * **Buyer (AI Agent):** Issues high-frequency micro-authorizations.
@@ -121,11 +121,11 @@ When interacting with private chains, custom devnets, or older EVM nodes that do
 | **Seller Gas Expense** | Pays L2 gas per tx | Fully reimbursed | Substantially amortized (<5%) |
 | **Settlement Latency** | Per-request (1-2s) | Per-request (1-2s) | Periodic / Batched |
 | **Smart Contract Footprint**| Standard EIP-3009 (Circle USDC)| Standard EIP-3009 or Fee Splitter | Batch Registry / Channel Contract |
-| **Release Target** | **v0.1.0 (2026)** | **v0.2.0 (2027 Q1)** | **v0.3.0 (2027 Q2)** |
+| **Delivery Status** | **Complete (Baseline)** | **Planned (P1 Priority)** | **Planned (P2 Priority)** |
 
 ---
 
-## 5. Gateway Configuration Schema Evolution (Draft 2027)
+## 5. Gateway Configuration Schema Evolution (Planned Draft)
 
 ```yaml
 version: "2.0"
