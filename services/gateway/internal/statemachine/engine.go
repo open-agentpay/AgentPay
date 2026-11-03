@@ -107,11 +107,20 @@ func (e *Engine) Transition(entityName string, currentState string, event string
 }
 
 // CanDispatchFulfillment checks INV_1_DISPATCH_GUARD.
+// - onchain_sync: requires settlement == "confirmed"
+// - onchain_async: requires signature verified & nonce persisted (settlement == "submitted" or "confirmed")
+// - wallet: requires settlement == "held"
 func (e *Engine) CanDispatchFulfillment(settlementState string, paymentMethod string) bool {
-	if paymentMethod == "wallet" {
+	switch paymentMethod {
+	case "wallet":
 		return settlementState == "held"
+	case "onchain_async":
+		return settlementState == "submitted" || settlementState == "confirmed"
+	case "onchain_sync", "onchain":
+		return settlementState == "confirmed"
+	default:
+		return settlementState == "confirmed"
 	}
-	return settlementState == "confirmed"
 }
 
 // CanSubmitSettlement checks INV_2_UNKNOWN_SUBMIT_GUARD.

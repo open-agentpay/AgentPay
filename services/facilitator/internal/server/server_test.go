@@ -158,4 +158,22 @@ func TestHTTPServerEndpoints(t *testing.T) {
 	if !nonceResult["isUsed"] {
 		t.Fatalf("expected nonce to be reported used")
 	}
+
+	// 6. GET /v1/settle/lookup check (by nonce)
+	lookupReq := httptest.NewRequest(http.MethodGet, "/v1/settle/lookup?network="+ch.Network+"&asset="+ch.Asset+"&payer="+auth.Payer+"&nonce="+auth.Nonce, nil)
+	lookupReq.Header.Set("Authorization", "Bearer "+cfg.Security.APIKey)
+	lookupRec := httptest.NewRecorder()
+	handler.ServeHTTP(lookupRec, lookupReq)
+
+	if lookupRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /v1/settle/lookup, got %d (body: %s)", lookupRec.Code, lookupRec.Body.String())
+	}
+
+	var lookupStatus models.SettlementStatus
+	if err := json.NewDecoder(lookupRec.Body).Decode(&lookupStatus); err != nil {
+		t.Fatalf("failed to decode lookup response: %v", err)
+	}
+	if lookupStatus.SettlementID != settleResult.SettlementID {
+		t.Fatalf("mismatched lookup settlement ID: expected %s, got %s", settleResult.SettlementID, lookupStatus.SettlementID)
+	}
 }

@@ -15,16 +15,19 @@ server:
 auth:
   jwt_secret: "agentpay-example-secret-key-replace-in-production-min-32-chars!"
   token_duration_hours: 24
+  # Master key for upstream secret encryption (min 32 bytes or 64 hex characters)
+  upstream_master_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 database:
-  # In production, configure credentials securely or via AGENTPAY_POSTGRES_URL environment variable
-  postgres_url: "postgres://user:password@localhost:5432/agentpay?sslmode=disable"
+  # Leave empty to use in-memory store for local testing, or set via AGENTPAY_POSTGRES_URL env
+  postgres_url: ""
   max_open_conns: 25
   max_idle_conns: 10
   conn_max_lifetime_seconds: 300
 
 facilitator:
   url: "http://127.0.0.1:8001"
+  api_key: "agentpay_facilitator_secret_key_change_in_prod"
   timeout_seconds: 5.0
 
 settlement:

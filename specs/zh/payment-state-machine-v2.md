@@ -120,7 +120,7 @@ authorized ──▶ hold ──▶ [held] ──(dispatch)──▶ [fulfillmen
 
 | 当前状态 | 触发事件 | 目标新状态 | 说明与安全守卫 |
 |---|---|---|---|
-| `not_started` | `dispatch` | `in_progress` | 链上要求 `settlement==confirmed`；钱包要求 `settlement==held` |
+| `not_started` | `dispatch` | `in_progress` | 同步链上要求 `settlement==confirmed` (`onchain_sync`)；异步链上要求验签通过且 nonce 持久化 (`onchain_async`)；钱包要求 `settlement==held` (`wallet`) |
 | `in_progress` | `upstream_2xx` | `succeeded` | 上游交付成功（触发钱包 capture） |
 | `in_progress` | `upstream_4xx` | `failed` | 上游客户端入参错误未执行（触发钱包 release） |
 | `in_progress` | `upstream_5xx` | `unknown` | 上游服务端异常，不可假定未执行（钱包保持 held） |

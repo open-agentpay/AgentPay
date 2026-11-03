@@ -28,7 +28,7 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata wget
 
 COPY --from=builder /build/bin/facilitator /app/facilitator
-COPY --from=builder /build/configs/facilitator.yaml /etc/agentpay/facilitator.yaml
+COPY --from=builder /build/configs/facilitator.example.yaml /etc/agentpay/facilitator.yaml
 
 EXPOSE 8001
 

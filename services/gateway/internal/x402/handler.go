@@ -331,6 +331,9 @@ func (p *PaymentProcessor) executeAsyncSettlement(ctx context.Context, intentID,
 	}
 
 	p.setFacilitatorSettlementID(settlementID, res.SettlementID)
+	if p.paymentService != nil && res.SettlementID != "" {
+		_ = p.paymentService.UpdateSettlementFacilitatorID(context.Background(), settlementID, res.SettlementID)
+	}
 	statusLower := strings.ToLower(strings.TrimSpace(res.Status))
 	slog.Info("on-chain settlement broadcast response received",
 		slog.String("settlement_id", settlementID),
@@ -401,11 +404,43 @@ func (p *PaymentProcessor) ReconcileSettlements(ctx context.Context) (int, error
 				Status:          recovery.SettlementState(rec.Status),
 			})
 		}
-		queryID := p.getFacilitatorSettlementID(rec.SettlementID)
-		st, err := fv.GetSettlementStatus(ctx, queryID)
-		if err != nil {
-			_ = p.recoveryCoord.MarkUnknown(rec.SettlementID, err.Error())
-			_ = p.paymentService.UpdateSettlementStatus(ctx, rec.SettlementID, payment.SettlementStatusUnknown, rec.TxHash, nil, err.Error())
+		var queryID string
+		if rec.FacilitatorSettlementID != "" {
+			queryID = rec.FacilitatorSettlementID
+		} else {
+			queryID = p.getFacilitatorSettlementID(rec.SettlementID)
+		}
+
+		var st *FacilitatorSettlementStatus
+		var queryErr error
+		if queryID != "" && queryID != rec.SettlementID {
+			st, queryErr = fv.GetSettlementStatus(ctx, queryID)
+		}
+
+		// Fallback to lookup by nonce if facilitator ID was missing, equal to gateway ID, or returned 404
+		if st == nil && rec.Nonce != "" {
+			if queryID == "" || queryID == rec.SettlementID || (queryErr != nil && strings.Contains(queryErr.Error(), "404")) {
+				stByNonce, nonceErr := fv.GetSettlementStatusByNonce(ctx, rec.NetworkID, rec.AssetAddress, rec.PayerAddress, rec.Nonce)
+				if nonceErr == nil && stByNonce != nil {
+					st = stByNonce
+					queryErr = nil
+					if stByNonce.SettlementID != "" {
+						p.setFacilitatorSettlementID(rec.SettlementID, stByNonce.SettlementID)
+						if p.paymentService != nil {
+							_ = p.paymentService.UpdateSettlementFacilitatorID(ctx, rec.SettlementID, stByNonce.SettlementID)
+						}
+					}
+				}
+			}
+		}
+
+		if queryErr != nil || st == nil {
+			errMsg := "settlement status query failed"
+			if queryErr != nil {
+				errMsg = queryErr.Error()
+			}
+			_ = p.recoveryCoord.MarkUnknown(rec.SettlementID, errMsg)
+			_ = p.paymentService.UpdateSettlementStatus(ctx, rec.SettlementID, payment.SettlementStatusUnknown, rec.TxHash, nil, errMsg)
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(st.Status)) {
@@ -858,7 +893,7 @@ func (p *PaymentProcessor) handleWalletPayment(
 	}
 
 	if wallet.Status == "frozen_arrears" || wallet.Status == "frozen" {
-		sc.recordReq(wallet.TenantID, defaultProjectID, wallet.APIKeyID, "", "", http.StatusPaymentRequired, ErrCodeWalletFrozen, false)
+		sc.recordReq(wallet.TenantID, defaultProjectID, wallet.APIKeyID, "", "", http.StatusForbidden, ErrCodeWalletFrozen, false)
 		WriteProtocolError(w, ErrCodeWalletFrozen, sc.requestID, map[string]interface{}{
 			"wallet_id": wallet.WalletID,
 			"status":    wallet.Status,

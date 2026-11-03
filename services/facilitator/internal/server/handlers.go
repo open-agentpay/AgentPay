@@ -127,6 +127,35 @@ func handleGetSettlement(svc *service.FacilitatorService) http.HandlerFunc {
 	}
 }
 
+// handleSettlementLookup serves GET /v1/settle/lookup?network=...&asset=...&payer=...&nonce=...
+func handleSettlementLookup(svc *service.FacilitatorService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		q := r.URL.Query()
+		network := strings.TrimSpace(q.Get("network"))
+		asset := strings.TrimSpace(q.Get("asset"))
+		payer := strings.TrimSpace(q.Get("payer"))
+		nonce := strings.TrimSpace(q.Get("nonce"))
+
+		if network == "" || asset == "" || payer == "" || nonce == "" {
+			writeError(w, service.ErrInvalidRequest)
+			return
+		}
+
+		status, err := svc.GetSettlementByNonce(network, asset, payer, nonce)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, status)
+	}
+}
+
 // handleNonceCheck serves GET /v1/nonce
 func handleNonceCheck(svc *service.FacilitatorService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

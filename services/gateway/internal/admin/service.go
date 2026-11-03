@@ -952,8 +952,11 @@ func (s *MemoryService) UpdateAgent(ctx context.Context, tenantID, agentID strin
 	defer s.mu.Unlock()
 
 	ag, ok := s.agents[agentID]
-	if !ok || ag.TenantID != tenantID {
+	if !ok {
 		return nil, ErrAgentNotFound
+	}
+	if ag.TenantID != tenantID {
+		return nil, ErrAgentTenantMismatch
 	}
 	if ag.Status == AgentStatusRevoked {
 		return nil, ErrAgentRevoked
@@ -986,8 +989,11 @@ func (s *MemoryService) UpdateAgentStatus(ctx context.Context, tenantID, agentID
 	defer s.mu.Unlock()
 
 	ag, ok := s.agents[agentID]
-	if !ok || ag.TenantID != tenantID {
+	if !ok {
 		return nil, ErrAgentNotFound
+	}
+	if ag.TenantID != tenantID {
+		return nil, ErrAgentTenantMismatch
 	}
 	if ag.Status == AgentStatusRevoked && status != AgentStatusRevoked {
 		return nil, ErrInvalidStatusTransition
@@ -1031,8 +1037,11 @@ func (s *MemoryService) KillAgent(ctx context.Context, tenantID, agentID, reason
 	}
 
 	ag, ok := s.agents[agentID]
-	if !ok || ag.TenantID != tenantID {
+	if !ok {
 		return nil, nil, ErrAgentNotFound
+	}
+	if ag.TenantID != tenantID {
+		return nil, nil, ErrAgentTenantMismatch
 	}
 	if ag.Status == AgentStatusRevoked {
 		return nil, nil, ErrInvalidStatusTransition
@@ -1082,8 +1091,11 @@ func (s *MemoryService) DeleteAgent(ctx context.Context, tenantID, agentID, acto
 	defer s.mu.Unlock()
 
 	ag, ok := s.agents[agentID]
-	if !ok || ag.TenantID != tenantID {
+	if !ok {
 		return ErrAgentNotFound
+	}
+	if ag.TenantID != tenantID {
+		return ErrAgentTenantMismatch
 	}
 	if err := s.checkPermissionLocked(tenantID, actorMemberID, PermissionAgentKill); err != nil {
 		return err

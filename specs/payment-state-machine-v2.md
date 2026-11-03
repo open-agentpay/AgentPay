@@ -120,7 +120,7 @@ authorized ──▶ hold ──▶ [held] ──(dispatch)──▶ [fulfillmen
 
 | Current State | Trigger Event | Target State | Description & Safety Guards |
 |---|---|---|---|
-| `not_started` | `dispatch` | `in_progress` | Requires `settlement==confirmed` (on-chain) or `settlement==held` (wallet) |
+| `not_started` | `dispatch` | `in_progress` | Requires `settlement==confirmed` (`onchain_sync`), signature verified & nonce persisted (`onchain_async`), or `settlement==held` (`wallet`) |
 | `in_progress` | `upstream_2xx` | `succeeded` | Upstream delivery succeeded (triggers wallet `capture`) |
 | `in_progress` | `upstream_4xx` | `failed` | Upstream rejected client input without execution (triggers wallet `release`) |
 | `in_progress` | `upstream_5xx` | `unknown` | Upstream server error; cannot assume unexecuted (wallet keeps `held`) |

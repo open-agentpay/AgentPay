@@ -86,7 +86,7 @@ func NewWithWalletAndTransport(
 	if keyVersion <= 0 {
 		keyVersion = 1
 	}
-	if err := upstreamauth.ConfigureKeyRing(masterKey, keyVersion, cfg.Auth.UpstreamPreviousMasterKeys); err != nil {
+	if err := upstreamauth.ConfigureKeyRing(keyVersion, masterKey, cfg.Auth.UpstreamPreviousMasterKeys); err != nil {
 		return nil, fmt.Errorf("failed to configure upstream master key ring: %w", err)
 	}
 

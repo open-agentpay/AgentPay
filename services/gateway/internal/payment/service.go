@@ -23,6 +23,7 @@ type Service interface {
 	GetSettlement(ctx context.Context, settlementID string) (*SettlementRecord, error)
 	GetSettlementByIntent(ctx context.Context, intentID string) (*SettlementRecord, error)
 	UpdateSettlementStatus(ctx context.Context, settlementID string, status string, txHash string, blockNumber *int64, errMsg string) error
+	UpdateSettlementFacilitatorID(ctx context.Context, settlementID string, facilitatorSettlementID string) error
 	ListNonTerminalSettlements(ctx context.Context) ([]*SettlementRecord, error)
 
 	RecordFulfillment(ctx context.Context, fulfillment *FulfillmentRecord) error
@@ -260,6 +261,21 @@ func (m *MemoryService) UpdateSettlementStatus(ctx context.Context, settlementID
 	if errMsg != "" {
 		s.ErrorMessage = errMsg
 	}
+	s.UpdatedAt = time.Now()
+	return nil
+}
+
+// UpdateSettlementFacilitatorID persists the Facilitator-side settlement identifier.
+// SECURITY-REVIEW: this mapping is required for reconciliation after gateway restarts.
+func (m *MemoryService) UpdateSettlementFacilitatorID(ctx context.Context, settlementID string, facilitatorSettlementID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	s, ok := m.settlements[settlementID]
+	if !ok {
+		return ErrSettlementNotFound
+	}
+	s.FacilitatorSettlementID = facilitatorSettlementID
 	s.UpdatedAt = time.Now()
 	return nil
 }

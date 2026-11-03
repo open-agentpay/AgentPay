@@ -334,7 +334,7 @@ class TestCrossLanguageGatewayConformance:
             assert body["error"]["status"] == 402
 
     def test_wallet_frozen_arrears_rejected(self, live_gateway: str) -> None:
-        """TC_CROSS_04: Frozen/arrears wallet account is rejected with 402 ERR_WALLET_FROZEN."""
+        """TC_CROSS_04: Frozen/arrears wallet account is rejected with 403 ERR_WALLET_FROZEN."""
         with httpx.Client(trust_env=False) as client:
             headers = {
                 "Authorization": "Bearer apk_live_frozen",
@@ -347,10 +347,11 @@ class TestCrossLanguageGatewayConformance:
                 json_body={"query": "test"},
             )
 
-            assert resp.status_code == 402
+            assert resp.status_code == 403
             body = resp.json()
             assert body["error"]["code"] == "ERR_WALLET_FROZEN"
             assert body["error"]["domain"] == "WALLET"
+            assert body["error"]["status"] == 403
 
     def test_idempotency_payload_conflict_rejected(self, live_gateway: str) -> None:
         """TC_CROSS_05: Idempotency conflict returns 409 ERR_IDEMPOTENCY_CONFLICT."""

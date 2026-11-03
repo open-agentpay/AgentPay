@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/open-agentpay/agentpay-gateway-go/internal/auth"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/config"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/metrics"
 	"github.com/open-agentpay/agentpay-gateway-go/internal/rcu"
@@ -99,6 +101,26 @@ func TestRequestAndUsageEventRecording(t *testing.T) {
 	if usageSvc == nil {
 		t.Fatalf("expected usage service to be initialized")
 	}
+
+	adminSvc := gwServer.AdminService()
+	tenant, owner, err := adminSvc.CreateTenant(context.Background(), "Ten Rich", "ten_rich", "admin@rich.io")
+	if err != nil {
+		t.Fatalf("failed to create tenant: %v", err)
+	}
+	jwtMgr := auth.MustNewJWTManager(cfg.Auth.JWTSecret, 24*time.Hour)
+	adminToken, err := jwtMgr.GenerateToken(owner.MemberID, owner.Email, tenant.TenantID, string(owner.Role))
+	if err != nil {
+		t.Fatalf("failed to generate jwt: %v", err)
+	}
+	walletSvc.RegisterWallet(&wallet.Wallet{
+		WalletID:       "wlt_ten_rich",
+		TenantID:       "ten_rich",
+		Asset:          "USDC",
+		Status:         wallet.StatusActive,
+		Version:        1,
+		AvailableCache: 1_000_000,
+		HeldCache:      0,
+	})
 
 	// ------------------------------------------------------------------------
 	// Test Case 1: Successful Wallet Request -> RequestRecord + UsageEvent
@@ -216,6 +238,7 @@ func TestRequestAndUsageEventRecording(t *testing.T) {
 	// Test Case 4: Admin API Endpoints for Requests & Usages
 	// ------------------------------------------------------------------------
 	adminReq := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/ten_rich/requests?page=1&page_size=10", nil)
+	adminReq.Header.Set("Authorization", "Bearer "+adminToken)
 	adminRec := httptest.NewRecorder()
 	gwServer.Handler().ServeHTTP(adminRec, adminReq)
 
@@ -234,6 +257,7 @@ func TestRequestAndUsageEventRecording(t *testing.T) {
 	}
 
 	adminUsageReq := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/ten_rich/usages?page=1&page_size=10", nil)
+	adminUsageReq.Header.Set("Authorization", "Bearer "+adminToken)
 	adminUsageRec := httptest.NewRecorder()
 	gwServer.Handler().ServeHTTP(adminUsageRec, adminUsageReq)
 

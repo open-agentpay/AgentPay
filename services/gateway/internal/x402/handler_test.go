@@ -423,6 +423,14 @@ func TestP03AsyncSettlementSubmittedStaysSubmittedUntilReconciledAndRevertMarksF
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(statusResp)
+		case r.Method == "GET" && r.URL.Path == "/v1/settle/lookup":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(FacilitatorSettlementStatus{
+				SettlementID: "fac_stl_restart",
+				Status:       "CONFIRMED",
+				TxHash:       "0x99998888",
+			})
 		default:
 			http.NotFound(w, r)
 		}
@@ -534,6 +542,34 @@ func TestP03AsyncSettlementSubmittedStaysSubmittedUntilReconciledAndRevertMarksF
 	// Ensure reconciliation never re-called POST /v1/settle (no blind retry)
 	if settleCalls != 1 {
 		t.Fatalf("expected exactly 1 POST /v1/settle call (no blind retry), got %d", settleCalls)
+	}
+
+	// 4. Test Reconcile fallback to nonce lookup after gateway restart (memory map lost)
+	nonceRestart := "0xcccc1111222233334444555566667777888899990000aaaabbbbccccddddeeee"
+	intentRestart := "pi_ch_p03_restart"
+	stlRestartID := "stl_req_p03_restart"
+	fulRestartID := "ful_req_p03_restart"
+	sc.initIntent("ten_p03", defaultProjectID, "", intentRestart, "idem_p03_restart", "onchain", payment.IntentStatusAuthorized)
+	sc.initSettlement(stlRestartID, intentRestart, "onchain", payment.SettlementStatusSubmitted, auth.Payer, route.PayeeAddress, nonceRestart, "")
+	sc.initFulfillment(fulRestartID, intentRestart)
+	sc.updateCorrelationOutcomeWithMode(intentRestart, stlRestartID, fulRestartID, http.StatusOK, false)
+
+	// Ensure no memory map for stlRestartID
+	processor.facilitatorStlMu.Lock()
+	delete(processor.facilitatorStlIDs, stlRestartID)
+	processor.facilitatorStlMu.Unlock()
+
+	// Reconcile should invoke /v1/settle/lookup via nonce, retrieve fac_stl_restart, and mark confirmed
+	reconciled3, err := processor.ReconcileSettlements(sc.r.Context())
+	if err != nil || reconciled3 != 1 {
+		t.Fatalf("expected 1 reconciled settlement via nonce fallback, got %d (err=%v)", reconciled3, err)
+	}
+	stlRestart, _ := processor.GetPaymentService().GetSettlement(sc.r.Context(), stlRestartID)
+	if stlRestart.Status != payment.SettlementStatusConfirmed {
+		t.Fatalf("expected restarted settlement status 'confirmed' after nonce reconciliation, got %q", stlRestart.Status)
+	}
+	if stlRestart.FacilitatorSettlementID != "fac_stl_restart" {
+		t.Fatalf("expected FacilitatorSettlementID to be persisted as 'fac_stl_restart', got %q", stlRestart.FacilitatorSettlementID)
 	}
 }
 

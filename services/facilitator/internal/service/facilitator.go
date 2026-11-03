@@ -54,10 +54,11 @@ type FacilitatorService struct {
 	allowedPayees      map[string]bool
 	minGasBalanceWei   *big.Int
 
-	nonceStore         *MemoryNonceStore
-	verificationTokens map[string]*VerificationRecord
-	settlements        map[string]*models.SettlementStatus
-	idempotencyCache   map[string]*models.SettleResponse
+	nonceStore          *MemoryNonceStore
+	verificationTokens  map[string]*VerificationRecord
+	settlements         map[string]*models.SettlementStatus
+	settlementsByNonce  map[string]string
+	idempotencyCache    map[string]*models.SettleResponse
 }
 
 // Options configure the FacilitatorService.
@@ -130,6 +131,7 @@ func NewFacilitatorService(opts Options) (*FacilitatorService, error) {
 		nonceStore:         NewMemoryNonceStore(),
 		verificationTokens: make(map[string]*VerificationRecord),
 		settlements:        make(map[string]*models.SettlementStatus),
+		settlementsByNonce: make(map[string]string),
 		idempotencyCache:   make(map[string]*models.SettleResponse),
 	}, nil
 }
@@ -459,6 +461,9 @@ func (s *FacilitatorService) Settle(ctx context.Context, req *models.SettleReque
 		UpdatedAt:    now,
 	}
 
+	nonceKey := makeNonceKey(ch.Network, ch.Asset, auth.Payer, auth.Nonce)
+	s.settlementsByNonce[nonceKey] = settlementID
+
 	if req.IdempotencyKey != "" {
 		idemKey := fmt.Sprintf("%s:%s", strings.ToLower(auth.Payer), req.IdempotencyKey)
 		s.idempotencyCache[idemKey] = resp
@@ -508,6 +513,23 @@ func (s *FacilitatorService) GetSettlement(settlementID string) (*models.Settlem
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	res, exists := s.settlements[settlementID]
+	if !exists {
+		return nil, ErrSettlementNotFound
+	}
+	return res, nil
+}
+
+// GetSettlementByNonce implements lookup by payment nonce (P0-3).
+func (s *FacilitatorService) GetSettlementByNonce(network, asset, payer, nonce string) (*models.SettlementStatus, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	nonceKey := makeNonceKey(network, asset, payer, nonce)
+	settlementID, exists := s.settlementsByNonce[nonceKey]
+	if !exists {
+		return nil, ErrSettlementNotFound
+	}
 	res, exists := s.settlements[settlementID]
 	if !exists {
 		return nil, ErrSettlementNotFound

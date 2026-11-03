@@ -249,6 +249,8 @@ docker compose ps
 | `POSTGRES_PORT` | `5432` (`127.0.0.1:5432` in prod) | `postgres` | Host port mapping for PostgreSQL |
 | `GATEWAY_PORT` | `8000` | `gateway` | Host port mapping for the Go Gateway |
 | `AGENTPAY_JWT_SECRET` | Example secret | `gateway` | JWT signing key for console auth & Admin API; **gateway refuses to start if empty** |
+| `AGENTPAY_UPSTREAM_MASTER_KEY` | Random hex | `gateway` | AES-256 master key (minimum 32 bytes or 64 hex characters) to encrypt upstream credentials (P0-2) |
+| `AGENTPAY_FACILITATOR_API_KEY` | Empty | `gateway` | API key used by Gateway to authenticate to Facilitator endpoints |
 | `LOG_LEVEL` | `info` | `gateway` / `facilitator` | Log level: `debug`, `info`, `warn`, `error` |
 | `CONSOLE_PORT` | `3000` | `console` | Host port mapping for the Web Console |
 | `MARKETPLACE_PORT` | `3001` | `marketplace` | Host port mapping for the Marketplace portal |
@@ -256,6 +258,8 @@ docker compose ps
 | `NEXT_PUBLIC_CONSOLE_URL` | `http://localhost:3000` | `marketplace` | Public console URL linked from Marketplace pages |
 | `NEXT_PUBLIC_SITE_URL` | `http://localhost:3001` | `marketplace` | Canonical site URL used for SEO metadata and `/llms.txt` |
 | `FACILITATOR_PORT` | `8001` | `facilitator` | Host port mapping for the Facilitator service |
+| `FACILITATOR_API_KEY` | Empty | `facilitator` | Shared API key required by Facilitator to accept `/v1/verify` and `/v1/settle` calls (P0-5) |
+| `FACILITATOR_ALLOWED_PAYEES` | Empty | `facilitator` | Comma-separated whitelist of allowed seller payee EVM addresses |
 | `RPC_URL` | `https://sepolia-rollup.arbitrum.io/rpc` | `facilitator` | EVM JSON-RPC endpoint URL |
 | `CHAIN_ID` | `421614` | `facilitator` | Target EVM Chain ID (`421614` for Arbitrum Sepolia, `84532` for Base Sepolia) |
 | `USDC_ADDRESS` | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` | `facilitator` | Circle USDC token contract address on the target chain |
@@ -271,7 +275,9 @@ On startup, `agentpay-gateway` loads `-config /etc/agentpay/gateway.yaml` and th
 | `AGENTPAY_PORT` | `server.port` | Listener port (`8000` inside container) |
 | `AGENTPAY_POSTGRES_URL` | `database.postgres_url` | PostgreSQL connection string; if unreachable at boot, the gateway logs a warning and falls back to in-memory mode |
 | `AGENTPAY_FACILITATOR_URL` | `facilitator.url` | Facilitator base URL (set to `http://facilitator:8001` inside Compose) |
+| `AGENTPAY_FACILITATOR_API_KEY` | `facilitator.api_key` | Facilitator Bearer API Key |
 | `AGENTPAY_JWT_SECRET` | `auth.jwt_secret` | Control plane JWT signing secret |
+| `AGENTPAY_UPSTREAM_MASTER_KEY` | `auth.upstream_master_key` | Master key for AES-256 GCM upstream credential encryption |
 | `AGENTPAY_LOG_LEVEL` | `logger.level` | `debug`, `info`, `warn`, or `error` |
 | `AGENTPAY_LOG_FORMAT` | `logger.format` | `json` (recommended for log aggregation) or `text` |
 
@@ -290,6 +296,7 @@ server:
 auth:
   jwt_secret: "replace-via-AGENTPAY_JWT_SECRET-env-var-in-production"
   token_duration_hours: 24
+  upstream_master_key: "replace-via-AGENTPAY_UPSTREAM_MASTER_KEY-env-var"
 
 database:
   postgres_url: "postgres://agentpay:password@postgres:5432/agentpay?sslmode=disable"
@@ -299,6 +306,7 @@ database:
 
 facilitator:
   url: "http://facilitator:8001"
+  api_key: "replace-via-AGENTPAY_FACILITATOR_API_KEY-env-var"
   timeout_seconds: 5.0
 
 settlement:

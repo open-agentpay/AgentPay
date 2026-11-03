@@ -128,8 +128,21 @@ func TestUpstreamAuthEndpointsAndLifecycle(t *testing.T) {
 	}
 
 	// 4. Test POST /api/v1/tenants/:id/routes/test-upstream
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"authenticated": true})
+	}))
+	defer mockUpstream.Close()
+
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("https_proxy", "")
+	t.Setenv("AGENTPAY_ALLOW_PRIVATE_UPSTREAM", "true")
+
 	testPayload := map[string]any{
-		"upstream_url": "https://httpbin.org/get",
+		"upstream_url": mockUpstream.URL + "/get",
 		"method":       "GET",
 		"upstream_auth": map[string]any{
 			"type": "bearer",
@@ -170,6 +183,7 @@ func TestUpstreamAuthEndpointsAndLifecycle(t *testing.T) {
 	}
 
 	// 5. Test SSRF rejection on test-upstream (e.g. cloud metadata 169.254.169.254 & loopback 127.0.0.1)
+	t.Setenv("AGENTPAY_ALLOW_PRIVATE_UPSTREAM", "false")
 	for _, ssrfURL := range []string{"http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8080/internal"} {
 		ssrfPayload, _ := json.Marshal(map[string]any{
 			"upstream_url": ssrfURL,

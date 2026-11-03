@@ -342,6 +342,7 @@ CREATE TABLE IF NOT EXISTS ap_settlement_record (
         'not_started', 'held', 'submitted', 'pending', 'confirmed', 'released', 'failed', 'unknown'
     )),
     error_message TEXT NULL,
+    facilitator_settlement_id VARCHAR(128) NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_nonce_replay_guard UNIQUE (network_id, asset_address, payer_address, nonce)

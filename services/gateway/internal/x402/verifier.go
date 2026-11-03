@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,6 +249,42 @@ func (fv *FacilitatorVerifier) GetSettlementStatus(ctx context.Context, settleme
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("facilitator status returned HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var status FacilitatorSettlementStatus
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return nil, fmt.Errorf("failed to decode facilitator settlement status: %w", err)
+	}
+	return &status, nil
+}
+
+// GetSettlementStatusByNonce queries Facilitator GET /v1/settle/lookup to reconcile status via payment nonce (P0-3).
+func (fv *FacilitatorVerifier) GetSettlementStatusByNonce(ctx context.Context, network, asset, payer, nonce string) (*FacilitatorSettlementStatus, error) {
+	if fv == nil || fv.facilitatorURL == "" {
+		return nil, fmt.Errorf("facilitator url not configured")
+	}
+	endpoint := fmt.Sprintf("%s/v1/settle/lookup?network=%s&asset=%s&payer=%s&nonce=%s",
+		fv.facilitatorURL,
+		url.QueryEscape(network),
+		url.QueryEscape(asset),
+		url.QueryEscape(payer),
+		url.QueryEscape(nonce),
+	)
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create facilitator status lookup request: %w", err)
+	}
+	fv.applyAuthHeaders(req)
+
+	resp, err := fv.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("facilitator status lookup query failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("facilitator status lookup returned HTTP %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var status FacilitatorSettlementStatus

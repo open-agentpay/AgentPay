@@ -105,8 +105,11 @@ type SettlementRecord struct {
 	BlockNumber     *int64    `json:"block_number,omitempty"`
 	Status          string    `json:"status"` // not_started, held, submitted, pending, confirmed, released, failed, unknown
 	ErrorMessage    string    `json:"error_message,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	// FacilitatorSettlementID is the Facilitator-side settlement identifier returned by
+	// POST /v1/settle. It must be persisted so reconciliation survives gateway restarts.
+	FacilitatorSettlementID string    `json:"facilitator_settlement_id,omitempty"`
+	CreatedAt               time.Time `json:"created_at"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 // FulfillmentRecord tracks the upstream API delivery status (T1.1 §4.3).

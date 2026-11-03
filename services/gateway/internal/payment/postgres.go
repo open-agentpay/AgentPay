@@ -28,6 +28,7 @@ func NewPostgresService(db *sql.DB) *PostgresService {
 		_, _ = db.Exec("ALTER TABLE ap_wallet_challenge ALTER COLUMN idempotency_key DROP NOT NULL;")
 		// Auto-migrate settlement_id column width to VARCHAR(128)
 		_, _ = db.Exec("ALTER TABLE ap_settlement_record ALTER COLUMN settlement_id TYPE VARCHAR(128);")
+		_, _ = db.Exec("ALTER TABLE ap_settlement_record ADD COLUMN IF NOT EXISTS facilitator_settlement_id VARCHAR(128);")
 		_, _ = db.Exec("ALTER TABLE ap_agent_audit_event ALTER COLUMN settlement_id TYPE VARCHAR(128);")
 	}
 	return &PostgresService{db: db}
@@ -213,18 +214,19 @@ func (p *PostgresService) RecordSettlement(ctx context.Context, s *SettlementRec
 			settlement_id, intent_id, network_id, asset_address,
 			payer_address, payee_address, amount_base_units, nonce,
 			tx_hash, block_number, status, error_message,
-			created_at, updated_at
+			facilitator_settlement_id, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8,
 			NULLIF($9, ''), $10, $11, NULLIF($12, ''),
-			$13, $14
+			NULLIF($13, ''), $14, $15
 		)
 		ON CONFLICT (settlement_id) DO UPDATE SET
 			status = EXCLUDED.status,
 			tx_hash = COALESCE(EXCLUDED.tx_hash, ap_settlement_record.tx_hash),
 			block_number = COALESCE(EXCLUDED.block_number, ap_settlement_record.block_number),
 			error_message = COALESCE(EXCLUDED.error_message, ap_settlement_record.error_message),
+			facilitator_settlement_id = COALESCE(EXCLUDED.facilitator_settlement_id, ap_settlement_record.facilitator_settlement_id),
 			updated_at = EXCLUDED.updated_at
 	`
 	now := time.Now()
@@ -246,6 +248,7 @@ func (p *PostgresService) RecordSettlement(ctx context.Context, s *SettlementRec
 		s.BlockNumber,
 		s.Status,
 		s.ErrorMessage,
+		s.FacilitatorSettlementID,
 		s.CreatedAt,
 		s.UpdatedAt,
 	)
@@ -258,7 +261,7 @@ func (p *PostgresService) GetSettlement(ctx context.Context, settlementID string
 			settlement_id, intent_id, network_id, asset_address,
 			payer_address, payee_address, amount_base_units, nonce,
 			COALESCE(tx_hash, ''), block_number, status, COALESCE(error_message, ''),
-			created_at, updated_at
+			COALESCE(facilitator_settlement_id, ''), created_at, updated_at
 		FROM ap_settlement_record
 		WHERE settlement_id = $1
 	`
@@ -268,7 +271,7 @@ func (p *PostgresService) GetSettlement(ctx context.Context, settlementID string
 		&s.SettlementID, &s.IntentID, &s.NetworkID, &s.AssetAddress,
 		&s.PayerAddress, &s.PayeeAddress, &s.AmountBaseUnits, &s.Nonce,
 		&s.TxHash, &s.BlockNumber, &s.Status, &s.ErrorMessage,
-		&s.CreatedAt, &s.UpdatedAt,
+		&s.FacilitatorSettlementID, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -285,7 +288,7 @@ func (p *PostgresService) GetSettlementByIntent(ctx context.Context, intentID st
 			settlement_id, intent_id, network_id, asset_address,
 			payer_address, payee_address, amount_base_units, nonce,
 			COALESCE(tx_hash, ''), block_number, status, COALESCE(error_message, ''),
-			created_at, updated_at
+			COALESCE(facilitator_settlement_id, ''), created_at, updated_at
 		FROM ap_settlement_record
 		WHERE intent_id = $1
 	`
@@ -295,7 +298,7 @@ func (p *PostgresService) GetSettlementByIntent(ctx context.Context, intentID st
 		&s.SettlementID, &s.IntentID, &s.NetworkID, &s.AssetAddress,
 		&s.PayerAddress, &s.PayeeAddress, &s.AmountBaseUnits, &s.Nonce,
 		&s.TxHash, &s.BlockNumber, &s.Status, &s.ErrorMessage,
-		&s.CreatedAt, &s.UpdatedAt,
+		&s.FacilitatorSettlementID, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -327,13 +330,32 @@ func (p *PostgresService) UpdateSettlementStatus(ctx context.Context, settlement
 	return nil
 }
 
+func (p *PostgresService) UpdateSettlementFacilitatorID(ctx context.Context, settlementID string, facilitatorSettlementID string) error {
+	query := `
+		UPDATE ap_settlement_record
+		SET facilitator_settlement_id = NULLIF($1, ''),
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE settlement_id = $2
+	`
+	res, err := p.db.ExecContext(ctx, query, facilitatorSettlementID, settlementID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return ErrSettlementNotFound
+	}
+	return nil
+}
+
 func (p *PostgresService) ListNonTerminalSettlements(ctx context.Context) ([]*SettlementRecord, error) {
 	query := `
 		SELECT
 			s.settlement_id, s.intent_id, COALESCE(i.payment_method, 'onchain'),
 			s.network_id, s.asset_address, s.payer_address, s.payee_address,
 			s.amount_base_units, s.nonce, COALESCE(s.tx_hash, ''), s.block_number,
-			s.status, COALESCE(s.error_message, ''), s.created_at, s.updated_at
+			s.status, COALESCE(s.error_message, ''), COALESCE(s.facilitator_settlement_id, ''),
+			s.created_at, s.updated_at
 		FROM ap_settlement_record s
 		LEFT JOIN ap_payment_intent i ON i.intent_id = s.intent_id
 		WHERE COALESCE(i.payment_method, 'onchain') = 'onchain'
@@ -353,7 +375,8 @@ func (p *PostgresService) ListNonTerminalSettlements(ctx context.Context) ([]*Se
 			&s.SettlementID, &s.IntentID, &s.PaymentMethod,
 			&s.NetworkID, &s.AssetAddress, &s.PayerAddress, &s.PayeeAddress,
 			&s.AmountBaseUnits, &s.Nonce, &s.TxHash, &s.BlockNumber,
-			&s.Status, &s.ErrorMessage, &s.CreatedAt, &s.UpdatedAt,
+			&s.Status, &s.ErrorMessage, &s.FacilitatorSettlementID,
+			&s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -127,9 +127,13 @@
   },
   "coordination": {
     "supported_paths": {
-      "onchain": {
+      "onchain_sync": {
         "flow": "authorized -> settlement:confirmed -> fulfillment:dispatch -> succeeded",
         "dispatch_condition": "settlement == 'confirmed'"
+      },
+      "onchain_async": {
+        "flow": "authorized -> signature verified & nonce persisted -> fulfillment:dispatch -> settlement:submitted -> async reconciliation",
+        "dispatch_condition": "signature_valid && nonce_persisted"
       },
       "wallet": {
         "flow": "authorized -> settlement:held -> fulfillment:dispatch -> (succeeded ? capture : release)",
@@ -139,7 +143,7 @@
     "invariants": [
       {
         "id": "INV_1_DISPATCH_GUARD",
-        "description": "Fulfillment dispatch is forbidden unless (path==onchain AND settlement==confirmed) OR (path==wallet AND settlement==held)"
+        "description": "Fulfillment dispatch is forbidden unless (path==onchain_sync AND settlement==confirmed) OR (path==onchain_async AND signature_valid AND nonce_persisted) OR (path==wallet AND settlement==held)"
       },
       {
         "id": "INV_2_UNKNOWN_SUBMIT_GUARD",

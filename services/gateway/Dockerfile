@@ -44,6 +44,7 @@ COPY --from=builder /build/bin/gateway /app/gateway
 
 # Create default config directory
 RUN mkdir -p /etc/agentpay && chown -R agentpay:agentpay /app /etc/agentpay
+COPY --from=builder /build/configs/gateway.example.yaml /etc/agentpay/gateway.yaml
 
 USER agentpay
 

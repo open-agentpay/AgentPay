@@ -32,6 +32,7 @@ func New(cfg *config.Config, svc *service.FacilitatorService) *Server {
 	// Facilitator core API (protected by authentication middleware)
 	mux.HandleFunc("/v1/verify", authMiddleware(cfg, handleVerify(svc)))
 	mux.HandleFunc("/v1/settle", authMiddleware(cfg, handleSettle(svc)))
+	mux.HandleFunc("/v1/settle/lookup", authMiddleware(cfg, handleSettlementLookup(svc)))
 	mux.HandleFunc("/v1/settle/", authMiddleware(cfg, handleGetSettlement(svc)))
 	mux.HandleFunc("/v1/nonce", authMiddleware(cfg, handleNonceCheck(svc)))
 	mux.HandleFunc("/v1/nonces", authMiddleware(cfg, handleNonceCheck(svc)))

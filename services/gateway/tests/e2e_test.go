@@ -242,7 +242,8 @@ func TestConfigVersionTraceabilityAndPolicyEnforcementE2E(t *testing.T) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret: "test-jwt-secret-key-32-bytes-long!!",
+			JWTSecret:         "test-jwt-secret-key-32-bytes-long!!",
+			UpstreamMasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		},
 		Metrics: config.MetricsConfig{
 			HealthPath: "/healthz",

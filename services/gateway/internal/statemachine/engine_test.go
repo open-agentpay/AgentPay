@@ -108,6 +108,22 @@ func TestStateMachineSpecIntegrityAndConformance(t *testing.T) {
 			t.Errorf("onchain dispatch must succeed when settlement is confirmed")
 		}
 
+		// onchain_sync requires settlement == confirmed
+		if engine.CanDispatchFulfillment("submitted", "onchain_sync") {
+			t.Errorf("onchain_sync dispatch must be blocked when settlement is submitted")
+		}
+		if !engine.CanDispatchFulfillment("confirmed", "onchain_sync") {
+			t.Errorf("onchain_sync dispatch must succeed when settlement is confirmed")
+		}
+
+		// onchain_async allows dispatch with submitted (signature verified & nonce persisted)
+		if !engine.CanDispatchFulfillment("submitted", "onchain_async") {
+			t.Errorf("onchain_async dispatch should be allowed when settlement is submitted")
+		}
+		if !engine.CanDispatchFulfillment("confirmed", "onchain_async") {
+			t.Errorf("onchain_async dispatch should be allowed when settlement is confirmed")
+		}
+
 		// Wallet path requires settlement == held
 		if engine.CanDispatchFulfillment("not_started", "wallet") {
 			t.Errorf("wallet dispatch must be blocked when settlement is not_started")

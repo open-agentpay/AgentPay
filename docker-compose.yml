@@ -39,12 +39,14 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./services/gateway/configs/gateway.yaml:/etc/agentpay/gateway.yaml:ro
+      - ./services/gateway/configs/gateway.example.yaml:/etc/agentpay/gateway.yaml:ro
     environment:
       AGENTPAY_HOST: "0.0.0.0"
       AGENTPAY_PORT: 8000
       AGENTPAY_POSTGRES_URL: "postgres://${POSTGRES_USER:-agentpay}:${POSTGRES_PASSWORD:-agentpay_strong_password_change_in_prod}@postgres:5432/${POSTGRES_DB:-agentpay}?sslmode=disable"
       AGENTPAY_JWT_SECRET: ${AGENTPAY_JWT_SECRET:-agentpay-super-secret-production-jwt-key-32chars!}
+      AGENTPAY_UPSTREAM_MASTER_KEY: ${AGENTPAY_UPSTREAM_MASTER_KEY:-}
+      AGENTPAY_FACILITATOR_API_KEY: ${AGENTPAY_FACILITATOR_API_KEY:-}
       AGENTPAY_LOG_LEVEL: ${LOG_LEVEL:-info}
       AGENTPAY_LOG_FORMAT: "json"
     ports:
@@ -147,6 +149,8 @@ services:
       CHAIN_ID: ${CHAIN_ID:-421614}
       USDC_ADDRESS: ${USDC_ADDRESS:-0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d}
       FACILITATOR_PRIVATE_KEY: ${FACILITATOR_PRIVATE_KEY:-}
+      FACILITATOR_API_KEY: ${FACILITATOR_API_KEY:-}
+      FACILITATOR_ALLOWED_PAYEES: ${FACILITATOR_ALLOWED_PAYEES:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "${FACILITATOR_PORT:-8001}:8001"
