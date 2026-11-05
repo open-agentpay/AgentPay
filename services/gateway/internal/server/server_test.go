@@ -254,6 +254,7 @@ func TestServerHealthReadyAndVersionEndpoints(t *testing.T) {
 }
 
 func TestServerRejectsEmptyJWTSecret(t *testing.T) {
+	t.Setenv("AGENTPAY_JWT_SECRET", "")
 	cfg := config.DefaultConfig()
 	cfg.Auth.JWTSecret = ""
 	cfg.Auth.UpstreamMasterKey = "0123456789abcdef0123456789abcdef"
