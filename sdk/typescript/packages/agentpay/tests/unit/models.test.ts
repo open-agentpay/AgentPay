@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { VERSION } from '../../src/index.js';
 import {
   PaymentAuthorization,
   PaymentChallenge,
@@ -254,5 +255,9 @@ describe('SignatureData Model', () => {
     } catch (err) {
       expect((err as X402ValidationError).code).toBe(X402ErrorCode.INVALID_SIGNATURE);
     }
+  });
+
+  it('exports expected VERSION matching package.json', () => {
+    expect(VERSION).toBe('0.2.8');
   });
 });

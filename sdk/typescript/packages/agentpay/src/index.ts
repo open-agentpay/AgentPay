@@ -3,7 +3,7 @@
  * The Open-Source Payment Infrastructure & Financial Firewall for Autonomous AI Agents.
  */
 
-export const VERSION = '0.2.5';
+export const VERSION = '0.2.8';
 
 export * from './core/index.js';
 export * from './evm/index.js';
