@@ -13,11 +13,13 @@
 
 <p align="center">
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI"></a>
+  <a href="https://www.npmjs.com/package/open-agentpay"><img src="https://img.shields.io/npm/v/open-agentpay.svg" alt="npm"></a>
   <a href="https://openagentpay.dev/zh/"><img src="https://img.shields.io/badge/文档站-在线阅读-blue?logo=vitepress&logoColor=white" alt="文档站"></a>
   <a href="./specs/zh/cn-enterprise-firewall-and-finops-strategy.md"><img src="https://img.shields.io/badge/定位-AI_FinOps_网关-red.svg" alt="AI FinOps 网关"></a>
   <a href="https://github.com/langfuse/langfuse"><img src="https://img.shields.io/badge/可观测性-Langfuse_集成规划中-blueviolet" alt="Langfuse 集成规划中"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.0%2B-3178C6.svg?logo=typescript&logoColor=white" alt="TypeScript 5.0+"></a>
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.22%2B-00ADD8.svg?logo=go&logoColor=white" alt="Go 1.22+"></a>
 </p>
 
@@ -105,24 +107,24 @@ Total Funds Saved by AgentPay: ¥2.54 CNY (拦截并保护了 96.6% 的资金)
 ### 1. 环境准备与安装
 
 ```bash
-# 方式 A：通过 PyPI 一键安装买方 SDK 与网关
+# Python SDK 与网关
 pip install open-agentpay agentpay-gateway
 
-# 方式 B：从源码克隆
-git clone https://github.com/open-agentpay/AgentPay.git
-cd AgentPay
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e sdk/python/packages/agentpay -e sdk/python/packages/agentpay-gateway
+# TypeScript / Node.js SDK
+npm install open-agentpay
+# 或: pnpm add open-agentpay / yarn add open-agentpay
 ```
 
-### 2. 买方：5 行代码武装任何智能体（Dify / LangChain / 原生 Python）
+### 2. 买方：5 行代码武装任何智能体
+
+#### Python (Dify / LangChain / 原生 Python)
 
 ```python
 import os
 from agentpay import AgentPayClient, LocalSigner
 from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
-# 1. 初始化本地签名器与贴身金融防火墙策略（仅使用已实现的 PolicyConfig 字段）
+# 1. 初始化本地签名器与贴身金融防火墙策略
 private_key = os.getenv(
     "AGENT_PRIVATE_KEY",
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",  # 仅限本地测试网
@@ -150,7 +152,35 @@ response = client.get("https://gateway.internal.net/v1/business-data?company=tes
 print(response.json())
 ```
 
-> **企业预付钱包模式（Go Gateway 虚拟账本）**：若使用网关预充值虚拟钱包（`Authorization: Bearer apk_live_...`），可通过 TypeScript SDK（`@open-agentpay/sdk`）或网关两阶段 `agentpay-wallet` 挑战授权直接扣减预付账本余额，无需链上 Gas。
+#### TypeScript / Node.js (LangChain.js / Vercel AI / 原生 fetch)
+
+```typescript
+import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+const signer = new LocalSigner(process.env.AGENT_WALLET_KEY!);
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'agent_firewall',
+    name: '企业智能体金融防火墙',
+    walletAddress: signer.address,
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: 2_500_000n,         // 单笔最高预算 2.50 USDC
+    rollingBudget24hBaseUnits: 5_000_000n, // 24小时滚动上限 5.00 USDC
+  })
+);
+
+const client = new AgentPayClient({ signer, policy });
+
+// 发送付费 API 请求，自动执行 402 握手与本地防火墙核验
+const response = await client.get('https://gate.openagentpay.dev/v1/free/defi/dex-volume', {
+  params: { chain: 'ethereum' },
+});
+console.log('HTTP Status:', response.status);
+console.log('Result:', await response.json());
+```
+
+> **企业预付钱包模式（Go Gateway 虚拟账本）**：若使用网关预充值虚拟钱包（`Authorization: Bearer apk_live_...`），可通过 TypeScript SDK（`open-agentpay`）或网关两阶段 `agentpay-wallet` 挑战授权直接扣减预付账本余额，无需链上 Gas。
 
 ### 3. 卖方/企业统一网关：1 分钟将内部工具或高价值 API 上架
 

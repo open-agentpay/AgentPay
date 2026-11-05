@@ -12,12 +12,14 @@
 
 <p align="center">
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI"></a>
+  <a href="https://www.npmjs.com/package/open-agentpay"><img src="https://img.shields.io/npm/v/open-agentpay.svg" alt="npm"></a>
   <a href="https://openagentpay.dev/"><img src="https://img.shields.io/badge/Docs-Live-blue?logo=vitepress&logoColor=white" alt="Documentation"></a>
   <a href="https://x.com/OpenAgentPay"><img src="https://img.shields.io/badge/Follow-%40OpenAgentPay-black?logo=x&logoColor=white" alt="Follow @OpenAgentPay"></a>
   <a href="https://discord.gg/2SYyfx4UuQ"><img src="https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/open-agentpay/AgentPay"><img src="https://img.shields.io/badge/Protocol-x402_V2-orange.svg" alt="x402 V2"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.0%2B-3178C6.svg?logo=typescript&logoColor=white" alt="TypeScript 5.0+"></a>
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.21%2B-00ADD8.svg?logo=go&logoColor=white" alt="Go 1.21+"></a>
   <a href="https://arbitrum.io/"><img src="https://img.shields.io/badge/Network-Arbitrum_Sepolia-213147.svg?logo=arbitrum&logoColor=white" alt="Arbitrum Sepolia"></a>
   <a href="https://www.circle.com/usdc"><img src="https://img.shields.io/badge/Settlement-Circle_USDC-2775CA.svg" alt="Circle USDC"></a>
@@ -112,14 +114,12 @@ Total Funds Saved by AgentPay: $2.54 USDC (96.6% saved)
 ### 1. Installation
 
 ```bash
-# Option A: Install from PyPI
+# Python SDK & Gateway
 pip install open-agentpay agentpay-gateway
 
-# Option B: Clone and install locally for development
-git clone https://github.com/open-agentpay/AgentPay.git
-cd AgentPay
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e sdk/python/packages/agentpay -e sdk/python/packages/agentpay-gateway
+# TypeScript / Node.js SDK
+npm install open-agentpay
+# or: pnpm add open-agentpay / yarn add open-agentpay
 ```
 
 ### 2. Run Built-in Demos
@@ -135,7 +135,9 @@ export BUYER_PRIVATE_KEY="0x..."       # Funded with Sepolia Circle USDC
 make demo-live
 ```
 
-### 3. Protect Any LangChain Agent Tool in 5 Lines of Code (Buyer)
+### 3. Protect Any Agent in 5 Lines of Code (Buyer)
+
+#### Python (LangChain / httpx)
 
 ```python
 import os
@@ -144,8 +146,6 @@ from agentpay.integrations.langchain import paid_tool
 from agentpay.policy import PolicyConfig, SQLitePolicyEngine
 
 # 1. Setup buyer signer and local financial firewall policy
-# ⚠️ TESTNET DEVELOPMENT ONLY: This key is Hardhat's publicly known default test key.
-# NEVER send real mainnet funds to this address! In production, inject via environment variable:
 private_key = os.getenv("AGENT_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 signer = LocalSigner(private_key)
 policy = SQLitePolicyEngine.create_in_memory(
@@ -153,9 +153,9 @@ policy = SQLitePolicyEngine.create_in_memory(
         id="agent_firewall",
         name="Agent Firewall",
         wallet_address=signer.address,
-        max_per_tx_base_units=100_000,       # Max $0.10 per call
+        max_per_tx_base_units=100_000,           # Max $0.10 per call
         rolling_budget_24h_base_units=1_000_000, # Daily cap $1.00
-        circuit_max_rpm=5,                   # Trip breaker if > 5 calls/min
+        circuit_max_rpm=5,                       # Trip breaker if > 5 calls/min
     )
 )
 
@@ -173,6 +173,34 @@ result = fetch_stock_quote.invoke({"ticker": "NVDA"})
 print(result)
 ```
 
+#### TypeScript / Node.js (LangChain.js / Vercel AI / fetch)
+
+```typescript
+import { AgentPayClient, LocalSigner } from 'open-agentpay';
+import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+
+const signer = new LocalSigner(process.env.AGENT_WALLET_KEY!);
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'agent_firewall',
+    name: 'Agent Production Firewall',
+    walletAddress: signer.address,
+    whitelistMode: WhitelistMode.SIMPLE,
+    maxPerTxBaseUnits: 2_500_000n,          // Max $2.50 USDC per transaction
+    rollingBudget24hBaseUnits: 5_000_000n,  // Max $5.00 USDC per 24 hours
+  })
+);
+
+const client = new AgentPayClient({ signer, policy });
+
+// Transparent 402 payment handling with financial firewall protection
+const response = await client.get('https://gate.openagentpay.dev/v1/free/defi/dex-volume', {
+  params: { chain: 'ethereum' },
+});
+console.log('HTTP Status:', response.status);
+console.log('Result:', await response.json());
+```
+
 ### 4. Monetize Any API in 1 Minute (Seller)
 
 Create `gateway.yaml`:
@@ -182,7 +210,7 @@ server:
   host: "0.0.0.0"
   port: 8000
 facilitator:
-  # Demo URL (not yet live). For local development, use a local mock facilitator (e.g. http://localhost:8080/facilitator)
+  # Public Arbitrum Sepolia testnet Facilitator node
   url: "https://facilitator.openagentpay.dev"
 
 routes:
@@ -368,7 +396,7 @@ AgentPay/
 | **Python Reference Gateway (`agentpay-gateway`)** | 🟢 Complete | Baseline | Lightweight reference reverse proxy, challenge manager |
 | **Arbitrum Sepolia EIP-3009 Settlement** | 🟢 Complete | Baseline | Circle USDC, EIP-1559 Facilitator, 1.5x BaseFee buffer |
 | **Runaway Agent Circuit Breaker Demo** | 🟢 Complete | Baseline | `make demo` (simulation) & `make demo-live` (testnet) |
-| **TypeScript Buyer / Seller SDK (`@open-agentpay/sdk`)** | 🟢 Complete | Baseline | Dual-rail buyer client, policy engine, Express/Fastify/Next.js seller middleware, MCP wrapper |
+| **TypeScript Buyer / Seller SDK (`open-agentpay`)** | 🟢 Complete | Baseline | Dual-rail buyer client, policy engine, Express/Fastify/Next.js seller middleware, MCP wrapper |
 | **Marketplace Web (`apps/marketplace-web`)** | 🟢 Complete | Baseline | Next.js 15 route discovery portal & interactive sandbox |
 | **Enterprise HITL & Fiat Top-Up** | 🟡 In Progress | P0 Mainline | Feishu/WeCom approval cards, multi-tier quotas, fiat top-up |
 | **Native MCP & Langfuse Integration** | 🟡 In Progress | P0 Mainline | Model Context Protocol middleware & Langfuse co-observability |

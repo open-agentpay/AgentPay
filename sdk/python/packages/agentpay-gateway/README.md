@@ -54,7 +54,7 @@ server:
   db_path: "./data/gateway.db"
 
 facilitator:
-  # Demo URL (not yet live). For local development, use a local mock facilitator (e.g. http://localhost:8080/facilitator)
+  # Public Arbitrum Sepolia testnet Facilitator node
   url: "https://facilitator.openagentpay.dev"
 
 settlement:
@@ -68,7 +68,7 @@ routes:
     price: "0.001 USDC"
 ```
 
-> 💡 **Facilitator URL Note**: `https://facilitator.openagentpay.dev` is the planned public testnet demo service (not yet live). For local development, point `facilitator.url` to your local mock service (such as `http://localhost:8080/facilitator`) or use AgentPay's built-in `MockFacilitatorService`.
+> 💡 **Facilitator URL Note**: `https://facilitator.openagentpay.dev` is the live public testnet Facilitator service on Arbitrum Sepolia. For local/offline testing, you can point `facilitator.url` to a local mock service or use AgentPay's built-in `MockFacilitatorService`.
 
 ### 3. Running the Gateway
 
