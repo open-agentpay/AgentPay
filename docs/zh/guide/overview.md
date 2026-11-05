@@ -191,9 +191,9 @@ AgentPay 明确声明**不做**什么：
 - PostgreSQL 15+ 数据模型，Python / Go / TypeScript 跨语言一致性测试向量
 - Arbitrum Sepolia 测试网结算，以及一条命令复现的**失控循环 Demo**
 
-**进行中 / 主线路线图**
+**进行中 / 核心演进方向**
 
-完整技术架构演进与任务矩阵详见 [**核心任务全景规划与路线图**](/specs/zh/roadmap.md)：
+企业级 AI 行为审计、资金防火墙与开放微支付重点演进任务：
 
 - **企业协同 HITL 与法币充值闭环（P0 主线）**：飞书 / 企微 / 钉钉 402 审批卡片直连、多层树状配额管控、微信/支付宝/对公汇款合规充值
 - **原生 MCP 支持与 Langfuse 双子星联动（P0 主线）**：Model Context Protocol 官方支付中间件、Langfuse Trace 联合追踪面板

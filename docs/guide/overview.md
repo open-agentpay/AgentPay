@@ -187,9 +187,9 @@ Read the full [Threat Model](/specs/) for what is and isn't defended.
 - PostgreSQL 15+ schema, Python / Go / TypeScript cross-language conformance vectors
 - Arbitrum Sepolia testnet settlement and a one-command **runaway-loop demo**
 
-**In progress / Master Roadmap**
+**In progress / Key Focus Areas**
 
-See [**Master Roadmap & Architecture Evolution**](/specs/roadmap.md) for the complete unified task matrix and technical specifications:
+Key focus areas across enterprise FinOps and decentralized micro-payments:
 
 - **Enterprise HITL & Fiat Top-Up (P0)**: Feishu / WeChat Work / DingTalk interactive approval cards, multi-tier tree quotas, compliant fiat top-up (WeChat/Alipay/bank transfer)
 - **Native MCP & Langfuse Integration (P0)**: Model Context Protocol middleware and Langfuse co-observability

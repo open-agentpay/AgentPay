@@ -1,10 +1,9 @@
 # ADR-003: 演进优先级与路线图统合 —— 结算经济性与企业内控 vs. 多链扩展
 
-> **Status**: **Accepted**（已决，并统合至唯一主线规划 [`specs/zh/roadmap.md`](./zh/roadmap.md) / [`specs/roadmap.md`](./roadmap.md)）
+> **Status**: **Accepted**（已决）
 > **Date**: 2026-11-03
 > **Deciders**: Project Maintainers
 > **Related**:
-> - [`specs/zh/roadmap.md`](./zh/roadmap.md) / [`specs/roadmap.md`](./roadmap.md)（权威唯一主线路线图）
 > - [`README.md`](../README.md) § Roadmap & Delivery Status
 > - [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md)（Gas 经济模型与演进路线）
 > - [`specs/currency-and-multichain-spec.md`](./currency-and-multichain-spec.md)（多链 `scheme` 抽象扩展草案）
@@ -43,7 +42,7 @@
 
 **采纳方案 A 并统合为主线路线图**：
 
-1. **统一路线图**：建立唯一且权威的主线规划文档（[`specs/zh/roadmap.md`](./zh/roadmap.md) / [`specs/roadmap.md`](./roadmap.md)），废除零散年份规划。
+1. **统一路线图**：建立权威的主线规划优先级阶梯，废除零散年份规划。
 2. **结算经济性与企业内控并行演进**：
    - **P0**：企业人机协同审批（HITL 飞书/企微/钉钉卡片拦截）与安全防套取。
    - **P1**：AI 财务 FinOps（树状配额与非托管法币对账）与 Gas 模式 2（动态加价分摊）。

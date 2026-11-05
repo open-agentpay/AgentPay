@@ -144,3 +144,8 @@ skills-lock.json
 # Next.js build output
 .next/
 *.tsbuildinfo
+
+# Internal specifications & proprietary strategy docs (local only, do not push to public GitHub)
+specs/roadmap.md
+specs/zh/roadmap.md
+specs/zh/cn-enterprise-firewall-and-finops-strategy.md

@@ -150,7 +150,7 @@ sequenceDiagram
 
 在 EIP-3009 元交易（`transferWithAuthorization`）机制下，买方 Agent 在密码学层面完全免 Gas（仅需持有 USDC 等支付代币，0 ETH 要求），而由链上交易调用方（`msg.sender` / Facilitator）支付矿工 Gas 费。
 
-AgentPay 正式定义了三种结算代付模式（详见 [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md) 与 [`specs/zh/roadmap.md`](./roadmap.md)）：
+AgentPay 正式定义了三种结算代付模式（详见 [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md)）：
 
 1. **模式 1：卖方补贴型免 Gas 结算（当前基线 - v0.1.0）：**
    * Facilitator 代付 L2 原生 Gas（Arbitrum Sepolia / Base Sepolia，每笔约 $0.001 - $0.005）；买方仅按 API 标价支付 USDC。

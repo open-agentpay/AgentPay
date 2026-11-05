@@ -378,13 +378,12 @@ AgentPay/
 | [**Public Threat Model**](./specs/security-model.md) | Security | Zero-trust boundaries, in-scope threats (T1-T7), gateway threats, non-goals |
 | [**Payment State Machine**](./specs/payment-state-machine.md) | Reliability | Tri-state decoupling, recovery loops, and reconciliation invariant proofs |
 | [**Gas & Settlement Models**](./specs/gas-cost-and-settlement-models.md) | Economics | L2 gas sponsorship, EIP-1559 dynamic fee formula, and execution modes |
-| [**Master Roadmap**](./specs/roadmap.md) | Roadmap | Master architecture evolution, enterprise FinOps, and task priorities |
 
 ---
 
 ## 🚦 Roadmap & Delivery Status
 
-> See [**Master Roadmap**](./specs/roadmap.md) for detailed architectural pillars, task priority matrices, and delivery criteria.
+> Overview of architectural pillars, component status, and release targets.
 
 | Milestone / Component | Status | Release Target | Details |
 | :--- | :---: | :---: | :--- |

@@ -13,9 +13,6 @@ hero:
       text: 5 分钟快速上手
       link: /zh/guide/quickstart
     - theme: alt
-      text: 国内产品战术框架
-      link: /zh/specs/cn-strategy
-    - theme: alt
       text: 架构与规范
       link: /zh/specs/
     - theme: alt

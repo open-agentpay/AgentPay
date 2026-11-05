@@ -15,7 +15,7 @@
   <a href="https://pypi.org/project/open-agentpay/"><img src="https://img.shields.io/pypi/v/open-agentpay.svg" alt="PyPI"></a>
   <a href="https://www.npmjs.com/package/open-agentpay"><img src="https://img.shields.io/npm/v/open-agentpay.svg" alt="npm"></a>
   <a href="https://openagentpay.dev/zh/"><img src="https://img.shields.io/badge/文档站-在线阅读-blue?logo=vitepress&logoColor=white" alt="文档站"></a>
-  <a href="./specs/zh/cn-enterprise-firewall-and-finops-strategy.md"><img src="https://img.shields.io/badge/定位-AI_FinOps_网关-red.svg" alt="AI FinOps 网关"></a>
+  <a href="https://openagentpay.dev/zh/"><img src="https://img.shields.io/badge/定位-AI_FinOps_网关-red.svg" alt="AI FinOps 网关"></a>
   <a href="https://github.com/langfuse/langfuse"><img src="https://img.shields.io/badge/可观测性-Langfuse_集成规划中-blueviolet" alt="Langfuse 集成规划中"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?logo=python&logoColor=white" alt="Python 3.10+"></a>
@@ -25,7 +25,6 @@
 
 <p align="center">
   <a href="https://openagentpay.dev/zh/">📚 官方在线文档</a> •
-  <a href="./specs/zh/cn-enterprise-firewall-and-finops-strategy.md">🎯 国内产品战术框架</a> •
   <a href="#-终端-demo-攻防效果演示">⚡ 3分钟上手</a> •
   <a href="#-核心四大支柱防控审算">🛡️ 核心能力</a> •
   <a href="https://github.com/open-agentpay/AgentPay/issues">🐛 提交反馈</a>
@@ -319,7 +318,6 @@ AgentPay/
 │   └── python/                      # Python SDK (含 httpx 中间件、LangChain 装饰器与贴身防火墙)
 │
 ├── specs/zh/                        # 核心中文规格设计
-│   ├── cn-enterprise-firewall-and-finops-strategy.md # 国内产品战术框架与宣发大纲 (核心指导)
 │   ├── cn-fiat-and-hitl-approval-spec.md            # 法币充值与飞书/企微审批规范
 │   ├── agent-audit-spec.md                          # Agent 身份与行为不可篡改审计规范
 │   └── wallet-ledger-spec.md                        # 内部只追加虚拟账本规范
@@ -353,7 +351,7 @@ AgentPay/
 ## 💬 社区与支持
 
 - **GitHub Issues**：[提交缺陷或功能建议](https://github.com/open-agentpay/AgentPay/issues)
-- **国内产品战术与技术方案**：详见 [`specs/zh/cn-enterprise-firewall-and-finops-strategy.md`](./specs/zh/cn-enterprise-firewall-and-finops-strategy.md)
+- **文档与规范**：详见 [官方在线文档](https://openagentpay.dev/zh/)
 - **商务咨询与企业版私有化支持**：欢迎提交 Issue 或联系团队获取企业版（AgentPay Enterprise）方案。
 
 ---

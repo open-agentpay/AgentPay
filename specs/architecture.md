@@ -150,7 +150,7 @@ To serve different operational requirements while guaranteeing identical protoco
 
 Under EIP-3009 meta-transactions (`transferWithAuthorization`), the Buyer Agent is cryptographically gasless (holds only payment tokens, e.g. USDC, with 0 ETH required), while the EVM transaction caller (`msg.sender` / Facilitator) pays miner gas fees.
 
-AgentPay formally supports three settlement sponsorship modes (detailed in [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md) and [`specs/roadmap.md`](./roadmap.md)):
+AgentPay formally supports three settlement sponsorship modes (detailed in [`specs/gas-cost-and-settlement-models.md`](./gas-cost-and-settlement-models.md)):
 
 1. **Mode 1: Seller-Subsidized Gasless Settlement (Current Baseline - v0.1.0):**
    * Facilitator sponsors L2 native gas (Arbitrum Sepolia / Base Sepolia, $0.001 - $0.005 per tx); Buyer pays exact API price in USDC.
