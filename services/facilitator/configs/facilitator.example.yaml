@@ -11,9 +11,6 @@ server:
 security:
   # API key required by Facilitator to accept verify and settle requests
   api_key: "agentpay_facilitator_secret_key_change_in_prod"
-  # Allowed payees whitelist. If non-empty, only these addresses are permitted as payees.
-  allowed_payees:
-    - "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
   # Minimum gas threshold in wei (0.001 ETH default)
   min_gas_balance_wei: "1000000000000000"
 

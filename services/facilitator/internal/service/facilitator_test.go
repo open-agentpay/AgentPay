@@ -168,24 +168,13 @@ func TestP05PayeeAllowlistSettleReverifyAndLowGasHalt(t *testing.T) {
 
 	ch, auth := getValidTestData()
 
-	// 1. Payee allowlist: non-whitelisted payee is rejected
-	svc.SetAllowedPayees([]string{"0x1111111111111111111111111111111111111111"})
-	_, err := svc.Verify(ctx, &models.VerifyRequest{
-		Challenge:     *ch,
-		Authorization: *auth,
-	})
-	if !errors.Is(err, ErrPayeeNotAllowed) {
-		t.Fatalf("expected ErrPayeeNotAllowed for non-whitelisted payee, got %v", err)
-	}
-
-	// Whitelist the valid payee
-	svc.SetAllowedPayees([]string{ch.Payee})
+	// 1. Dynamic merchant payee: Facilitator accepts any payee specified by the route/merchant
 	verifyResp, err := svc.Verify(ctx, &models.VerifyRequest{
 		Challenge:     *ch,
 		Authorization: *auth,
 	})
 	if err != nil {
-		t.Fatalf("unexpected verify error with whitelisted payee: %v", err)
+		t.Fatalf("unexpected verify error with merchant payee: %v", err)
 	}
 
 	// 2. Settle with tampered authorization (altered payer or corrupted signature) returns ErrInvalidSignature

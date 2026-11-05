@@ -51,7 +51,6 @@ type FacilitatorService struct {
 	defaultChainID     *big.Int
 	defaultTokenAddr   common.Address
 	autoPollReceipts   bool
-	allowedPayees      map[string]bool
 	minGasBalanceWei   *big.Int
 
 	nonceStore          *MemoryNonceStore
@@ -69,7 +68,6 @@ type Options struct {
 	DefaultChainID   *big.Int
 	DefaultTokenAddr string
 	AutoPollReceipts bool
-	AllowedPayees    []string
 	MinGasBalanceWei *big.Int
 }
 
@@ -110,14 +108,6 @@ func NewFacilitatorService(opts Options) (*FacilitatorService, error) {
 		tokenAddr = common.HexToAddress(opts.DefaultTokenAddr)
 	}
 
-	payees := make(map[string]bool, len(opts.AllowedPayees))
-	for _, p := range opts.AllowedPayees {
-		clean := strings.ToLower(strings.TrimSpace(p))
-		if clean != "" {
-			payees[clean] = true
-		}
-	}
-
 	return &FacilitatorService{
 		clock:              clock,
 		evmClient:          opts.EVMClient,
@@ -126,7 +116,6 @@ func NewFacilitatorService(opts Options) (*FacilitatorService, error) {
 		defaultChainID:     chainID,
 		defaultTokenAddr:   tokenAddr,
 		autoPollReceipts:   opts.AutoPollReceipts,
-		allowedPayees:      payees,
 		minGasBalanceWei:   opts.MinGasBalanceWei,
 		nonceStore:         NewMemoryNonceStore(),
 		verificationTokens: make(map[string]*VerificationRecord),
@@ -144,38 +133,11 @@ func (s *FacilitatorService) Now() int64 {
 	return s.clock()
 }
 
-// SetAllowedPayees updates the payee allowlist dynamically.
-func (s *FacilitatorService) SetAllowedPayees(payees []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m := make(map[string]bool, len(payees))
-	for _, p := range payees {
-		clean := strings.ToLower(strings.TrimSpace(p))
-		if clean != "" {
-			m[clean] = true
-		}
-	}
-	s.allowedPayees = m
-}
-
 // SetMinGasBalanceWei configures the minimum gas balance threshold before halting new orders.
 func (s *FacilitatorService) SetMinGasBalanceWei(minWei *big.Int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.minGasBalanceWei = minWei
-}
-
-func (s *FacilitatorService) checkPayeeAllowed(payee string) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if len(s.allowedPayees) == 0 {
-		return nil
-	}
-	clean := strings.ToLower(strings.TrimSpace(payee))
-	if !s.allowedPayees[clean] {
-		return fmt.Errorf("%w: payee %s is not in allowed payees whitelist", ErrPayeeNotAllowed, payee)
-	}
-	return nil
 }
 
 func (s *FacilitatorService) checkGasBalance(ctx context.Context) error {
@@ -214,10 +176,7 @@ func (s *FacilitatorService) Verify(ctx context.Context, req *models.VerifyReque
 	auth := &req.Authorization
 	now := s.Now()
 
-	// 0. Payee allowlist & Gas balance threshold checks
-	if err := s.checkPayeeAllowed(ch.Payee); err != nil {
-		return nil, err
-	}
+	// 0. Gas balance threshold check
 	if err := s.checkGasBalance(ctx); err != nil {
 		return nil, err
 	}
@@ -333,9 +292,6 @@ func (s *FacilitatorService) Settle(ctx context.Context, req *models.SettleReque
 	}
 
 	ch := record.Challenge
-	if err := s.checkPayeeAllowed(ch.Payee); err != nil {
-		return nil, err
-	}
 
 	// Verify authorization fields match the verified record and re-verify EIP-712 signature
 	if !strings.EqualFold(auth.Payer, record.Authorization.Payer) ||

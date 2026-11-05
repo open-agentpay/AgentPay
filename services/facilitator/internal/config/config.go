@@ -19,7 +19,6 @@ type Config struct {
 
 	Security struct {
 		APIKey           string   `yaml:"api_key"`
-		AllowedPayees    []string `yaml:"allowed_payees"`
 		MinGasBalanceWei string   `yaml:"min_gas_balance_wei"`
 		AllowedOrigins   []string `yaml:"allowed_origins"`
 	} `yaml:"security"`
@@ -89,16 +88,6 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Security.APIKey = apiKey
 	} else if apiKey := os.Getenv("AGENTPAY_FACILITATOR_API_KEY"); apiKey != "" {
 		cfg.Security.APIKey = apiKey
-	}
-	if payees := os.Getenv("FACILITATOR_ALLOWED_PAYEES"); payees != "" {
-		parts := strings.Split(payees, ",")
-		clean := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				clean = append(clean, trimmed)
-			}
-		}
-		cfg.Security.AllowedPayees = clean
 	}
 	if minGas := os.Getenv("FACILITATOR_MIN_GAS_BALANCE_WEI"); minGas != "" {
 		cfg.Security.MinGasBalanceWei = strings.TrimSpace(minGas)

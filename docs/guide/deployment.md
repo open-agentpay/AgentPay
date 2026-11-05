@@ -259,7 +259,6 @@ docker compose ps
 | `NEXT_PUBLIC_SITE_URL` | `http://localhost:3001` | `marketplace` | Canonical site URL used for SEO metadata and `/llms.txt` |
 | `FACILITATOR_PORT` | `8001` | `facilitator` | Host port mapping for the Facilitator service |
 | `FACILITATOR_API_KEY` | Empty | `facilitator` | Shared API key required by Facilitator to accept `/v1/verify` and `/v1/settle` calls (P0-5) |
-| `FACILITATOR_ALLOWED_PAYEES` | Empty | `facilitator` | Comma-separated whitelist of allowed seller payee EVM addresses |
 | `RPC_URL` | `https://sepolia-rollup.arbitrum.io/rpc` | `facilitator` | EVM JSON-RPC endpoint URL |
 | `CHAIN_ID` | `421614` | `facilitator` | Target EVM Chain ID (`421614` for Arbitrum Sepolia, `84532` for Base Sepolia) |
 | `USDC_ADDRESS` | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` | `facilitator` | Circle USDC token contract address on the target chain |

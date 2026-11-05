@@ -107,7 +107,7 @@ make demo
 - 默认拒绝（Fail-Closed）：数据库锁失败、序列化错误或未处理异常一律拒绝放行。
 - Nonce 必须持久化去重（`UNIQUE(network_id, asset_address, payer_address, nonce)`），地址与 Nonce 入库前必须转小写，防止大小写变形重放与网关重启重放。
 - Facilitator `/v1/settle` 返回 `202 submitted` 仅代表交易已广播，网关严禁立即将结算标记为 `confirmed`；必须保持 `submitted`/`pending`，由后台对账任务根据链上回执更新为 `confirmed` 或 `failed`。
-- Facilitator 写接口必须启用 API Key 鉴权、校验 `AllowedPayees` 收款白名单、在 `Settle` 阶段二次完整验证 EIP-712 签名，并监控代付账户 Gas 余额。
+- Facilitator 写接口必须启用 API Key 鉴权、在 `Settle` 阶段二次完整验证 EIP-712 签名，并监控代付账户 Gas 余额。收款方由各商户路由自主配置，不对收款方做硬编码限制。
 
 **机密与日志**
 - 私钥、助记词、主密钥、上游凭证明文绝不出现在日志、异常信息或 HTTP 响应里。
