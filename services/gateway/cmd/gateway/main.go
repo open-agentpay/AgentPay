@@ -10,11 +10,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/open-agentpay/agentpay-gateway-go/internal/config"
-	"github.com/open-agentpay/agentpay-gateway-go/internal/logger"
-	"github.com/open-agentpay/agentpay-gateway-go/internal/metrics"
-	"github.com/open-agentpay/agentpay-gateway-go/internal/rcu"
-	"github.com/open-agentpay/agentpay-gateway-go/internal/server"
+	"github.com/open-agentpay/agent-core-sdk/gateway/config"
+	"github.com/open-agentpay/agent-core-sdk/gateway/logger"
+	"github.com/open-agentpay/agent-core-sdk/gateway/metrics"
+	"github.com/open-agentpay/agent-core-sdk/gateway/rcu"
+	"github.com/open-agentpay/agent-core-sdk/gateway/server"
 )
 
 func main() {

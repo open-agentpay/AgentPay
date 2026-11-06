@@ -1,5 +1,7 @@
 github.com/lib/pq v1.12.3 h1:tTWxr2YLKwIvK90ZXEw8GP7UFHtcbTtty8zsI+YjrfQ=
 github.com/lib/pq v1.12.3/go.mod h1:/p+8NSbOcwzAEI7wiMXFlgydTwcgTr3OSKMsD2BitpA=
+github.com/open-agentpay/agent-core-sdk/gateway v0.1.0 h1:24ldaLF3PzSOBfsgs2+N4/RroLJTFNdQGwbBr7B1uzs=
+github.com/open-agentpay/agent-core-sdk/gateway v0.1.0/go.mod h1:9ACWfBkSobSDgCE2jCL+G7ZDpbBNuAv9liM5fzVzxlE=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
