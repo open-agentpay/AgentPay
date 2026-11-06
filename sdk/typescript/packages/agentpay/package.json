@@ -108,6 +108,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "agent-core-sdk": "^0.1.0",
     "better-sqlite3": "11.7.0",
     "viem": "2.21.54"
   }
