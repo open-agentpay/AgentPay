@@ -1,0 +1,46 @@
+# ==============================================================================
+# AgentPay Caddy Reverse Proxy Configuration
+# Caddy automatically provisions and renews SSL/TLS certificates (Let's Encrypt)
+# ==============================================================================
+
+# Global Configuration Options
+{
+    # Automatically get certificates from Let's Encrypt
+    # Uncomment to enable debug logs if needed:
+    # debug
+}
+
+# ------------------------------------------------------------------------------
+# 1. Production Mode: Domain-based routing
+# ------------------------------------------------------------------------------
+
+# Storefront & GEO Portal (Next.js 15)
+{$DOMAIN_MARKETPLACE:aipmedia.cn} {
+    encode zstd gzip
+
+    reverse_proxy marketplace:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+}
+
+# Web Management Console (Vue 3 SPA)
+{$DOMAIN_CONSOLE:console.aipmedia.cn} {
+    encode zstd gzip
+
+    reverse_proxy console:80 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+}
+
+# Core Payment Gateway & Admin API (Go)
+{$DOMAIN_GATEWAY:gate.aipmedia.cn} {
+    encode zstd gzip
+
+    reverse_proxy gateway:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+}
+

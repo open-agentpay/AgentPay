@@ -149,3 +149,7 @@ skills-lock.json
 specs/roadmap.md
 specs/zh/roadmap.md
 specs/zh/cn-enterprise-firewall-and-finops-strategy.md
+
+*.tar.gz
+*.tar
+
