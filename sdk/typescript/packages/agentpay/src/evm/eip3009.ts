@@ -7,7 +7,7 @@
  * - balanceOf
  */
 
-import { type PaymentAuthorization, SignatureData } from '../core/models.js';
+import { type PaymentAuthorization, SignatureData } from 'agentpay-core-sdk';
 import {
   AUTHORIZATION_STATE_SELECTOR,
   BALANCE_OF_SELECTOR,

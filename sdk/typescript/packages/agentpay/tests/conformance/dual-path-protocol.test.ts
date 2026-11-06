@@ -6,7 +6,7 @@ import {
   PaymentChallenge,
   decodeChallenge,
   encodeChallenge,
-} from '../../src/core/index.js';
+} from '../../src/index.js';
 
 const VECTORS_DIR = resolve(__dirname, '../../../../../../specs/test-vectors');
 const CONFORMANCE_DIR = resolve(__dirname, '../../../../../../specs/conformance');

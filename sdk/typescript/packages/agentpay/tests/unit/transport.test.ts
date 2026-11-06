@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { AgentPayClient } from '../../src/client/client.js';
-import { LocalSigner } from '../../src/client/signer.js';
+import { AgentPayClient } from '../../src/index.js';
+import { LocalSigner } from '../../src/index.js';
 import {
   AgentPayTransport,
   ALLOW_UNMETERED_HEADER,
   computeRequestBinding,
   createAgentPayFetch,
-} from '../../src/client/transport.js';
+} from '../../src/index.js';
 import {
   decodeAuthorization,
   encodeChallenge,
   HEADER_PAYMENT_REQUIRED,
   HEADER_PAYMENT_SIGNATURE,
-} from '../../src/core/codecs.js';
-import { PaymentChallenge } from '../../src/core/models.js';
-import { createBuyerConnection, initBuyerDatabase } from '../../src/policy/db.js';
-import { PolicyErrorCode, PolicyViolationError } from '../../src/policy/errors.js';
-import { LedgerEntryState, PolicyConfig, type PolicyConfigInput } from '../../src/policy/models.js';
-import { SQLitePolicyEngine } from '../../src/policy/sqlite-engine.js';
+} from '../../src/index.js';
+import { PaymentChallenge } from '../../src/index.js';
+import { createBuyerConnection, initBuyerDatabase } from '../../src/index.js';
+import { PolicyErrorCode, PolicyViolationError } from '../../src/index.js';
+import { LedgerEntryState, PolicyConfig, type PolicyConfigInput } from '../../src/index.js';
+import { SQLitePolicyEngine } from '../../src/index.js';
 
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 

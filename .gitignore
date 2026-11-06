@@ -144,6 +144,12 @@ skills-lock.json
 # Next.js build output
 .next/
 *.tsbuildinfo
+apps/marketplace-web/public/docs/
+
+# Compiled Go binaries
+services/gateway/gateway
+services/facilitator/bin/
+bin/
 
 # Internal specifications & proprietary strategy docs (local only, do not push to public GitHub)
 specs/roadmap.md

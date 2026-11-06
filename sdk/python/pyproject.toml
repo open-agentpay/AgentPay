@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "agentpay-core-sdk>=0.1.0",
+    "agentpay-core-sdk>=0.1.2",
     "eth-account>=0.11.0",
     "web3>=6.15.0",
     "httpx>=0.27.0",

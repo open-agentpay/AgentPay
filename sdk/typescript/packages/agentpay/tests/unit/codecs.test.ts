@@ -15,7 +15,7 @@ import {
   extractAuthorizationFromHeaders,
   extractChallengeFromHeaders,
   injectAuthorizationToHeaders,
-} from '../../src/core/index.js';
+} from '../../src/index.js';
 import {
   ARBITRUM_SEPOLIA,
   ARBITRUM_SEPOLIA_CAIP2,

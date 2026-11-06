@@ -7,7 +7,7 @@ import {
   WalletAuthorization,
   X402ErrorCode,
   X402ValidationError,
-} from '../../src/core/index.js';
+} from '../../src/index.js';
 
 function makeValidChallengeDict(): Record<string, unknown> {
   return {

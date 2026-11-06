@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { AgentPayClient } from '../../src/client/client.js';
-import { LocalSigner } from '../../src/client/signer.js';
-import { encodeChallenge, HEADER_PAYMENT_REQUIRED, HEADER_PAYMENT_SIGNATURE } from '../../src/core/codecs.js';
-import { PaymentChallenge } from '../../src/core/models.js';
-import { BudgetLedgerState, BuyerIntentRecord, PaymentIntentState } from '../../src/core/state.js';
-import { createBuyerConnection, initBuyerDatabase } from '../../src/policy/db.js';
-import { PolicyConfig } from '../../src/policy/models.js';
-import { SQLitePolicyEngine } from '../../src/policy/sqlite-engine.js';
-import { BuyerStateCoordinator } from '../../src/state/buyer-coordinator.js';
+import { AgentPayClient } from '../../src/index.js';
+import { LocalSigner } from '../../src/index.js';
+import { encodeChallenge, HEADER_PAYMENT_REQUIRED, HEADER_PAYMENT_SIGNATURE } from '../../src/index.js';
+import { PaymentChallenge } from '../../src/index.js';
+import { BudgetLedgerState, BuyerIntentRecord, PaymentIntentState } from '../../src/index.js';
+import { createBuyerConnection, initBuyerDatabase } from '../../src/index.js';
+import { PolicyConfig } from '../../src/index.js';
+import { SQLitePolicyEngine } from '../../src/index.js';
+import { BuyerStateCoordinator } from '../../src/index.js';
 import {
   BuyerReconciliationOutcome,
   BuyerReconciler,
   MockSettlementProbe,
   NonceStatus,
-} from '../../src/state/reconciliation.js';
-import { SignatureSentReleaseForbiddenError } from '../../src/state/errors.js';
+} from '../../src/index.js';
+import { SignatureSentReleaseForbiddenError } from '../../src/index.js';
 
 const TEST_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 

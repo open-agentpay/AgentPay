@@ -10,7 +10,7 @@ import {
   decodeChallenge,
   encodeAuthorization,
   encodeChallenge,
-} from '../../src/core/index.js';
+} from '../../src/index.js';
 
 const VECTORS_DIR = resolve(__dirname, '../../../../../../specs/test-vectors');
 
