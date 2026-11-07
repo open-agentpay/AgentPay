@@ -43,6 +43,15 @@ from agentpay.evm.rpc import (
     EvmRpcError,
     EvmRpcRequestError,
 )
+from agentpay.evm.signer import (
+    DEFAULT_TOKEN_NAMES,
+    EIP3009_MESSAGE_TYPES,
+    LocalSigner,
+    SignatureData,
+    _validate_evm_address,
+    generate_nonce,
+    parse_caip2_chain_id,
+)
 
 __all__ = [
     # Network & Chain Constants
@@ -76,4 +85,12 @@ __all__ = [
     "EvmRpcError",
     "EvmRpcRequestError",
     "EvmRpcConnectionError",
+    # EIP-712 & EIP-3009 Signer
+    "DEFAULT_TOKEN_NAMES",
+    "EIP3009_MESSAGE_TYPES",
+    "LocalSigner",
+    "SignatureData",
+    "_validate_evm_address",
+    "generate_nonce",
+    "parse_caip2_chain_id",
 ]

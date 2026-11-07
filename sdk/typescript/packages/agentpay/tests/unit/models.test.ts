@@ -258,6 +258,6 @@ describe('SignatureData Model', () => {
   });
 
   it('exports expected VERSION matching package.json', () => {
-    expect(VERSION).toBe('0.2.8');
+    expect(VERSION).toBe('0.3.0');
   });
 });

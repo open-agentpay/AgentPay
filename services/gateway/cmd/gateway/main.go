@@ -9,12 +9,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/open-agentpay/agent-core-sdk/gateway/config"
 	"github.com/open-agentpay/agent-core-sdk/gateway/logger"
 	"github.com/open-agentpay/agent-core-sdk/gateway/metrics"
 	"github.com/open-agentpay/agent-core-sdk/gateway/rcu"
 	"github.com/open-agentpay/agent-core-sdk/gateway/server"
+	"github.com/open-agentpay/agentpay-gateway-go/internal/onchain"
 )
 
 func main() {
@@ -89,9 +91,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 4. Initialize metrics and HTTP server
+	// 4. Initialize metrics and HTTP server (with optional on-chain dependency injection)
 	m := metrics.New()
-	srv, err := server.New(cfg, rcuMgr, m)
+
+	var opts []server.Option
+	facCfg := onchain.LoadFacilitatorConfig(*configPath)
+	if facCfg.URL != "" {
+		timeout := time.Duration(facCfg.TimeoutSeconds) * time.Second
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		verifier := onchain.NewFacilitatorVerifierWithAuth(facCfg.URL, facCfg.APIKey, timeout)
+		cryptoAdapter := onchain.NewCryptoSettlementAdapter(verifier)
+		opts = append(opts,
+			server.WithPaymentVerifier(verifier),
+			server.WithSettlementAdapter(cryptoAdapter),
+		)
+		log.Info("injected on-chain facilitator settlement options",
+			slog.String("facilitator_url", facCfg.URL),
+		)
+	}
+
+	srv, err := server.New(cfg, rcuMgr, m, opts...)
 	if err != nil {
 		log.Error("failed to create gateway server", slog.Any("error", err))
 		os.Exit(1)

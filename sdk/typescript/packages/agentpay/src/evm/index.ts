@@ -32,3 +32,13 @@ export {
   encodeTransferFromAuthorization,
   encodeTransferWithAuthorization,
 } from './eip3009.js';
+
+export {
+  DEFAULT_TOKEN_NAMES,
+  EIP3009_MESSAGE_TYPES,
+  LocalSigner,
+  SignatureData,
+  type SignatureDataInput,
+  generateNonce,
+  parseCaip2ChainId,
+} from './signer.js';

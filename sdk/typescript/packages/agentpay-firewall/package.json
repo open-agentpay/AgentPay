@@ -1,6 +1,6 @@
 {
   "name": "agentpay-firewall",
-  "version": "0.2.8",
+  "version": "0.3.0",
   "description": "Financial firewall & runaway circuit breaker for AI agents (Official alias for open-agentpay)",
   "license": "Apache-2.0",
   "type": "module",

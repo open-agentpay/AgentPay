@@ -16,7 +16,7 @@ import (
 	"github.com/open-agentpay/agentpay-facilitator-go/internal/service"
 )
 
-const Version = "1.0.0"
+const Version = "0.3.0"
 
 func main() {
 	configPath := flag.String("config", "", "Path to YAML configuration file (optional)")
