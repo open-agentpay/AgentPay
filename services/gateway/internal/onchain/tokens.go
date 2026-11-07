@@ -75,3 +75,18 @@ func ResolveOnchainAssetWithDefaults(network, assetOrSymbol string, defaults Set
 
 	return cleanAsset, sym
 }
+
+// AssetResolver adapts ResolveOnchainAssetWithDefaults to agent-core-sdk's x402.AssetResolver interface.
+type AssetResolver struct {
+	defaults SettlementDefaults
+}
+
+// NewAssetResolver creates an AssetResolver with configured settlement defaults.
+func NewAssetResolver(defaults SettlementDefaults) *AssetResolver {
+	return &AssetResolver{defaults: defaults}
+}
+
+// ResolveAsset resolves a network and token symbol into a concrete contract address and symbol.
+func (r *AssetResolver) ResolveAsset(network, assetOrSymbol string) (string, string) {
+	return ResolveOnchainAssetWithDefaults(network, assetOrSymbol, r.defaults)
+}

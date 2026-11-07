@@ -95,6 +95,17 @@ func main() {
 	m := metrics.New()
 
 	var opts []server.Option
+
+	// Inject onchain AssetResolver for EVM token resolution (e.g. USDC contracts across networks)
+	assetResolver := onchain.NewAssetResolver(onchain.SettlementDefaults{
+		DefaultNetwork:       cfg.Settlement.DefaultNetwork,
+		DefaultAsset:         cfg.Settlement.DefaultAsset,
+		DefaultAssetSymbol:   cfg.Settlement.DefaultAssetSymbol,
+		DefaultAssetDecimals: cfg.Settlement.DefaultAssetDecimals,
+		DefaultPayTo:         cfg.Settlement.DefaultPayTo,
+	})
+	opts = append(opts, server.WithAssetResolver(assetResolver))
+
 	facCfg := onchain.LoadFacilitatorConfig(*configPath)
 	if facCfg.URL != "" {
 		timeout := time.Duration(facCfg.TimeoutSeconds) * time.Second

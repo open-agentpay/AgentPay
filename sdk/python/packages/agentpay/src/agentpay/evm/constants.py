@@ -104,11 +104,93 @@ ARBITRUM_SEPOLIA = NetworkSpec(
     token_version=ARBITRUM_SEPOLIA_USDC_VERSION,
 )
 
+BASE_SEPOLIA = NetworkSpec(
+    name="base-sepolia",
+    chain_id=84532,
+    caip2="eip155:84532",
+    rpc_url="https://sepolia.base.org",
+    explorer_url="https://sepolia.basescan.org",
+    default_asset_address="0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    default_asset_symbol="USDC",
+    default_asset_decimals=6,
+    token_name="USD Coin",
+    token_version="2",
+)
+
+BASE_MAINNET = NetworkSpec(
+    name="base",
+    chain_id=8453,
+    caip2="eip155:8453",
+    rpc_url="https://mainnet.base.org",
+    explorer_url="https://basescan.org",
+    default_asset_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    default_asset_symbol="USDC",
+    default_asset_decimals=6,
+    token_name="USD Coin",
+    token_version="2",
+)
+
+ARBITRUM_ONE = NetworkSpec(
+    name="arbitrum-one",
+    chain_id=42161,
+    caip2="eip155:42161",
+    rpc_url="https://arb1.arbitrum.io/rpc",
+    explorer_url="https://arbiscan.io",
+    default_asset_address="0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    default_asset_symbol="USDC",
+    default_asset_decimals=6,
+    token_name="USD Coin",
+    token_version="2",
+)
+
+ETHEREUM_MAINNET = NetworkSpec(
+    name="ethereum",
+    chain_id=1,
+    caip2="eip155:1",
+    rpc_url="https://cloudflare-eth.com",
+    explorer_url="https://etherscan.io",
+    default_asset_address="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    default_asset_symbol="USDC",
+    default_asset_decimals=6,
+    token_name="USD Coin",
+    token_version="2",
+)
+
+ETHEREUM_SEPOLIA = NetworkSpec(
+    name="ethereum-sepolia",
+    chain_id=11155111,
+    caip2="eip155:11155111",
+    rpc_url="https://rpc.sepolia.org",
+    explorer_url="https://sepolia.etherscan.io",
+    default_asset_address="0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+    default_asset_symbol="USDC",
+    default_asset_decimals=6,
+    token_name="USD Coin",
+    token_version="2",
+)
+
 KNOWN_NETWORKS: Final[dict[str, NetworkSpec]] = {
     ARBITRUM_SEPOLIA_CAIP2: ARBITRUM_SEPOLIA,
     str(ARBITRUM_SEPOLIA_CHAIN_ID): ARBITRUM_SEPOLIA,
     "arbitrum-sepolia": ARBITRUM_SEPOLIA,
     "arb-sepolia": ARBITRUM_SEPOLIA,
+    "eip155:84532": BASE_SEPOLIA,
+    "84532": BASE_SEPOLIA,
+    "base-sepolia": BASE_SEPOLIA,
+    "eip155:8453": BASE_MAINNET,
+    "8453": BASE_MAINNET,
+    "base": BASE_MAINNET,
+    "eip155:42161": ARBITRUM_ONE,
+    "42161": ARBITRUM_ONE,
+    "arbitrum-one": ARBITRUM_ONE,
+    "arbitrum": ARBITRUM_ONE,
+    "eip155:1": ETHEREUM_MAINNET,
+    "1": ETHEREUM_MAINNET,
+    "ethereum": ETHEREUM_MAINNET,
+    "mainnet": ETHEREUM_MAINNET,
+    "eip155:11155111": ETHEREUM_SEPOLIA,
+    "11155111": ETHEREUM_SEPOLIA,
+    "sepolia": ETHEREUM_SEPOLIA,
 }
 
 

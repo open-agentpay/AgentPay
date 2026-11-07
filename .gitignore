@@ -148,6 +148,7 @@ apps/marketplace-web/public/docs/
 
 # Compiled Go binaries
 services/gateway/gateway
+services/gateway/vendor/
 services/facilitator/bin/
 bin/
 

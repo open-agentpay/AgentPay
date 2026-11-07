@@ -11,12 +11,11 @@ WORKDIR /build
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
 
-# Cache go modules
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy source code
+# Copy source code and dependencies (including vendor if present)
 COPY . .
+
+# If vendor directory does not exist, download modules; otherwise use vendored dependencies
+RUN if [ ! -d "vendor" ]; then go mod download; fi
 
 # Build static executable
 ARG VERSION=2.1.0

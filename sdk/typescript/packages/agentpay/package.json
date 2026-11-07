@@ -73,7 +73,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "agentpay-core-sdk": "^0.1.2",
+    "agentpay-core-sdk": "^0.3.0",
     "better-sqlite3": "11.7.0",
     "viem": "2.21.54"
   }

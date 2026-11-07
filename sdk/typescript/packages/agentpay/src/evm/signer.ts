@@ -414,7 +414,7 @@ export class LocalSigner implements ISigner {
       ) as `0x${string}`;
 
       const message = {
-        from: authorization.payer,
+        from: authorization.payer as `0x${string}`,
         to: challenge.payee as `0x${string}`,
         value: challenge.amountBaseUnits,
         validAfter: BigInt(authorization.validAfter),

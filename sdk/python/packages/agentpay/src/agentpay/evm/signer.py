@@ -247,11 +247,17 @@ class LocalSigner(ISigner):
         chain_id = parse_caip2_chain_id(challenge.network)
         domain_name = self.resolve_token_name(challenge, token_name)
 
+        verifying_contract = challenge.asset
+        if not verifying_contract or not verifying_contract.startswith("0x"):
+            spec = get_network_spec(challenge.network)
+            if spec and spec.default_asset_address:
+                verifying_contract = spec.default_asset_address
+
         domain_data = {
             "name": domain_name,
             "version": token_version,
             "chainId": chain_id,
-            "verifyingContract": challenge.asset,
+            "verifyingContract": verifying_contract,
         }
 
         types_data = EIP3009_MESSAGE_TYPES
