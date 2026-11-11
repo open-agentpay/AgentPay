@@ -3,7 +3,7 @@
  * The Open-Source Payment Infrastructure & Financial Firewall for Autonomous AI Agents.
  */
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 
 // Export all universal policy engine, budget firewall, x402 codecs and client from agentpay-core-sdk
 export * from 'agentpay-core-sdk';

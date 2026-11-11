@@ -1,6 +1,6 @@
 {
   "name": "agentpay-core",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Core payment infrastructure for AI agents (Official alias for open-agentpay)",
   "license": "Apache-2.0",
   "type": "module",
@@ -37,6 +37,6 @@
     "registry": "https://registry.npmjs.org/"
   },
   "dependencies": {
-    "open-agentpay": "^0.3.0"
+    "open-agentpay": "^0.4.0"
   }
 }

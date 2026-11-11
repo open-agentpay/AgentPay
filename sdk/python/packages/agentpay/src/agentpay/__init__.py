@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 import agent_core
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 # 1. 动态将 agent_core 的核心子模块映射到 agentpay.* 命名空间
 _CORE_MODULE_MAP = {
@@ -130,6 +130,24 @@ from agent_core.core import (
     encode_authorization,
     encode_challenge,
 )
+from agent_core.policy import (
+    BreakerState,
+    IPolicyEngine,
+    LedgerEntryState,
+    PaymentRequest,
+    PolicyConfig,
+    PolicyDecision,
+    PolicyErrorCode,
+    PolicyViolationError,
+    ReservationToken,
+    SQLitePolicyEngine,
+    StaticEvaluationResult,
+    WhitelistMode,
+    create_buyer_connection,
+    evaluate_static_rules,
+    init_buyer_database,
+    load_policy_config,
+)
 from collections.abc import Mapping
 
 # Register SignatureData factory with core PaymentAuthorization
@@ -149,14 +167,30 @@ __all__ = [
     "AgentPayTransport",
     "AsyncAgentPayClient",
     "AsyncAgentPayTransport",
+    "BreakerState",
+    "IPolicyEngine",
     "ISigner",
+    "LedgerEntryState",
     "LocalSigner",
     "PaymentAuthorization",
     "PaymentChallenge",
+    "PaymentRequest",
+    "PolicyConfig",
+    "PolicyDecision",
+    "PolicyErrorCode",
+    "PolicyViolationError",
+    "ReservationToken",
+    "SQLitePolicyEngine",
     "SignatureData",
+    "StaticEvaluationResult",
+    "WhitelistMode",
     "__version__",
+    "create_buyer_connection",
     "decode_authorization",
     "decode_challenge",
     "encode_authorization",
     "encode_challenge",
+    "evaluate_static_rules",
+    "init_buyer_database",
+    "load_policy_config",
 ]

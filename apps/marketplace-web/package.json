@@ -1,6 +1,6 @@
 {
   "name": "agentpay-marketplace-web",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "OpenAgentPay Marketplace & GEO Portal (openagentpay.dev) - Next.js App Router",
   "scripts": {
