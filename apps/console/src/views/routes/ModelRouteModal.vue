@@ -109,7 +109,7 @@ const currentPreset = computed(() => {
   return PROVIDER_PRESETS.find((p) => p.id === selectedProviderId.value) || PROVIDER_PRESETS[0];
 });
 
-// 计算 Base Units (1 CNY = 1,000,000 微单位，单价以每 1,000 Tokens 计量)
+// 计算 Base Units (1 CNY = 100 分 = 1,000,000 base_units，单价以每 1,000 Tokens 计量)
 const promptBaseUnits = computed(() => {
   return Math.round((form.prompt_token_price_cny || 0) * 1_000_000);
 });
@@ -117,6 +117,12 @@ const promptBaseUnits = computed(() => {
 const completionBaseUnits = computed(() => {
   return Math.round((form.completion_token_price_cny || 0) * 1_000_000);
 });
+
+function formatPriceInFen(val: number): string {
+  if (val === undefined || val === null || isNaN(val)) return '0';
+  const fen = val * 100;
+  return fen.toFixed(4).replace(/\.?0+$/, '') || '0';
+}
 
 function selectProvider(preset: ProviderPreset) {
   selectedProviderId.value = preset.id;
@@ -348,9 +354,9 @@ async function handleSubmit() {
         </div>
       </el-form-item>
 
-      <!-- 流式计费价格设定 (微单位换算器) -->
+      <!-- 流式计费价格设定 (单位换算器) -->
       <el-divider content-position="left">
-        <span class="divider-title">{{ t('Token 流式微计费定价策略 (千Tokens)') }}</span>
+        <span class="divider-title">{{ t('Token 流式计费定价策略 (千Tokens)') }}</span>
       </el-divider>
 
       <div class="pricing-grid">
@@ -363,7 +369,7 @@ async function handleSubmit() {
             style="width: 100%"
           />
           <div class="price-hint">
-            ≈ {{ promptBaseUnits.toLocaleString() }} {{ t('微单位 / 千Tokens') }}
+            ≈ {{ formatPriceInFen(form.prompt_token_price_cny) }} {{ t('分 / 千Tokens') }}
           </div>
         </el-form-item>
 
@@ -376,7 +382,7 @@ async function handleSubmit() {
             style="width: 100%"
           />
           <div class="price-hint">
-            ≈ {{ completionBaseUnits.toLocaleString() }} {{ t('微单位 / 千Tokens') }}
+            ≈ {{ formatPriceInFen(form.completion_token_price_cny) }} {{ t('分 / 千Tokens') }}
           </div>
         </el-form-item>
       </div>
