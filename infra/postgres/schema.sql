@@ -134,6 +134,12 @@ CREATE TABLE IF NOT EXISTS ap_route (
     parameters JSONB NOT NULL DEFAULT '[]'::jsonb,
     sample_params JSONB NOT NULL DEFAULT '{}'::jsonb,
     sample_response JSONB NOT NULL DEFAULT '{}'::jsonb,
+    route_type VARCHAR(32) NOT NULL DEFAULT 'api' CHECK (route_type IN ('api', 'llm')),
+    model_name VARCHAR(128) NULL,
+    pricing_type VARCHAR(32) NOT NULL DEFAULT 'per_request' CHECK (pricing_type IN ('per_request', 'per_token')),
+    prompt_token_price_base_units BIGINT NOT NULL DEFAULT 0,
+    completion_token_price_base_units BIGINT NOT NULL DEFAULT 0,
+    model_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -143,6 +149,7 @@ CREATE TABLE IF NOT EXISTS ap_route (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_route_public_slug ON ap_route(slug) WHERE slug IS NOT NULL AND slug != '';
 CREATE INDEX IF NOT EXISTS idx_route_is_public ON ap_route(is_public) WHERE is_public = TRUE;
 CREATE INDEX IF NOT EXISTS idx_route_tenant_pattern ON ap_route(tenant_id, path_pattern);
+CREATE INDEX IF NOT EXISTS idx_ap_route_tenant_model ON ap_route(tenant_id, model_name) WHERE route_type = 'llm' AND status = 'active';
 CREATE TRIGGER trg_route_updated_at BEFORE UPDATE ON ap_route
     FOR EACH ROW EXECUTE FUNCTION set_updated_at_timestamp();
 
