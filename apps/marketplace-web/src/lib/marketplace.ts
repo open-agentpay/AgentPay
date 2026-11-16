@@ -7,46 +7,79 @@ const INTERNAL_GATEWAY_URL =
   'http://127.0.0.1:8080';
 
 export const PUBLIC_GATEWAY_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_URL || 'https://gate.openagentpay.dev';
+  process.env.NEXT_PUBLIC_GATEWAY_URL || 'https://gate.aipmedia.cn';
 
 export const PUBLIC_SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://openagentpay.dev';
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://aipmedia.cn';
 
 export const PUBLIC_CONSOLE_URL =
-  process.env.NEXT_PUBLIC_CONSOLE_URL || 'https://console.openagentpay.dev';
+  process.env.NEXT_PUBLIC_CONSOLE_URL || 'https://console.aipmedia.cn';
+
+export const PUBLIC_PLAYGROUND_URL =
+  process.env.NEXT_PUBLIC_PLAYGROUND_URL || `${PUBLIC_CONSOLE_URL}/playground`;
 
 export const PUBLIC_DOCS_URL =
   process.env.NEXT_PUBLIC_DOCS_URL || '/docs/';
 
 export const PUBLIC_GITHUB_URL =
-  process.env.NEXT_PUBLIC_GITHUB_URL || 'https://github.com/open-agentpay/AgentPay';
-
-export const PUBLIC_TWITTER_URL =
-  process.env.NEXT_PUBLIC_TWITTER_URL || 'https://x.com/OpenAgentPay';
-
-export const PUBLIC_DISCORD_URL =
-  process.env.NEXT_PUBLIC_DISCORD_URL || 'https://discord.gg/2SYyfx4UuQ';
+  process.env.NEXT_PUBLIC_GITHUB_URL || 'https://github.com/agentfinops/AgentFinOps';
 
 /**
- * Formats 6-decimal USDC base units into a clean human-readable string (e.g. "0.001" or "0.05").
+ * Formats CNY/Credits price into a clean human-readable string with 2 decimal places (分, e.g. "0.05" or "10.00").
  */
-export function formatUsdcPrice(baseUnits: number): string {
+export function formatCreditsPrice(baseUnits: number): string {
   const val = baseUnits / 1_000_000;
-  if (val === 0) return '0.00';
-  if (val < 0.001) return val.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
-  return val.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  return val.toFixed(2);
 }
 
 /**
- * Maps CAIP-2 network identifiers to human-readable network labels.
+ * Checks whether the given route is an LLM / Generative AI route.
  */
-export function formatNetworkLabel(network: string, fallback?: string): string {
+export function isLlmRoute(route: MarketplaceRouteItem): boolean {
+  if (!route) return false;
+  return (
+    route.route_type === 'llm' ||
+    route.pricing_type === 'per_token' ||
+    (route.category === 'AI & LLM' && (Boolean(route.model_name) || route.path_pattern.includes('/chat') || route.path_pattern.includes('/llm')))
+  );
+}
+
+/**
+ * Resolves the primary LLM model identifier for chat/completions.
+ */
+export function getLlmModelName(route: MarketplaceRouteItem): string {
+  if (route.model_name && route.model_name.trim()) {
+    return route.model_name.trim();
+  }
+  // Fallbacks inferred from slug or title
+  const slug = (route.slug || '').toLowerCase();
+  if (slug.includes('deepseek-r1') || slug.includes('reasoner')) return 'deepseek-reasoner';
+  if (slug.includes('deepseek')) return 'deepseek-chat';
+  if (slug.includes('qwen')) return 'qwen-plus';
+  if (slug.includes('gpt-4o')) return 'gpt-4o';
+  return route.slug || 'llm-chat';
+}
+
+/**
+ * Formats token pricing base units into human-readable Fen per 1,000 tokens (分 / 1k Tokens).
+ * Guaranteed strictly in "分" (no "微" units).
+ * 1 CNY = 100 分 = 1,000,000 base_units => 10,000 base_units = 1 分.
+ */
+export function formatTokenPriceFen(baseUnits?: number): string {
+  if (baseUnits === undefined || baseUnits === null) return '0.00';
+  const fen = baseUnits / 10_000;
+  if (fen > 0 && fen < 0.01) {
+    return fen.toFixed(4);
+  }
+  return fen.toFixed(2);
+}
+
+/**
+ * Maps cluster identifiers to human-readable cluster labels.
+ */
+export function formatClusterLabel(cluster?: string, fallback?: string): string {
   if (fallback) return fallback;
-  const clean = (network || '').toLowerCase();
-  if (clean.includes('8453')) return 'Base USDC (x402)';
-  if (clean.includes('42161')) return 'Arbitrum USDC (x402)';
-  if (clean.includes('solana')) return 'Solana USDC (x402)';
-  return network || 'Base / Arbitrum USDC';
+  return cluster || '企业内部高可用集群 (domestic-v1)';
 }
 
 /**
@@ -54,25 +87,137 @@ export function formatNetworkLabel(network: string, fallback?: string): string {
  */
 export function buildAnswerFirstTldr(
   route: MarketplaceRouteItem,
-  locale: string = 'zh'
+  _locale: string = 'zh'
 ): string {
-  const priceStr = formatUsdcPrice(route.onchain_price_base_units || route.price_base_units);
-  const netLabel = formatNetworkLabel(route.network, route.network_label);
-  const isEn = locale === 'en';
+  const clusterLabel = formatClusterLabel(route.cluster);
 
+  if (isLlmRoute(route)) {
+    const model = getLlmModelName(route);
+    const promptFen = formatTokenPriceFen(route.prompt_token_price_base_units ?? 1000);
+    const completionFen = formatTokenPriceFen(route.completion_token_price_base_units ?? 2000);
+    const baseSummary =
+      route.summary ||
+      route.description_md.split('\n').find((line) => line.trim() && !line.trim().startsWith('#')) ||
+      `${route.title} 提供面向 AI Agent 的高质量大模型推理与流式对话服务。`;
+
+    return `${baseSummary} 采用 OpenAI 标准兼容接口协议（/v1/chat/completions，模型名：${model}），支持毫秒级千 Token 流式按需计费（输入：${promptFen} 分/1k Tokens，输出：${completionFen} 分/1k Tokens，${clusterLabel}）。无缝兼容主流官方 OpenAI SDK 与 LangChain、LlamaIndex 等智能体框架，配合策略防火墙实现自动断流预算保护与即用即结。`;
+  }
+
+  const priceStr = formatCreditsPrice(route.price_base_units);
   const defaultSummaryZh = `${route.title} 提供面向 AI Agent 的标准化接口服务。`;
-  const defaultSummaryEn = `${route.title} provides standardized API service for AI Agents.`;
 
   const baseSummary =
     route.summary ||
     route.description_md.split('\n').find((line) => line.trim() && !line.trim().startsWith('#')) ||
-    (isEn ? defaultSummaryEn : defaultSummaryZh);
+    defaultSummaryZh;
 
-  if (isEn) {
-    return `${baseSummary} Natively supports HTTP 402 (x402 V2) protocol and ${netLabel} settlement at ${priceStr} USDC/req. Autonomous AI agents can invoke with zero onboarding and zero gas via OpenAgentPay Python or TypeScript SDK and EIP-3009 authorization signatures.`;
+  return `${baseSummary} 支持企业级配额核销与计费（${clusterLabel}），单次调用价格为 ${priceStr} Credits/req，支持通过 AgentFinOps SDK 免繁琐开户流程，配合策略引擎实现调用即结算。`;
+}
+
+/**
+ * Generates official OpenAI Python SDK snippet for LLM routes.
+ */
+export function buildOpenAiPythonSdkSnippet(
+  route: MarketplaceRouteItem,
+  _locale: string = 'zh',
+  activeApiKey?: string
+): string {
+  const effectiveKey = activeApiKey || 'apk_live_your_api_key';
+  const modelName = getLlmModelName(route);
+
+  return `import os
+from openai import OpenAI
+
+# 1. 统一接入 AgentFinOps 网关，无缝兼容 OpenAI 官方 Python SDK (pip install openai)
+client = OpenAI(
+    base_url="${PUBLIC_GATEWAY_URL}/v1",  # 网关 OpenAI 兼容入口
+    api_key=os.getenv("AGENT_API_KEY", "${effectiveKey}"),  # 平台 API Key 或一键申领测试 Key
+)
+
+# 2. 发起流式推理，按实际产生 Token 毫秒级计费
+response = client.chat.completions.create(
+    model="${modelName}",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "你好，请简要介绍一下你具备的核心能力。"},
+    ],
+    temperature=0.7,
+    stream=True,  # 启用 SSE 流式输出，实时计费核销
+)
+
+# 3. 消费流式响应块 (Token SSE Chunks)
+print(">>> AI 回复:")
+for chunk in response:
+    delta = chunk.choices[0].delta.content or ""
+    print(delta, end="", flush=True)
+print()`;
+}
+
+/**
+ * Generates official OpenAI Node.js / TypeScript SDK snippet for LLM routes.
+ */
+export function buildOpenAiNodeSdkSnippet(
+  route: MarketplaceRouteItem,
+  _locale: string = 'zh',
+  activeApiKey?: string
+): string {
+  const effectiveKey = activeApiKey || 'apk_live_your_api_key';
+  const modelName = getLlmModelName(route);
+
+  return `import OpenAI from 'openai';
+
+// 1. 初始化 OpenAI 官方客户端 (npm install openai)，指向 AgentFinOps 网关
+const client = new OpenAI({
+  baseURL: '${PUBLIC_GATEWAY_URL}/v1',
+  apiKey: process.env.AGENT_API_KEY ?? '${effectiveKey}',
+});
+
+async function main() {
+  // 2. 发起流式对话，网关实时按千 Token 核销扣款
+  const stream = await client.chat.completions.create({
+    model: '${modelName}',
+    messages: [
+      { role: 'system', content: 'You are a helpful assistant.' },
+      { role: 'user', content: '你好，请简要介绍一下你具备的核心能力。' },
+    ],
+    temperature: 0.7,
+    stream: true,
+  });
+
+  // 3. 实时输出流式 Token
+  process.stdout.write('>>> AI 回复: ');
+  for await (const chunk of stream) {
+    const text = chunk.choices[0]?.delta?.content || '';
+    process.stdout.write(text);
   }
+  process.stdout.write('\\n');
+}
 
-  return `${baseSummary} 原生支持 HTTP 402 (x402 V2) 协议与 ${netLabel} 结算，单次调用价格为 ${priceStr} USDC/req，支持通过 OpenAgentPay Python / TypeScript SDK 免注册、免预充值 API Key 直接发起 EIP-3009 自动签名调用。`;
+main().catch(console.error);`;
+}
+
+/**
+ * Generates cURL SSE streaming request for LLM routes.
+ */
+export function buildCurlLlmSnippet(
+  route: MarketplaceRouteItem,
+  _locale: string = 'zh',
+  activeApiKey?: string
+): string {
+  const effectiveKey = activeApiKey || 'apk_live_your_api_key';
+  const modelName = getLlmModelName(route);
+
+  return `# 1. 终端流式直连测试 (SSE data chunks)
+curl -N -X POST "${PUBLIC_GATEWAY_URL}/v1/chat/completions" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${effectiveKey}" \\
+  -d '{
+    "model": "${modelName}",
+    "messages": [
+      {"role": "user", "content": "你好，请做个简短的自我介绍。"}
+    ],
+    "stream": true
+  }'`;
 }
 
 /**
@@ -80,21 +225,22 @@ export function buildAnswerFirstTldr(
  */
 export function buildPythonSdkSnippet(
   route: MarketplaceRouteItem,
-  locale: string = 'zh'
+  _locale: string = 'zh',
+  activeApiKey?: string
 ): string {
+  const effectiveKey = activeApiKey || 'apk_live_xxx';
   const suggestedBudgetUnits = Math.max(
-    50_000,
-    (route.onchain_price_base_units || route.price_base_units) * 5
+    250_000,
+    (route.price_base_units || 50_000) * 5
   );
   const sampleParams =
     route.sample_params && Object.keys(route.sample_params).length > 0
       ? route.sample_params
       : (route.parameters && typeof route.parameters === 'object' && !Array.isArray(route.parameters) && Object.keys(route.parameters).length > 0)
       ? (route.parameters as Record<string, unknown>)
-      : { timeframe: '24h' };
+      : { city: '北京' };
 
   const paramsJson = JSON.stringify(sampleParams, null, 4);
-  const isEn = locale === 'en';
 
   const primaryMethod = (route.methods?.[0] || 'GET').toUpperCase();
   const isPost =
@@ -104,52 +250,35 @@ export function buildPythonSdkSnippet(
   const paramArg = isPost ? 'json' : 'params';
   const endpointUrl = `${PUBLIC_GATEWAY_URL}${route.path_pattern}`;
 
-  const commentImports = isEn
-    ? '# 1. Import AgentPay SDK and buyer local financial firewall'
-    : '# 1. 导入 AgentPay SDK 买方本地非托管财务防火墙组件';
-  const commentSigner = isEn
-    ? '# Buyer local signer (signs offline EIP-712/EIP-3009 payload, 0 gas charged to buyer)'
-    : '# 买方本地签名器（签署离线 EIP-712 / EIP-3009 授权，买方无需承担任何 Gas）';
-  const commentBudget = isEn
-    ? `# Max spend per transaction (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`
-    : `# 单次调用最高预算保护 (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`;
-  const suggestedDailyUnits = Math.max(1_000_000, suggestedBudgetUnits * 20);
-  const commentDaily = isEn
-    ? `# 24h rolling budget ceiling (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)`
-    : `# 24h 滚动预算上限 (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)`;
-  const commentClient = isEn
-    ? '# 2. AgentPayClient inherits from standard httpx.Client'
-    : '# 2. 初始化 AgentPayClient（继承自标准 httpx.Client，自动处理 402 握手与签名支付）';
-  const commentCall = isEn
-    ? `# 3. Call gateway forwarding endpoint directly (${primaryMethod})`
-    : `# 3. 直接调用网关转发端点（${primaryMethod} 请求）`;
+  const suggestedDailyUnits = Math.max(5_000_000, suggestedBudgetUnits * 20);
+  const policyId = (route.slug || 'weather_agent').replace(/-/g, '_').slice(0, 32);
 
   return `import os
-from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import PolicyConfig, SQLitePolicyEngine
+# 从顶层 agentpay_core 直接导入 AgentPayClient
+from agentpay_core import AgentPayClient, PolicyConfig, SQLitePolicyEngine
 
-${commentImports}
-signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))  ${commentSigner}
-
+# 1. 策略防火墙：仅配置预算和白名单域名
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
-        id="agent_firewall",
-        name="Agent Firewall",
-        wallet_address=signer.address,
-        max_per_tx_base_units=${suggestedBudgetUnits},  ${commentBudget}
-        rolling_budget_24h_base_units=${suggestedDailyUnits},  ${commentDaily}
+        id="${policyId}",
+        max_per_tx_base_units=${suggestedBudgetUnits},  # ${(suggestedBudgetUnits / 1_000_000).toFixed(2)} Credits
+        rolling_budget_24h_base_units=${suggestedDailyUnits},  # ${(suggestedDailyUnits / 1_000_000).toFixed(2)} Credits
+        whitelist_domains={"gate.aipmedia.cn"},
     )
 )
 
-${commentClient}
-client = AgentPayClient(signer=signer, policy=policy)
+# 2. 客户端直接传入 api_key，自动开启虚拟钱包模式与 402 自动握手
+client = AgentPayClient(
+    api_key=os.getenv("AGENT_API_KEY", "${effectiveKey}"),
+    policy=policy,
+)
 
-${commentCall}
+# 3. 正常发起调用
 response = client.${httpMethod}(
     "${endpointUrl}",
     ${paramArg}=${paramsJson}
 )
-print(response.json())`;
+print("Response:", response.json())`;
 }
 
 /**
@@ -157,11 +286,13 @@ print(response.json())`;
  */
 export function buildTypescriptSdkSnippet(
   route: MarketplaceRouteItem,
-  locale: string = 'zh'
+  _locale: string = 'zh',
+  activeApiKey?: string
 ): string {
+  const effectiveKey = activeApiKey || 'apk_live_xxx';
   const suggestedBudgetUnits = Math.max(
-    50_000,
-    (route.onchain_price_base_units || route.price_base_units) * 5
+    250_000,
+    (route.price_base_units || 50_000) * 5
   );
   const sampleParams =
     route.sample_params && Object.keys(route.sample_params).length > 0
@@ -175,7 +306,6 @@ export function buildTypescriptSdkSnippet(
     .split('\n')
     .map((line, i) => (i === 0 ? line : `  ${line}`))
     .join('\n');
-  const isEn = locale === 'en';
 
   const primaryMethod = (route.methods?.[0] || 'GET').toUpperCase();
   const isPost =
@@ -183,64 +313,142 @@ export function buildTypescriptSdkSnippet(
     (!route.methods?.includes('GET') && route.methods?.includes('POST'));
   const endpointUrl = `${PUBLIC_GATEWAY_URL}${route.path_pattern}`;
 
-  const commentImports = isEn
-    ? '// 1. Initialize buyer local signer & non-custodial SQLite financial firewall'
-    : '// 1. 初始化买方本地签名器与非托管 SQLite 财务防火墙（私钥永不离机）';
-  const commentSigner = isEn
-    ? '// Signs offline EIP-712 / EIP-3009 payload (0 gas charged to buyer)'
-    : '// 签署离线 EIP-712 / EIP-3009 授权（买方 0 Gas 磨损）';
-  const commentBudget = isEn
-    ? `// Max spend per transaction (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`
-    : `// 单次调用最高预算保护 (${(suggestedBudgetUnits / 1_000_000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')} USDC)`;
-  const suggestedDailyUnits = Math.max(1_000_000, suggestedBudgetUnits * 20);
-  const commentDaily = isEn
-    ? `// 24h rolling budget ceiling (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)`
-    : `// 24h 滚动预算上限 (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)`;
-  const commentClient = isEn
-    ? '// 2. Initialize AgentPayClient (automatic HTTP 402 handshake & payment retry)'
-    : '// 2. 初始化 AgentPayClient（自动拦截 402 挑战、校验本地预算并签名重放）';
-  const commentCall = isEn
-    ? `// 3. Call gateway forwarding endpoint directly (${primaryMethod})`
-    : `// 3. 直接向网关转发端点发起请求（${primaryMethod} 请求）`;
+  const suggestedDailyUnits = Math.max(5_000_000, suggestedBudgetUnits * 20);
+  const policyId = (route.slug || 'weather_agent').replace(/-/g, '_').slice(0, 32);
 
   const requestCall = isPost
     ? `const response = await client.post(\n  '${endpointUrl}',\n  ${indentedParamsJson}\n);`
     : `const response = await client.get('${endpointUrl}', {\n  params: ${indentedParamsJson.replace(/\n/g, '\n  ')},\n});`;
 
-  return `import { AgentPayClient, LocalSigner } from 'open-agentpay';
-import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
+  return `import { AgentPayClient, PolicyConfig, SQLitePolicyEngine } from 'agentpay-core-sdk';
 
-${commentImports}
-const signer = new LocalSigner(process.env.AGENT_WALLET_KEY ?? '0x...'); ${commentSigner}
-
+// 1. 策略防火墙配置
 const policy = SQLitePolicyEngine.createInMemory(
   new PolicyConfig({
-    id: 'agent_firewall',
-    name: 'Agent Firewall',
-    walletAddress: signer.address,
-    whitelistMode: WhitelistMode.SIMPLE,
-    maxPerTxBaseUnits: ${suggestedBudgetUnits}n, ${commentBudget}
-    rollingBudget24hBaseUnits: ${suggestedDailyUnits}n, ${commentDaily}
+    id: '${policyId}',
+    maxPerTxBaseUnits: ${suggestedBudgetUnits}n,
+    rollingBudget24hBaseUnits: ${suggestedDailyUnits}n,
+    whitelistDomains: ['gate.aipmedia.cn'],
   })
 );
 
-${commentClient}
-const client = new AgentPayClient({ signer, policy });
+// 2. 客户端直接传入 apiKey
+const client = new AgentPayClient({
+  apiKey: process.env.AGENT_API_KEY ?? '${effectiveKey}',
+  policy,
+});
 
-${commentCall}
+// 3. 正常发起调用
 ${requestCall}
-console.log(await response.json());`;
+console.log('Response:', await response.json());`;
+}
+
+/**
+ * Generates ready-to-use MCP (Model Context Protocol) configuration snippet for desktop clients & SDKs.
+ */
+export function buildMcpConfigSnippet(
+  route: MarketplaceRouteItem,
+  platform: 'workbuddy' | 'claude_cursor' | 'sdk' = 'workbuddy',
+  activeApiKey?: string
+): string {
+  const effectiveKey = activeApiKey || 'apk_live_your_api_key';
+  const toolName = (route.slug || route.route_id || 'mcp_tool').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const sseUrl = `${PUBLIC_GATEWAY_URL}/v1/mcp/sse?route_id=${route.route_id || route.slug}`;
+  const priceStr = formatCreditsPrice(route.price_base_units);
+
+  if (platform === 'workbuddy') {
+    return `// 复制至 ~/.workbuddy/mcp.json (腾讯 WorkBuddy 官方配置)
+{
+  "mcpServers": {
+    "${toolName}": {
+      "url": "${sseUrl}",
+      "headers": {
+        "Authorization": "Bearer ${effectiveKey}"
+      }
+    }
+  }
+}`;
+  }
+
+  if (platform === 'claude_cursor') {
+    return `// 复制至 claude_desktop_config.json 或 Cursor MCP 设置
+{
+  "mcpServers": {
+    "${toolName}": {
+      "url": "${sseUrl}",
+      "headers": {
+        "Authorization": "Bearer ${effectiveKey}"
+      }
+    }
+  }
+}`;
+  }
+
+  // SDK Interceptor snippet with real gateway SSE transport and clean core boundaries
+  const amountCny = (route.price_base_units || 50000) / 1000000.0;
+  return `import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { McpToolInterceptor, InMemoryToolQuotaGuard } from 'agentpay-core-sdk';
+
+// 1. 初始化标准 MCP 客户端，配置网关地址与 API Key
+const gatewaySseUrl = new URL('${sseUrl}');
+const transport = new SSEClientTransport(gatewaySseUrl, {
+  eventSourceInit: {
+    headers: {
+      Authorization: \`Bearer \${process.env.AGENT_API_KEY ?? '${effectiveKey}'}\`,
+    },
+  },
+  requestInit: {
+    headers: {
+      Authorization: \`Bearer \${process.env.AGENT_API_KEY ?? '${effectiveKey}'}\`,
+    },
+  },
+});
+const mcpClient = new Client({ name: 'my-agent', version: '1.0.0' }, { capabilities: {} });
+await mcpClient.connect(transport);
+
+// 2. 初始化核心通用配额守卫 (单笔上限 ¥50.00，日预算 ¥500.00)
+const guard = new InMemoryToolQuotaGuard({
+  maxPerCallCny: 50.0,
+  rollingBudgetCny: 500.0,
+});
+
+// 3. 挂载 MCP 客户端拦截器 (两阶段预扣与自动防悬挂)
+const interceptor = new McpToolInterceptor({
+  guard,
+  defaultCostCny: ${amountCny.toFixed(2)},
+});
+
+// 4. 安全调用网关 MCP 工具 (超额自动向大模型返回结构化引导，防死循环)
+const result = await interceptor.callTool(
+  {
+    toolName: '${toolName}',
+    arguments: ${JSON.stringify(route.sample_params || { query: 'test' })},
+    agentId: 'bot_worker_1',
+  },
+  async (name, args) => {
+    // 实际通过 MCP 协议发送至 gate.aipmedia.cn 网关执行
+    return await mcpClient.callTool({ name, arguments: args });
+  }
+);
+console.log('Result:', result);`;
 }
 
 /**
  * Generates pure Markdown documentation for a single route (used by /llms.txt and AI Bot content negotiation).
  */
 export function buildRouteMarkdownDoc(route: MarketplaceRouteItem): string {
-  const priceStr = formatUsdcPrice(route.onchain_price_base_units || route.price_base_units);
-  const netLabel = formatNetworkLabel(route.network, route.network_label);
+  const isLlm = isLlmRoute(route);
+  const promptFen = formatTokenPriceFen(route.prompt_token_price_base_units ?? 1000);
+  const completionFen = formatTokenPriceFen(route.completion_token_price_base_units ?? 2000);
+  const priceDisplay = isLlm
+    ? `输入: ${promptFen} 分/1k Tokens | 输出: ${completionFen} 分/1k Tokens (流式计费)`
+    : `${formatCreditsPrice(route.price_base_units)} Credits / request`;
+
+  const clusterLabel = formatClusterLabel(route.cluster);
   const tldr = buildAnswerFirstTldr(route);
-  const sdkCode = buildPythonSdkSnippet(route);
-  const tsSdkCode = buildTypescriptSdkSnippet(route);
+  const sdkCode = isLlm ? buildOpenAiPythonSdkSnippet(route) : buildPythonSdkSnippet(route);
+  const tsSdkCode = isLlm ? buildOpenAiNodeSdkSnippet(route) : buildTypescriptSdkSnippet(route);
 
   const effectiveSampleParams =
     route.sample_params && Object.keys(route.sample_params).length > 0
@@ -299,9 +507,8 @@ export function buildRouteMarkdownDoc(route: MarketplaceRouteItem): string {
 | **Gateway Endpoint** | \`${PUBLIC_GATEWAY_URL}${route.path_pattern}\` |
 | **Route Slug** | \`${route.slug}\` |
 | **HTTP Methods** | \`${(route.methods || ['GET', 'POST']).join(', ')}\` |
-| **X402 Price** | \`${priceStr} USDC / request\` |
-| **Settlement Network** | \`${route.network}\` (${netLabel}) |
-| **Payee Address** | \`${route.payee_address}\` |
+| **Price** | \`${priceDisplay}\` |
+| **Settlement Cluster** | \`${clusterLabel}\` |
 | **24h 200 OK Success Rate** | \`${route.sla.success_rate_24h}%\` |
 | **P95 Latency** | \`${route.sla.p95_latency_ms} ms\` |
 | **24h Verified Paid Calls** | \`${route.sla.paid_calls_24h.toLocaleString()}\` |
@@ -315,19 +522,27 @@ ${paramRows}
 ${sampleParamsBlock}
 ## 3. Zero-Friction SDK Quickstart (Python & TypeScript)
 
-### Python SDK (\`pip install open-agentpay\`)
+### Python SDK (\`pip install agentpay-core-sdk\`)
 
 \`\`\`python
 ${sdkCode}
 \`\`\`
 
-### TypeScript SDK (\`npm install open-agentpay\`)
+### TypeScript SDK (\`npm install agentpay-core-sdk\`)
 
 \`\`\`typescript
 ${tsSdkCode}
 \`\`\`
 
-## 4. Detailed Documentation
+## 4. MCP (Model Context Protocol) 智能体直接接入配置
+
+支持直接接入 **腾讯 WorkBuddy**、**Claude Desktop**、**Cursor** 等支持标准 MCP 协议的智能体环境：
+
+\`\`\`json
+${buildMcpConfigSnippet(route, 'workbuddy')}
+\`\`\`
+
+## 5. Detailed Documentation
 
 ${route.description_md}
 `;
@@ -349,7 +564,8 @@ function applyLocalFilter(
     if (
       filter.network &&
       filter.network !== 'all' &&
-      !item.network.toLowerCase().includes(filter.network.toLowerCase())
+      item.cluster &&
+      !item.cluster.toLowerCase().includes(filter.network.toLowerCase())
     ) {
       return false;
     }

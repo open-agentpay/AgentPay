@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Activity,
   ArrowUpRight,
+  BrainCircuit,
   CheckCircle2,
   Clock,
   Code2,
@@ -27,10 +28,14 @@ import { MARKETPLACE_CATEGORIES } from '@/lib/seed-data';
 import {
   PUBLIC_CONSOLE_URL,
   PUBLIC_GATEWAY_URL,
-  formatNetworkLabel,
-  formatUsdcPrice,
+  formatCreditsPrice,
+  formatTokenPriceFen,
+  getLlmModelName,
+  isLlmRoute,
   buildPythonSdkSnippet,
   buildTypescriptSdkSnippet,
+  buildOpenAiPythonSdkSnippet,
+  buildOpenAiNodeSdkSnippet,
 } from '@/lib/marketplace';
 import type { MarketplaceRouteItem } from '@/types/marketplace';
 import { CopyButton } from '@/components/CopyButton';
@@ -44,7 +49,7 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
   const { t, locale } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedNetwork, setSelectedNetwork] = useState<string>('all');
+  const [selectedCluster, setSelectedCluster] = useState<string>('all');
   const [activeQuickPreviewSlug, setActiveQuickPreviewSlug] = useState<string | null>(null);
   const [sdkLang, setSdkLang] = useState<'python' | 'typescript'>('python');
 
@@ -56,10 +61,9 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
       ) {
         return false;
       }
-      if (selectedNetwork !== 'all') {
-        const net = route.network.toLowerCase();
-        if (selectedNetwork === 'base' && !net.includes('8453')) return false;
-        if (selectedNetwork === 'arbitrum' && !net.includes('42161')) return false;
+      if (selectedCluster !== 'all') {
+        const cluster = (route.cluster || '').toLowerCase();
+        if (!cluster.includes(selectedCluster.toLowerCase())) return false;
       }
       if (searchQuery.trim() !== '') {
         const q = searchQuery.trim().toLowerCase();
@@ -78,7 +82,7 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
       }
       return true;
     });
-  }, [initialRoutes, searchQuery, selectedCategory, selectedNetwork]);
+  }, [initialRoutes, searchQuery, selectedCategory, selectedCluster]);
 
   const totalPaidCalls24h = useMemo(
     () => initialRoutes.reduce((acc, r) => acc + (r.sla?.paid_calls_24h || 0), 0),
@@ -97,102 +101,80 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
   }, [initialRoutes, activeQuickPreviewSlug]);
 
   const sampleQuickVerifyPythonSnippet = useMemo(() => {
-    const isEn = locale === 'en';
-    const comment1 = isEn
-      ? '# 1. Import SDK and setup non-custodial local firewall (private key never leaves machine)'
-      : '# 1. 导入 SDK 并配置买方本地非托管财务防火墙（私钥永不离机）';
-    const comment2 = isEn
-      ? '# Per-request cap (0.05 USDC), local policy engine blocks execution outside prompt context'
-      : '# 单次最高预算保护 (0.05 USDC)，超额直接由本地策略引擎在 prompt 之外拦截';
-    const commentDaily = isEn
-      ? '# 24h rolling budget ceiling (1.00 USDC)'
-      : '# 24h 滚动预算上限 (1.00 USDC)';
-    const comment3 = isEn
-      ? '# 2. Initialize AgentPayClient (extends standard httpx.Client)'
-      : '# 2. 初始化 AgentPayClient（继承自标准 httpx.Client）';
-    const comment4 = isEn
-      ? '# 3. Send standard GET/POST request to gateway forwarding endpoint with automatic 402 negotiation'
-      : '# 3. 直接向网关转发端点发起标准 HTTP 请求，自动完成 402 握手与 EIP-3009 离线签名';
-
     return `import os
-from agentpay import AgentPayClient, LocalSigner
-from agentpay.policy import PolicyConfig, SQLitePolicyEngine
+# 从顶层 agentpay_core 直接导入 AgentPayClient
+from agentpay_core import AgentPayClient, PolicyConfig, SQLitePolicyEngine
 
-${comment1}
-signer = LocalSigner(os.getenv("AGENT_WALLET_KEY", "0x..."))
-
+# 1. 策略防火墙：仅配置预算和白名单域名
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
-        id="firewall",
-        name="Agent Firewall",
-        wallet_address=signer.address,
-        max_per_tx_base_units=50000,  ${comment2}
-        rolling_budget_24h_base_units=1000000,  ${commentDaily}
+        id="weather_agent",
+        max_per_tx_base_units=250000,  # 0.25 Credits
+        rolling_budget_24h_base_units=5000000,  # 5.00 Credits
+        whitelist_domains={"gate.aipmedia.cn"},
     )
 )
 
-${comment3}
-client = AgentPayClient(signer=signer, policy=policy)
-
-${comment4}
-response = client.get(
-    "${PUBLIC_GATEWAY_URL}/v1/solana/smart-money",
-    params={"timeframe": "24h"}
+# 2. 客户端直接传入 api_key，自动开启虚拟钱包模式与 402 自动握手
+client = AgentPayClient(
+    api_key=os.getenv("AGENT_API_KEY", "apk_live_xxx"),
+    policy=policy,
 )
-print(response.json())`;
-  }, [locale]);
+
+# 3. 正常发起调用
+response = client.get(
+    "https://gate.aipmedia.cn/api/v1/simple-weather",
+    params={"city": "北京"}
+)
+print("Response:", response.json())`;
+  }, []);
 
   const sampleQuickVerifyTsSnippet = useMemo(() => {
-    const isEn = locale === 'en';
-    const comment1 = isEn
-      ? '// 1. Import TypeScript SDK and setup non-custodial local firewall (private key never leaves machine)'
-      : '// 1. 导入 TypeScript SDK 并配置买方本地非托管财务防火墙（私钥永不离机）';
-    const comment2 = isEn
-      ? '// Per-request cap (0.05 USDC), local policy engine blocks execution outside prompt context'
-      : '// 单次最高预算保护 (0.05 USDC)，超额直接由本地策略引擎在 prompt 之外拦截';
-    const commentDaily = isEn
-      ? '// 24h rolling budget ceiling (1.00 USDC)'
-      : '// 24h 滚动预算上限 (1.00 USDC)';
-    const comment3 = isEn
-      ? '// 2. Initialize AgentPayClient (native fetch interceptor)'
-      : '// 2. 初始化 AgentPayClient（原生 fetch 402 支付拦截器）';
-    const comment4 = isEn
-      ? '// 3. Send standard GET/POST request to gateway forwarding endpoint with automatic 402 negotiation'
-      : '// 3. 直接向网关转发端点发起标准 HTTP 请求，自动完成 402 握手与 EIP-3009 离线签名';
+    return `import { AgentPayClient, PolicyConfig, SQLitePolicyEngine } from 'agentpay-core-sdk';
 
-    return `import { AgentPayClient, LocalSigner } from 'open-agentpay';
-import { PolicyConfig, SQLitePolicyEngine, WhitelistMode } from 'open-agentpay/policy';
-
-${comment1}
-const signer = new LocalSigner(process.env.AGENT_WALLET_KEY ?? '0x...');
-
+// 1. 策略防火墙配置
 const policy = SQLitePolicyEngine.createInMemory(
   new PolicyConfig({
-    id: 'firewall',
-    name: 'Agent Firewall',
-    walletAddress: signer.address,
-    whitelistMode: WhitelistMode.SIMPLE,
-    maxPerTxBaseUnits: 50_000n, ${comment2}
-    rollingBudget24hBaseUnits: 1_000_000n, ${commentDaily}
+    id: 'weather_agent',
+    maxPerTxBaseUnits: 250000n,
+    rollingBudget24hBaseUnits: 5000000n,
+    whitelistDomains: ['gate.aipmedia.cn'],
   })
 );
 
-${comment3}
-const client = new AgentPayClient({ signer, policy });
+// 2. 客户端直接传入 apiKey
+const client = new AgentPayClient({
+  apiKey: process.env.AGENT_API_KEY ?? 'apk_live_xxx',
+  policy,
+});
 
-${comment4}
-const response = await client.get('${PUBLIC_GATEWAY_URL}/v1/solana/smart-money', {
+// 3. 正常发起调用
+const response = await client.get('https://gate.aipmedia.cn/api/v1/simple-weather', {
   params: { timeframe: '24h' },
 });
-console.log(await response.json());`;
-  }, [locale]);
+console.log('Response:', await response.json());`;
+  }, []);
 
   const sampleQuickVerifySnippet =
     sdkLang === 'python' ? sampleQuickVerifyPythonSnippet : sampleQuickVerifyTsSnippet;
   const activeInstallCmd =
-    sdkLang === 'python' ? 'pip install open-agentpay' : 'npm install open-agentpay';
+    sdkLang === 'python' ? 'pip install agentpay-core-sdk' : 'npm install agentpay-core-sdk';
+  const isPreviewLlm = previewRoute ? isLlmRoute(previewRoute) : false;
+  const previewInstallCmd = isPreviewLlm
+    ? sdkLang === 'python'
+      ? 'pip install openai'
+      : 'npm install openai'
+    : sdkLang === 'python'
+    ? 'pip install agentpay-core-sdk'
+    : 'npm install agentpay-core-sdk';
+
   const previewSdkSnippet = useMemo(() => {
     if (!previewRoute) return '';
+    if (isLlmRoute(previewRoute)) {
+      return sdkLang === 'python'
+        ? buildOpenAiPythonSdkSnippet(previewRoute, locale)
+        : buildOpenAiNodeSdkSnippet(previewRoute, locale);
+    }
     return sdkLang === 'python'
       ? buildPythonSdkSnippet(previewRoute, locale)
       : buildTypescriptSdkSnippet(previewRoute, locale);
@@ -214,7 +196,7 @@ console.log(await response.json());`;
             <span className="text-slate-400 dark:text-slate-600">•</span>
             <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">
               <Shield className="h-3 w-3 text-indigo-600 dark:text-indigo-400" />
-              <span>{locale === 'zh' ? '自主 AI Agent 专属' : 'Built for Autonomous Agents'}</span>
+              <span>自主 AI Agent 专属</span>
             </span>
           </div>
 
@@ -260,7 +242,7 @@ console.log(await response.json());`;
                 <Flame className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />
                 {t.hero.hotSearches}
               </span>
-              {['Solana', 'DeepSeek-R1', 'Markdown Scraper', 'SEC 10-Q', 'Honeypot', 'Python Sandbox'].map(
+              {['机构聪明钱', 'DeepSeek-R1', 'Markdown Scraper', 'SEC 10-Q', 'PromptInjection', 'Python Sandbox'].map(
                 (tag) => (
                   <button
                     key={tag}
@@ -328,7 +310,7 @@ console.log(await response.json());`;
       </section>
 
       {/* ===================================================================== */}
-      {/* AgentPay Core Product Overview & SDK Verification Hub */}
+      {/* AgentFinOps Core Product Overview & SDK Verification Hub */}
       {/* ===================================================================== */}
       <section className="relative overflow-hidden rounded-3xl border border-indigo-200 bg-white/90 p-8 shadow-xl dark:border-indigo-500/30 dark:bg-gradient-to-b dark:from-[#0B1120] dark:via-slate-900/90 dark:to-[#070B14] sm:p-10 transition-colors duration-200">
         <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl" />
@@ -525,20 +507,19 @@ console.log(await response.json());`;
           </span>
           {[
             { id: 'all', label: t.filter.allNetworks },
-            { id: 'base', label: 'Base USDC' },
-            { id: 'arbitrum', label: 'Arbitrum USDC' },
-          ].map((net) => (
+            { id: 'domestic-v1', label: '华东专线集群' },
+          ].map((cluster) => (
             <button
-              key={net.id}
+              key={cluster.id}
               type="button"
-              onClick={() => setSelectedNetwork(net.id)}
+              onClick={() => setSelectedCluster(cluster.id)}
               className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                selectedNetwork === net.id
+                selectedCluster === cluster.id
                   ? 'border-cyan-500 bg-cyan-50 text-cyan-700 dark:border-cyan-500/50 dark:bg-cyan-500/15 dark:text-cyan-300'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-200'
               }`}
             >
-              {net.label}
+              {cluster.label}
             </button>
           ))}
         </div>
@@ -604,9 +585,15 @@ console.log(await response.json());`;
             </div>
           </div>
           <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-            <span className="font-mono">$ {activeInstallCmd}</span>
+            <span className="font-mono">$ {previewInstallCmd}</span>
             <span className="font-mono text-indigo-300">
-              {sdkLang === 'python' ? 'Python 3.10+' : 'Node.js 20+ / TypeScript'}
+              {isPreviewLlm
+                ? sdkLang === 'python'
+                  ? 'Python 3.8+ / openai SDK'
+                  : 'Node.js 18+ / openai SDK'
+                : sdkLang === 'python'
+                ? 'Python 3.10+'
+                : 'Node.js 20+ / TypeScript'}
             </span>
           </div>
           <pre className="mt-2 overflow-x-auto rounded-xl border border-slate-800 bg-[#050811] p-4 font-mono text-xs leading-relaxed text-slate-200">
@@ -629,7 +616,7 @@ console.log(await response.json());`;
             onClick={() => {
               setSearchQuery('');
               setSelectedCategory('all');
-              setSelectedNetwork('all');
+              setSelectedCluster('all');
             }}
             className="mt-5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-500"
           >
@@ -639,10 +626,12 @@ console.log(await response.json());`;
       ) : (
         <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
           {filteredRoutes.map((route) => {
-            const priceUsdc = formatUsdcPrice(
-              route.onchain_price_base_units || route.price_base_units
-            );
-            const netLabel = formatNetworkLabel(route.network, route.network_label);
+            const isLlm = isLlmRoute(route);
+            const llmModel = getLlmModelName(route);
+            const promptFen = formatTokenPriceFen(route.prompt_token_price_base_units ?? 1000);
+            const completionFen = formatTokenPriceFen(route.completion_token_price_base_units ?? 2000);
+            const priceCredits = formatCreditsPrice(route.price_base_units);
+            const clusterLabel = route.cluster || 'domestic-v1';
             const isHealthy = route.sla?.health_status === 'healthy';
             const isDegraded = route.sla?.health_status === 'degraded';
             const categoryLabel = t.filter.categories[route.category] || route.category;
@@ -653,11 +642,19 @@ console.log(await response.json());`;
                 className="group relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-indigo-400 hover:shadow-xl dark:border-slate-800/90 dark:bg-slate-900/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900/90 dark:hover:shadow-2xl dark:hover:shadow-indigo-950/40"
               >
                 <div>
-                  {/* Top Row: Category + Gateway Health Status */}
+                  {/* Top Row: Category + LLM Badge + Gateway Health Status */}
                   <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-700/80 dark:bg-slate-800/70 dark:text-slate-300">
-                      {categoryLabel}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {isLlm && (
+                        <span className="inline-flex items-center gap-1 rounded-lg border border-purple-500/40 bg-purple-500/10 px-2 py-0.5 text-xs font-bold text-purple-700 dark:text-purple-300">
+                          <BrainCircuit className="h-3 w-3 text-purple-600 dark:text-purple-400" />
+                          <span>LLM 大模型</span>
+                        </span>
+                      )}
+                      <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-700/80 dark:bg-slate-800/70 dark:text-slate-300">
+                        {categoryLabel}
+                      </span>
+                    </div>
 
                     <span
                       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
@@ -693,11 +690,16 @@ console.log(await response.json());`;
                     >
                       {route.title}
                     </Link>
-                    <div className="mt-1.5 flex items-center gap-2 font-mono text-xs text-slate-500 dark:text-slate-400">
+                    <div className="mt-1.5 flex items-center gap-2 font-mono text-xs text-slate-500 dark:text-slate-400 flex-wrap">
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-700 dark:bg-slate-800 dark:text-cyan-300">
                         {(route.methods || ['GET', 'POST']).join('/')}
                       </span>
                       <span className="truncate">{route.path_pattern}</span>
+                      {isLlm && (
+                        <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[11px] font-semibold text-purple-800 dark:bg-purple-950/70 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/40">
+                          model: {llmModel}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -755,17 +757,37 @@ console.log(await response.json());`;
 
                   {/* Price & Action Buttons */}
                   <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400">{netLabel}</div>
-                      <div className="flex items-baseline gap-1">
-                        <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white">
-                          {priceUsdc}
-                        </span>
-                        <span className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-                          {t.routeCard.perReq}
-                        </span>
+                    {isLlm ? (
+                      <div>
+                        <div className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                          <Sparkles className="h-3 w-3 text-purple-500" />
+                          <span>千 Tokens 流式计费</span>
+                        </div>
+                        <div className="mt-0.5 flex items-baseline gap-1 font-mono text-xs">
+                          <div className="flex items-baseline gap-1 text-slate-900 dark:text-white font-bold text-sm">
+                            <span className="text-[10px] text-slate-400 font-normal">入:</span>
+                            <span>{promptFen}</span>
+                            <span className="text-[10px] text-slate-400 font-normal ml-0.5">出:</span>
+                            <span>{completionFen}</span>
+                          </div>
+                          <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">
+                            分 / 1k
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">{clusterLabel}</div>
+                        <div className="flex items-baseline gap-1">
+                          <span className="font-mono text-lg font-extrabold text-slate-900 dark:text-white">
+                            {priceCredits}
+                          </span>
+                          <span className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                            {t.routeCard.perReq}
+                          </span>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex items-center gap-2">
                       <button
@@ -776,15 +798,19 @@ console.log(await response.json());`;
                           )
                         }
                         className="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:border-indigo-400 hover:text-indigo-700 dark:border-slate-700/80 dark:bg-slate-800/80 dark:text-slate-200 dark:hover:border-indigo-500/50 dark:hover:text-white"
-                        title="Python SDK"
+                        title={isLlm ? "OpenAI SDK 示例" : "SDK 调用示例"}
                       >
-                        <Code2 className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                        <span>{t.routeCard.sdkCode}</span>
+                        <Code2 className={`h-3.5 w-3.5 ${isLlm ? 'text-purple-600 dark:text-purple-400' : 'text-indigo-600 dark:text-indigo-400'}`} />
+                        <span>{isLlm ? 'OpenAI SDK' : t.routeCard.sdkCode}</span>
                       </button>
 
                       <Link
                         href={`/hub/${route.slug}`}
-                        className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 transition-all hover:bg-indigo-500"
+                        className={`inline-flex items-center gap-1 rounded-xl px-3.5 py-2 text-xs font-semibold text-white shadow-md transition-all ${
+                          isLlm
+                            ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/20'
+                            : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'
+                        }`}
                       >
                         <span>{t.routeCard.details}</span>
                         <ArrowUpRight className="h-3.5 w-3.5" />
@@ -866,7 +892,7 @@ console.log(await response.json());`;
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:text-white"
           >
             <ShieldCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-            <span>{locale === 'zh' ? '了解 AgentPay 核心架构' : 'AgentPay Architecture'}</span>
+            <span>了解 AgentFinOps 核心架构</span>
           </Link>
         </div>
       </section>

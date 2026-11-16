@@ -43,6 +43,11 @@ export interface MarketplaceRouteItem {
   parameters?: MarketplaceParameter[];
   sample_params?: Record<string, unknown>;
   sample_response?: Record<string, unknown>;
+  route_type?: 'llm' | 'standard' | string;
+  model_name?: string;
+  pricing_type?: 'per_token' | 'per_call' | string;
+  prompt_token_price_base_units?: number;
+  completion_token_price_base_units?: number;
   created_at: number;
   updated_at: number;
 }
