@@ -219,7 +219,6 @@ async function handleSubmit() {
       upstream_url: form.upstream_url,
       methods: ['POST', 'GET'],
       allowed_payment_methods: 'wallet',
-      payee_address: '',
       price_base_units: promptBaseUnits.value,
       prompt_token_price_base_units: promptBaseUnits.value,
       completion_token_price_base_units: completionBaseUnits.value,
@@ -331,18 +330,17 @@ async function handleSubmit() {
       </el-form-item>
 
       <el-form-item :label="t('厂商 API Key')">
-        <div class="row-flex">
+        <div class="api-key-row">
           <el-input
             v-model="form.api_key"
             type="password"
             show-password
             :placeholder="t('输入上游厂商的 API Key (AES-256 原生加密)')"
-            class="flex-1"
+            class="api-key-input"
           />
           <el-button
             :loading="testingPing"
             type="primary"
-            plain
             class="ping-btn"
             @click="handlePingTest"
           >
@@ -366,10 +364,11 @@ async function handleSubmit() {
             :precision="6"
             :step="0.0005"
             :min="0"
+            controls-position="right"
             style="width: 100%"
           />
           <div class="price-hint">
-            ≈ {{ formatPriceInFen(form.prompt_token_price_cny) }} {{ t('分 / 千Tokens') }}
+            ≈ {{ formatPriceInFen(form.prompt_token_price_cny) }} {{ t('分 / 1k Tokens') }}
           </div>
         </el-form-item>
 
@@ -379,10 +378,11 @@ async function handleSubmit() {
             :precision="6"
             :step="0.001"
             :min="0"
+            controls-position="right"
             style="width: 100%"
           />
           <div class="price-hint">
-            ≈ {{ formatPriceInFen(form.completion_token_price_cny) }} {{ t('分 / 千Tokens') }}
+            ≈ {{ formatPriceInFen(form.completion_token_price_cny) }} {{ t('分 / 1k Tokens') }}
           </div>
         </el-form-item>
       </div>
@@ -467,6 +467,17 @@ async function handleSubmit() {
 .provider-card.active .preset-sub {
   color: #3b82f6;
 }
+.api-key-row {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+.api-key-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .row-flex {
   display: flex !important;
   align-items: center;
@@ -475,14 +486,17 @@ async function handleSubmit() {
 }
 .flex-1 {
   flex: 1 1 auto;
+  min-width: 0;
 }
 .model-select-wrapper {
   width: 100%;
 }
 .ping-btn {
   flex-shrink: 0;
-  width: 104px;
+  white-space: nowrap;
   height: 32px;
+  padding: 0 16px;
+  font-weight: 500;
 }
 .action-btn {
   flex-shrink: 0;
