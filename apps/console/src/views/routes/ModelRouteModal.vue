@@ -7,7 +7,9 @@ import { t } from '@/i18n';
 interface ProviderPreset {
   id: string;
   name: string;
+  subtitle: string;
   logoText: string;
+  badgeBg: string;
   defaultUrl: string;
   models: { label: string; value: string; promptPrice: number; completionPrice: number }[];
 }
@@ -16,7 +18,9 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'deepseek',
     name: 'DeepSeek',
+    subtitle: '深度求索 (官方)',
     logoText: 'DS',
+    badgeBg: '#1e40af',
     defaultUrl: 'https://api.deepseek.com',
     models: [
       { label: 'deepseek-chat (V3)', value: 'deepseek-chat', promptPrice: 1000, completionPrice: 2000 },
@@ -25,8 +29,10 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     id: 'dashscope',
-    name: '阿里云百炼 (通义千问)',
+    name: '通义千问',
+    subtitle: '阿里云百炼',
     logoText: 'QW',
+    badgeBg: '#ea580c',
     defaultUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     models: [
       { label: 'qwen-plus', value: 'qwen-plus', promptPrice: 4000, completionPrice: 12000 },
@@ -36,8 +42,10 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     id: 'openai',
-    name: 'OpenAI (官方/中转)',
+    name: 'OpenAI',
+    subtitle: '官方 / 兼容中转',
     logoText: 'AI',
+    badgeBg: '#059669',
     defaultUrl: 'https://api.openai.com/v1',
     models: [
       { label: 'gpt-4o', value: 'gpt-4o', promptPrice: 18000, completionPrice: 72000 },
@@ -46,8 +54,10 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   {
     id: 'custom',
-    name: '私有部署 / 兼容网关 (Ollama/vLLM)',
+    name: '私有部署',
+    subtitle: 'Ollama / vLLM',
     logoText: 'LLM',
+    badgeBg: '#475569',
     defaultUrl: 'http://localhost:11434/v1',
     models: [],
   },
@@ -235,27 +245,31 @@ async function handleSubmit() {
   <el-dialog
     :model-value="visible"
     :title="initialRoute ? t('编辑大模型路由') : t('接入大模型 (Model Gateway 向导)')"
-    width="740px"
+    width="760px"
     destroy-on-close
+    class="model-route-dialog"
     @update:model-value="(val: boolean) => emit('update:visible', val)"
   >
     <!-- 厂商选择卡片 (仅新建时显示) -->
-    <div v-if="!initialRoute" class="provider-grid mb-6">
+    <div v-if="!initialRoute" class="provider-grid">
       <div
         v-for="preset in PROVIDER_PRESETS"
         :key="preset.id"
         class="provider-card"
         :class="{ active: selectedProviderId === preset.id }"
+        role="button"
+        tabindex="0"
         @click="selectProvider(preset)"
       >
-        <div class="logo-box">{{ preset.logoText }}</div>
+        <div class="logo-box" :style="{ backgroundColor: preset.badgeBg }">{{ preset.logoText }}</div>
         <div class="preset-name">{{ preset.name }}</div>
+        <div class="preset-sub">{{ preset.subtitle }}</div>
       </div>
     </div>
 
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="140px" label-position="left">
+    <el-form ref="formRef" :model="form" :rules="rules" label-width="130px" label-position="left" class="model-form">
       <el-form-item :label="t('归属项目')" prop="project_id">
-        <el-select v-model="form.project_id" class="w-full">
+        <el-select v-model="form.project_id" style="width: 100%">
           <el-option
             v-for="project in projects"
             :key="project.project_id"
@@ -266,28 +280,38 @@ async function handleSubmit() {
       </el-form-item>
 
       <el-form-item :label="t('模型标识名')" prop="model_name">
-        <div class="flex gap-2 w-full">
+        <div v-if="currentPreset.models.length > 0 && !isCustomModel" class="model-select-wrapper">
           <el-select
-            v-if="currentPreset.models.length > 0 && !isCustomModel"
             :model-value="form.model_name"
-            class="w-1/2"
+            style="width: 100%"
             @change="onModelSelect"
           >
             <el-option
               v-for="m in currentPreset.models"
               :key="m.value"
-              :label="m.label"
+              :label="`${m.label} (${m.value})`"
               :value="m.value"
             />
-            <el-option :label="t('自定义模型名...')" value="__custom__" />
+            <el-option :label="t('➕ 手动输入自定义模型名...')" value="__custom__" />
           </el-select>
+        </div>
+        <div v-else class="row-flex">
           <el-input
             v-model="form.model_name"
-            :placeholder="t('例如: deepseek-chat, gpt-4o')"
-            :class="currentPreset.models.length > 0 && !isCustomModel ? 'w-1/2' : 'w-full'"
+            :placeholder="t('例如: deepseek-chat, qwen-plus, gpt-4o')"
+            class="flex-1"
           />
+          <el-button
+            v-if="currentPreset.models.length > 0"
+            type="info"
+            plain
+            class="action-btn"
+            @click="isCustomModel = false; form.model_name = currentPreset.models[0].value; onModelSelect(currentPreset.models[0].value)"
+          >
+            {{ t('返回预设模型') }}
+          </el-button>
         </div>
-        <div class="text-xs text-gray-500 mt-1">
+        <div class="hint-text">
           {{ t('客户端请求 /v1/chat/completions 时传入的 "model" 参数，将自动命中此路由。') }}
         </div>
       </el-form-item>
@@ -301,58 +325,67 @@ async function handleSubmit() {
       </el-form-item>
 
       <el-form-item :label="t('厂商 API Key')">
-        <div class="flex gap-2 w-full">
+        <div class="row-flex">
           <el-input
             v-model="form.api_key"
             type="password"
             show-password
             :placeholder="t('输入上游厂商的 API Key (AES-256 原生加密)')"
+            class="flex-1"
           />
-          <el-button :loading="testingPing" @click="handlePingTest">
+          <el-button
+            :loading="testingPing"
+            type="primary"
+            plain
+            class="ping-btn"
+            @click="handlePingTest"
+          >
             {{ t('连通测试') }}
           </el-button>
         </div>
-        <div v-if="pingSuccess === true" class="text-xs text-green-600 mt-1">
+        <div v-if="pingSuccess === true" class="success-text">
           ✓ {{ t('上游握手与验证成功') }}
         </div>
       </el-form-item>
 
       <!-- 流式计费价格设定 (微单位换算器) -->
       <el-divider content-position="left">
-        <span class="text-sm font-semibold text-gray-700">{{ t('Token 流式微计费定价策略 (千Tokens)') }}</span>
+        <span class="divider-title">{{ t('Token 流式微计费定价策略 (千Tokens)') }}</span>
       </el-divider>
 
-      <div class="grid grid-cols-2 gap-4">
-        <el-form-item :label="t('输入 (Prompt)')">
+      <div class="pricing-grid">
+        <el-form-item :label="t('输入 (Prompt)')" class="compact-item" label-width="110px">
           <el-input-number
             v-model="form.prompt_token_price_cny"
             :precision="6"
             :step="0.0005"
             :min="0"
-            class="w-full"
+            style="width: 100%"
           />
-          <div class="text-xs text-gray-500 mt-1">
+          <div class="price-hint">
             ≈ {{ promptBaseUnits.toLocaleString() }} {{ t('微单位 / 千Tokens') }}
           </div>
         </el-form-item>
 
-        <el-form-item :label="t('输出 (Completion)')">
+        <el-form-item :label="t('输出 (Completion)')" class="compact-item" label-width="110px">
           <el-input-number
             v-model="form.completion_token_price_cny"
             :precision="6"
             :step="0.001"
             :min="0"
-            class="w-full"
+            style="width: 100%"
           />
-          <div class="text-xs text-gray-500 mt-1">
+          <div class="price-hint">
             ≈ {{ completionBaseUnits.toLocaleString() }} {{ t('微单位 / 千Tokens') }}
           </div>
         </el-form-item>
       </div>
 
       <el-form-item :label="t('流式断流预算保护')">
-        <el-input-number v-model="form.timeout_ms" :step="5000" :min="1000" class="w-1/2" />
-        <span class="ml-2 text-xs text-gray-500">{{ t('毫秒超时 (默认 60000ms)') }}</span>
+        <div class="row-flex" style="justify-content: flex-start;">
+          <el-input-number v-model="form.timeout_ms" :step="5000" :min="1000" style="width: 160px;" />
+          <span class="hint-inline">{{ t('毫秒超时 (默认 60000ms，防止大模型卡顿/死循环)') }}</span>
+        </div>
       </el-form-item>
     </el-form>
 
@@ -370,41 +403,124 @@ async function handleSubmit() {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
+  margin-bottom: 24px;
 }
 .provider-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 12px 8px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 6px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.2s ease;
-  background-color: #f9fafb;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background-color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 86px;
+  user-select: none;
 }
 .provider-card:hover {
   border-color: #3b82f6;
-  background-color: #eff6ff;
+  background-color: #f8fafc;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 .provider-card.active {
   border-color: #2563eb;
-  background-color: #dbeafe;
-  box-shadow: 0 0 0 1px #2563eb;
+  background-color: #eff6ff;
+  box-shadow: 0 0 0 1px #2563eb, 0 4px 12px rgba(37, 99, 235, 0.12);
 }
 .logo-box {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-weight: 700;
-  font-size: 14px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background-color: #1e293b;
-  color: #fff;
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: #ffffff;
   margin-bottom: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 .preset-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.2;
+}
+.preset-sub {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 3px;
+  line-height: 1.2;
+}
+.provider-card.active .preset-name {
+  color: #1d4ed8;
+}
+.provider-card.active .preset-sub {
+  color: #3b82f6;
+}
+.row-flex {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.flex-1 {
+  flex: 1 1 auto;
+}
+.model-select-wrapper {
+  width: 100%;
+}
+.ping-btn {
+  flex-shrink: 0;
+  width: 104px;
+  height: 32px;
+}
+.action-btn {
+  flex-shrink: 0;
+  height: 32px;
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+}
+.compact-item {
+  margin-bottom: 16px;
+}
+.divider-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+.hint-text {
   font-size: 12px;
+  color: #94a3b8;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+.hint-inline {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-left: 8px;
+}
+.success-text {
+  font-size: 12px;
+  color: #16a34a;
+  margin-top: 4px;
+  line-height: 1.4;
   font-weight: 500;
-  color: #374151;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.price-hint {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.compact-item :deep(.el-form-item__label) {
+  padding-bottom: 0;
 }
 </style>
