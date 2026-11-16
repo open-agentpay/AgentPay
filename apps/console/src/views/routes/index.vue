@@ -11,6 +11,7 @@ import PermissionGate from '@/components/PermissionGate.vue';
 import ValidationDiagnosticModal from '@/components/ValidationDiagnosticModal.vue';
 import DraftDiffDrawer from '@/components/DraftDiffDrawer.vue';
 import AuthConfigForm from '@/components/AuthConfigForm.vue';
+import ModelRouteModal from './ModelRouteModal.vue';
 import { t } from '@/i18n';
 
 const authStore = useAuthStore();
@@ -19,6 +20,8 @@ const tenantStore = useTenantStore();
 const loading = ref(false);
 const routes = ref<Route[]>([]);
 const selectedProjectFilter = ref<string>('');
+const routeTypeFilter = ref<'all' | 'api' | 'llm'>('all');
+const modelModalVisible = ref(false);
 
 // Draft validation & diff state
 const draftSummary = ref<ConfigDraftSummary | null>(null);
@@ -35,11 +38,34 @@ const canManage = computed(() => authStore.hasRole(['owner', 'admin']));
 
 // Filtered Routes
 const filteredRoutes = computed(() => {
-  if (!selectedProjectFilter.value) {
-    return routes.value;
+  let list = routes.value;
+  if (selectedProjectFilter.value) {
+    list = list.filter((r) => r.project_id === selectedProjectFilter.value);
   }
-  return routes.value.filter((r) => r.project_id === selectedProjectFilter.value);
+  if (routeTypeFilter.value !== 'all') {
+    list = list.filter((r) => {
+      const type = r.route_type || 'api';
+      return type === routeTypeFilter.value;
+    });
+  }
+  return list;
 });
+
+async function handleModelRouteSubmit(payload: CreateRoutePayload) {
+  if (!tenantStore.currentTenantId) return;
+  loading.value = true;
+  try {
+    await routeApi.createRoute(tenantStore.currentTenantId, payload);
+    ElMessage.success(t('大模型路由接入成功，已加入配置工作草稿！'));
+    await loadRoutes();
+    await loadDraftSummary();
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? t(err.message) : t('接入大模型路由失败');
+    ElMessage.error(msg);
+  } finally {
+    loading.value = false;
+  }
+}
 
 // Load Routes from API
 async function loadRoutes() {
@@ -823,12 +849,17 @@ function copyToClipboard(text: string) {
         <div class="header-box">
           <div class="header-left">
             <span class="title">{{ $t('网关路由与上游配置') }}</span>
+            <el-radio-group v-model="routeTypeFilter" size="small" style="margin-left: 16px">
+              <el-radio-button label="all">{{ $t('全部') }}</el-radio-button>
+              <el-radio-button label="api">{{ $t('传统 API') }}</el-radio-button>
+              <el-radio-button label="llm">{{ $t('大模型 (LLM)') }}</el-radio-button>
+            </el-radio-group>
             <el-select
               v-model="selectedProjectFilter"
               :placeholder="$t('按项目过滤')"
               clearable
               size="default"
-              style="width: 220px; margin-left: 12px"
+              style="width: 180px; margin-left: 12px"
             >
               <el-option :label="$t('全部项目')" value="" />
               <el-option
@@ -841,6 +872,9 @@ function copyToClipboard(text: string) {
           </div>
           <div class="header-right">
             <PermissionGate :roles="['owner', 'admin']">
+              <el-button type="success" plain icon="Cpu" @click="modelModalVisible = true">
+                {{ $t('接入大模型 (Model Gateway)') }}
+              </el-button>
               <el-button type="primary" icon="Plus" @click="openCreateDialog">
                 {{ $t('新建代理路由') }}
               </el-button>
@@ -936,10 +970,18 @@ function copyToClipboard(text: string) {
 
       <!-- Routes Table -->
       <el-table v-loading="loading" :data="filteredRoutes" stripe style="width: 100%">
-        <el-table-column prop="path_pattern" :label="$t('暴露路径')" min-width="220">
+        <el-table-column prop="path_pattern" :label="$t('暴露路径 / 模型')" min-width="240">
           <template #default="{ row }">
             <div>
               <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
+                <el-tag
+                  v-if="row.route_type === 'llm'"
+                  size="small"
+                  effect="dark"
+                  style="font-weight: 700; font-size: 10px; background-color: #7c3aed; border: none; padding: 0 5px; height: 18px; line-height: 18px"
+                >
+                  LLM
+                </el-tag>
                 <el-tag
                   v-for="m in (row.methods && row.methods.length > 0 ? row.methods : ['POST'])"
                   :key="m"
@@ -951,6 +993,9 @@ function copyToClipboard(text: string) {
                   {{ m }}
                 </el-tag>
                 <code class="code-path">{{ row.path_pattern }}</code>
+                <el-tag v-if="row.model_name" size="small" type="warning" effect="plain" style="font-size: 11px">
+                  {{ row.model_name }}
+                </el-tag>
               </div>
               <div v-if="row.title" class="text-muted" style="font-size: 12px; margin-top: 2px">
                 {{ row.title }}
@@ -1036,9 +1081,13 @@ function copyToClipboard(text: string) {
           </template>
         </el-table-column>
 
-        <el-table-column :label="$t('单次定价')" width="180">
+        <el-table-column :label="$t('计费定价策略')" width="220">
           <template #default="{ row }">
-            <span v-if="row.allowed_payment_methods === 'wallet'" class="price-text">
+            <div v-if="row.route_type === 'llm' || row.pricing_type === 'per_token'" style="font-size: 12px; line-height: 1.4">
+              <div class="text-muted">{{ $t('输入') }}: {{ tenantStore.currencySymbol }} {{ ((row.prompt_token_price_base_units || 0) / 1000000).toFixed(4) }} / 1k</div>
+              <div class="text-muted">{{ $t('输出') }}: {{ tenantStore.currencySymbol }} {{ ((row.completion_token_price_base_units || 0) / 1000000).toFixed(4) }} / 1k</div>
+            </div>
+            <span v-else-if="row.allowed_payment_methods === 'wallet'" class="price-text">
               {{ tenantStore.currencySymbol }} {{ (row.price_base_units / 1000000).toFixed(4) }} {{ tenantStore.currentCurrency }}
             </span>
             <span v-else-if="row.allowed_payment_methods === 'onchain'" class="price-text">
@@ -2047,6 +2096,14 @@ function copyToClipboard(text: string) {
     <DraftDiffDrawer
       v-model="diffDrawerVisible"
       :diff="draftDiff"
+    />
+
+    <!-- Model Gateway Route Modal -->
+    <ModelRouteModal
+      v-model:visible="modelModalVisible"
+      :projects="tenantStore.projects"
+      :default-project-id="selectedProjectFilter || tenantStore.currentProject?.project_id"
+      @submit="handleModelRouteSubmit"
     />
   </div>
 </template>
