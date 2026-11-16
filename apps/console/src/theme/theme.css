@@ -12,6 +12,16 @@
   --app-aside-active-text: #4f46e5;
   --app-card-bg: #ffffff;
   --app-card-border: #e2e8f0;
+
+  /* Modern Web Guidance: Color Scheme & Brand Controls */
+  color-scheme: light;
+  accent-color: #4f46e5;
+
+  /* Modern Native Scrollbars */
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-track: transparent;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
 }
 
 html.dark {
@@ -28,12 +38,54 @@ html.dark {
   --app-aside-active-text: #818cf8;
   --app-card-bg: #0d1322;
   --app-card-border: #1e293b;
+
+  /* Modern Web Guidance: Dark Theme */
+  color-scheme: dark;
+  --scrollbar-thumb: #334155;
+  --scrollbar-track: transparent;
 }
 
 html, body {
   background-color: var(--app-bg-page);
   color: var(--app-text-primary);
   transition: background-color 0.25s ease, color 0.25s ease;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+/* Modern Typography & Legibility */
+h1, h2, h3, h4, h5, h6, .el-dialog__title {
+  text-wrap: balance;
+}
+
+p, .form-hint, .hint-text {
+  text-wrap: pretty;
+}
+
+/* Tabular Numerics for Financial & Token Balances */
+.tabular-nums, .price-hint, .amount-cell, .wallet-balance, .balance-num, .token-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessible Focus Ring */
+:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+/* Legacy fallback for WebKit browsers */
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-track {
+    background-color: var(--scrollbar-track);
+  }
 }
 
 /* Refined Dark Mode Overrides for Element Plus */
