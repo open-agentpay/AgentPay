@@ -160,6 +160,9 @@ for _mod_key in ("agentpay.core.models", "agentpay.protocol.models"):
         setattr(sys.modules[_mod_key], "SignatureData", SignatureData)
         setattr(sys.modules[_mod_key], "_validate_evm_address", _validate_evm_address)
 
+from agentpay import llm
+from agentpay.llm import MidStreamBudgetExhaustedError, create_openai_client, parse_stream_chunk
+
 __all__ = [
     "HEADER_PAYMENT_REQUIRED",
     "HEADER_PAYMENT_SIGNATURE",
@@ -186,11 +189,15 @@ __all__ = [
     "WhitelistMode",
     "__version__",
     "create_buyer_connection",
+    "create_openai_client",
     "decode_authorization",
     "decode_challenge",
     "encode_authorization",
     "encode_challenge",
     "evaluate_static_rules",
     "init_buyer_database",
+    "llm",
     "load_policy_config",
+    "MidStreamBudgetExhaustedError",
+    "parse_stream_chunk",
 ]
