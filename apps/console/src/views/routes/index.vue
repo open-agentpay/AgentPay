@@ -514,7 +514,7 @@ async function handleCreateRoute() {
         path_pattern: createForm.path_pattern.trim(),
         methods: createForm.methods.length > 0 ? createForm.methods : ['POST'],
         upstream_url: createForm.upstream_url.trim(),
-        price_base_units: priceBaseUnits,
+        price_base_units: createForm.pricing_type === 'per_token' ? promptUnits : priceBaseUnits,
         asset: isOnchainOnly ? 'USDC' : tenantStore.currentCurrency,
         onchain_price_base_units: isWalletOnly ? 0 : onchainPriceBaseUnits,
         onchain_asset: 'USDC',
@@ -666,8 +666,8 @@ function openEditDialog(route: Route) {
   editForm.route_type = route.route_type || 'api';
   editForm.model_name = route.model_name || '';
   editForm.pricing_type = route.pricing_type || (route.route_type === 'llm' ? 'per_token' : 'fixed');
-  editForm.prompt_token_price_credits = (route.prompt_token_price_base_units || 0) / 1000000;
-  editForm.completion_token_price_credits = (route.completion_token_price_base_units || 0) / 1000000;
+  editForm.prompt_token_price_credits = (route.prompt_token_price_base_units || route.price_base_units || 0) / 1000000;
+  editForm.completion_token_price_credits = (route.completion_token_price_base_units || (route.prompt_token_price_base_units ? route.prompt_token_price_base_units * 2 : route.price_base_units ? route.price_base_units * 2 : 0)) / 1000000;
   editForm.slug = route.slug || '';
   editForm.title = route.title || '';
   editForm.summary = route.summary || '';
@@ -783,7 +783,7 @@ async function handleUpdateRoute() {
         path_pattern: editForm.path_pattern.trim(),
         methods: editForm.methods.length > 0 ? editForm.methods : ['POST'],
         upstream_url: editForm.upstream_url.trim(),
-        price_base_units: priceBaseUnits,
+        price_base_units: createForm.pricing_type === 'per_token' ? promptUnits : priceBaseUnits,
         asset: isOnchainOnly ? 'USDC' : tenantStore.currentCurrency,
         onchain_price_base_units: isWalletOnly ? 0 : onchainPriceBaseUnits,
         onchain_asset: 'USDC',
