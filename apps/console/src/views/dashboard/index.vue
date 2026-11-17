@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useTenantStore } from '@/stores/tenant';
 import PermissionGate from '@/components/PermissionGate.vue';
+import RouteTelemetryPanel from './components/RouteTelemetryPanel.vue';
 import { useI18n } from '@/i18n';
 import {
   routeApi,
@@ -312,6 +313,12 @@ const rolePermissionsList = computed(() => {
         style="margin-top: 10px;"
       />
     </el-card>
+
+    <!-- Modular Route Performance & LLM Telemetry Panel -->
+    <RouteTelemetryPanel
+      :tenant-id="tenantStore.currentTenantId"
+      :project-id="tenantStore.currentProjectId"
+    />
 
     <!-- Telemetry Data Grid: Recent Payments & Proxy Routes -->
     <el-row :gutter="16" style="margin-top: 16px;">

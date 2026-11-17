@@ -11,11 +11,9 @@ import {
   MOCK_AGENT_TIMELINE,
   MOCK_PAYMENTS
 } from './mockData';
-import type {
-  PaymentAuditRecord,
-  PaymentAuditQuery,
-  PaymentListResponse
-} from '@/types/payment';
+import type { PaymentAuditRecord, PaymentAuditQuery, PaymentListResponse } from '@/types/payment';
+import type { AuditEvent } from '@/types/audit';
+import type { RouteTelemetryOverviewResponse } from '@/types/telemetry';
 import type {
   LoginRequest,
   LoginResponse,
@@ -1150,6 +1148,51 @@ export const paymentApi = {
       const item = list.find((p) => p.request_id === requestId);
       if (item) return item;
       throw new Error('未找到该请求对应的支付记录');
+    }
+  }
+};
+
+export const analyticsApi = {
+  async getRouteTelemetry(
+    tenantId: string,
+    params?: { time_range?: string; project_id?: string }
+  ): Promise<RouteTelemetryOverviewResponse> {
+    const query = new URLSearchParams();
+    if (params?.time_range) query.set('time_range', params.time_range);
+    if (params?.project_id) query.set('project_id', params.project_id);
+
+    const qs = query.toString();
+    const url = `/tenants/${tenantId}/analytics/routes-overview${qs ? `?${qs}` : ''}`;
+    const response = await apiClient.get<RouteTelemetryOverviewResponse>(url);
+    return response.data;
+  }
+};
+
+export const auditApi = {
+  async listEvents(
+    tenantId: string,
+    params?: { target_type?: string; target_id?: string; limit?: number }
+  ): Promise<AuditEvent[]> {
+    const query = new URLSearchParams();
+    if (params?.target_type) query.set('target_type', params.target_type);
+    if (params?.target_id) query.set('target_id', params.target_id);
+    if (params?.limit) query.set('limit', String(params.limit));
+
+    const qs = query.toString();
+    try {
+      const response = await apiClient.get<{ count: number; items: AuditEvent[] }>(
+        `/tenants/${tenantId}/audit-events${qs ? `?${qs}` : ''}`
+      );
+      return response.data.items || [];
+    } catch {
+      try {
+        const fallback = await apiClient.get<{ count: number; items: AuditEvent[] }>(
+          `/audit/events${qs ? `?${qs}` : ''}`
+        );
+        return fallback.data.items || [];
+      } catch {
+        return [];
+      }
     }
   }
 };

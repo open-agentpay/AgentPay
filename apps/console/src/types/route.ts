@@ -40,7 +40,7 @@ export interface Route {
   asset: string;
   onchain_price_base_units?: number;
   onchain_asset?: string;
-  payee_address: string;
+  payee_address?: string;
   allowed_payment_methods: PaymentMethod;
   rate_limit_rpm: number;
   timeout_ms: number;
@@ -78,7 +78,7 @@ export interface CreateRoutePayload {
   asset?: string;
   onchain_price_base_units?: number;
   onchain_asset?: string;
-  payee_address: string;
+  payee_address?: string;
   allowed_payment_methods: PaymentMethod;
   rate_limit_rpm?: number;
   timeout_ms?: number;
