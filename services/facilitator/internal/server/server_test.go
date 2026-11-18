@@ -176,4 +176,29 @@ func TestHTTPServerEndpoints(t *testing.T) {
 	if lookupStatus.SettlementID != settleResult.SettlementID {
 		t.Fatalf("mismatched lookup settlement ID: expected %s, got %s", settleResult.SettlementID, lookupStatus.SettlementID)
 	}
+
+	// 7. GET /v1/gas/estimate without auth -> 401
+	gasUnauthReq := httptest.NewRequest(http.MethodGet, "/v1/gas/estimate?network=eip155:84532", nil)
+	gasUnauthRec := httptest.NewRecorder()
+	handler.ServeHTTP(gasUnauthRec, gasUnauthReq)
+	if gasUnauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated /v1/gas/estimate, got %d", gasUnauthRec.Code)
+	}
+
+	// 7b. GET /v1/gas/estimate with auth -> 200 OK
+	gasReq := httptest.NewRequest(http.MethodGet, "/v1/gas/estimate?network=eip155:84532&slippage=10.0", nil)
+	gasReq.Header.Set("Authorization", "Bearer "+cfg.Security.APIKey)
+	gasRec := httptest.NewRecorder()
+	handler.ServeHTTP(gasRec, gasReq)
+	if gasRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /v1/gas/estimate, got %d (body: %s)", gasRec.Code, gasRec.Body.String())
+	}
+
+	var gasResp models.GasEstimateResponse
+	if err := json.NewDecoder(gasRec.Body).Decode(&gasResp); err != nil {
+		t.Fatalf("failed to decode gas estimate response: %v", err)
+	}
+	if gasResp.SurchargeBaseUnits <= 0 {
+		t.Fatalf("expected positive surchargeBaseUnits, got %d", gasResp.SurchargeBaseUnits)
+	}
 }

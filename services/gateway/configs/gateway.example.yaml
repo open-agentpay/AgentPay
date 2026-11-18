@@ -36,6 +36,19 @@ settlement:
   default_asset_symbol: "USDC"
   default_asset_decimals: 6
   default_pay_to: "0x0000000000000000000000000000000000000000" # Replace with your payee wallet address
+  gas_policy:
+    default_mode: "dynamic_surcharge"  # Mode 1: subsidized, Mode 2: dynamic_surcharge, Mode 3: batch_aggregated
+    slippage_buffer_pct: 10.0          # 10% safety buffer against fee spikes
+    max_acceptable_gas_usd: 0.05       # Circuit breaker if gas exceeds $0.05
+    networks:
+      "eip155:421614":                 # Arbitrum Sepolia
+        mode: "dynamic_surcharge"
+        slippage_buffer_pct: 10.0
+        max_acceptable_gas_usd: 0.05
+      "eip155:84532":                  # Base Sepolia
+        mode: "subsidized"
+        slippage_buffer_pct: 10.0
+        max_acceptable_gas_usd: 0.05
 
 logger:
   level: "info"

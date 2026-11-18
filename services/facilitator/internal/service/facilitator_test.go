@@ -221,3 +221,56 @@ func TestP05PayeeAllowlistSettleReverifyAndLowGasHalt(t *testing.T) {
 		t.Fatalf("expected Settle to succeed after gas balance restored, got err=%v", err)
 	}
 }
+
+func TestEstimateGasSurchargeDynamicFormula(t *testing.T) {
+	mockClient := agentevm.NewMockClient(big.NewInt(421614))
+	svc := createTestService(mockClient)
+	svc.SetNativePriceUSD(2000.0) // 2000 USD/ETH
+
+	res, err := svc.EstimateGasSurcharge(context.Background(), "eip155:421614", "0xUSDC", 10.0)
+	if err != nil {
+		t.Fatalf("unexpected error estimating gas surcharge: %v", err)
+	}
+
+	if res.GasLimit != 85000 {
+		t.Errorf("expected gas limit 85000, got %d", res.GasLimit)
+	}
+	if res.SurchargeBaseUnits <= 0 {
+		t.Errorf("expected positive surcharge base units, got %d", res.SurchargeBaseUnits)
+	}
+	if res.SlippageBufferPct != 10.0 {
+		t.Errorf("expected slippage 10.0, got %f", res.SlippageBufferPct)
+	}
+}
+
+func TestBatchSettle(t *testing.T) {
+	mockClient := agentevm.NewMockClient(big.NewInt(84532))
+	svc := createTestService(mockClient)
+	ch, auth := getValidTestData()
+	ctx := context.Background()
+
+	vResp, err := svc.Verify(ctx, &models.VerifyRequest{
+		Challenge:     *ch,
+		Authorization: *auth,
+	})
+	if err != nil {
+		t.Fatalf("verify failed: %v", err)
+	}
+
+	batchReq := &models.BatchSettleRequest{
+		Settlements: []models.SettleRequest{
+			{
+				VerificationToken: vResp.VerificationToken,
+				Authorization:     *auth,
+			},
+		},
+	}
+
+	bResp, err := svc.BatchSettle(ctx, batchReq)
+	if err != nil {
+		t.Fatalf("batch settle failed: %v", err)
+	}
+	if bResp.TotalCount != 1 || len(bResp.SettlementIDs) != 1 {
+		t.Fatalf("expected 1 settled item in batch, got %d", bResp.TotalCount)
+	}
+}

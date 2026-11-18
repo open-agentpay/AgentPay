@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import {
   PUBLIC_GATEWAY_URL,
   PUBLIC_SITE_URL,
@@ -9,6 +9,7 @@ import {
   formatUsdcPrice,
   getMarketplaceRouteBySlug,
   getMarketplaceRoutes,
+  getRandomMarketplaceRoute,
 } from '@/lib/marketplace';
 import { RouteDetailView } from '@/components/RouteDetailView';
 
@@ -64,6 +65,13 @@ export default async function RouteDetailPage(context: {
 }) {
   const { slug } = await context.params;
   const route = await getMarketplaceRouteBySlug(slug);
+
+  if (!route && (slug === 'solana-smart-money-tracker-x402-api' || slug === 'random' || slug === 'example')) {
+    const randomRoute = await getRandomMarketplaceRoute();
+    if (randomRoute?.slug) {
+      redirect(`/hub/${randomRoute.slug}`);
+    }
+  }
 
   if (!route) {
     notFound();

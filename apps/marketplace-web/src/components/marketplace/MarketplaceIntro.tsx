@@ -6,10 +6,37 @@ import { CopyButton } from '@/components/CopyButton';
 import { useI18n } from '@/i18n/context';
 
 export function MarketplaceIntro() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [sdkLang, setSdkLang] = useState<'python' | 'typescript'>('python');
 
-  const pythonSnippet = `import os
+  const pythonSnippet =
+    locale === 'en'
+      ? `import os
+from agentpay_core import AgentPayClient, PolicyConfig, SQLitePolicyEngine
+
+# 1. Policy Firewall: configure per-call budget and domain whitelist
+policy = SQLitePolicyEngine.create_in_memory(
+    PolicyConfig(
+        id="weather_agent",
+        max_per_tx_base_units=250000,  # 0.25 Credits
+        rolling_budget_24h_base_units=5000000,  # 5.00 Credits
+        whitelist_domains={"gate.aipmedia.cn"},
+    )
+)
+
+# 2. Pass api_key directly; automatic virtual wallet & 402 handshake
+client = AgentPayClient(
+    api_key=os.getenv("AGENT_API_KEY", "apk_live_xxx"),
+    policy=policy,
+)
+
+# 3. Invoke endpoint normally
+response = client.get(
+    "https://gate.aipmedia.cn/api/v1/simple-weather",
+    params={"city": "Beijing"}
+)
+print("Response:", response.json())`
+      : `import os
 from agentpay_core import AgentPayClient, PolicyConfig, SQLitePolicyEngine
 
 # 1. 策略防火墙：仅配置预算和白名单域名
@@ -35,7 +62,32 @@ response = client.get(
 )
 print("Response:", response.json())`;
 
-  const tsSnippet = `import { AgentPayClient, PolicyConfig, SQLitePolicyEngine } from 'agentpay-core-sdk';
+  const tsSnippet =
+    locale === 'en'
+      ? `import { AgentPayClient, PolicyConfig, SQLitePolicyEngine } from 'agentpay-core-sdk';
+
+// 1. Policy Firewall configuration
+const policy = SQLitePolicyEngine.createInMemory(
+  new PolicyConfig({
+    id: 'weather_agent',
+    maxPerTxBaseUnits: 250000n,
+    rollingBudget24hBaseUnits: 5000000n,
+    whitelistDomains: ['gate.aipmedia.cn'],
+  })
+);
+
+// 2. Pass apiKey directly
+const client = new AgentPayClient({
+  apiKey: process.env.AGENT_API_KEY ?? 'apk_live_xxx',
+  policy,
+});
+
+// 3. Invoke endpoint normally
+const response = await client.get('https://gate.aipmedia.cn/api/v1/simple-weather', {
+  params: { timeframe: '24h' },
+});
+console.log('Response:', await response.json());`
+      : `import { AgentPayClient, PolicyConfig, SQLitePolicyEngine } from 'agentpay-core-sdk';
 
 // 1. 策略防火墙配置
 const policy = SQLitePolicyEngine.createInMemory(

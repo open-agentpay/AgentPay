@@ -23,7 +23,7 @@ export function MarketplaceFilterBar({
   onSelectCategory,
   onSelectCluster,
 }: MarketplaceFilterBarProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   return (
     <div className="space-y-6">
@@ -94,7 +94,12 @@ export function MarketplaceFilterBar({
           </span>
           {[
             { id: 'all', label: t.filter.allNetworks },
-            { id: 'domestic-v1', label: '华东专线集群' },
+            {
+              id: 'domestic-v1',
+              label:
+                t.filter.clusters?.['domestic-v1'] ||
+                (locale === 'en' ? 'East China Dedicated Cluster' : '华东专线集群'),
+            },
           ].map((cluster) => (
             <button
               key={cluster.id}

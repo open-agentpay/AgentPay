@@ -1350,10 +1350,10 @@ function copyToClipboard(text: string) {
                 style="width: 100%"
               >
                 <el-option label="x402" value="x402" />
-                <el-option label="算力点数 (Credits)" value="算力点数 (Credits)" />
-                <el-option label="专网节点" value="专网节点" />
-                <el-option label="公有云节点" value="公有云节点" />
-                <el-option label="国内算力节点" value="国内算力节点" />
+                <el-option :label="$t('算力点数 (Credits)')" value="算力点数 (Credits)" />
+                <el-option :label="$t('专网节点')" value="专网节点" />
+                <el-option :label="$t('公有云节点')" value="公有云节点" />
+                <el-option :label="$t('国内算力节点')" value="国内算力节点" />
                 <el-option label="LLM" value="LLM" />
                 <el-option label="Web Scraping" value="Web Scraping" />
               </el-select>
@@ -1837,10 +1837,10 @@ function copyToClipboard(text: string) {
                 style="width: 100%"
               >
                 <el-option label="x402" value="x402" />
-                <el-option label="算力点数 (Credits)" value="算力点数 (Credits)" />
-                <el-option label="专网节点" value="专网节点" />
-                <el-option label="公有云节点" value="公有云节点" />
-                <el-option label="国内算力节点" value="国内算力节点" />
+                <el-option :label="$t('算力点数 (Credits)')" value="算力点数 (Credits)" />
+                <el-option :label="$t('专网节点')" value="专网节点" />
+                <el-option :label="$t('公有云节点')" value="公有云节点" />
+                <el-option :label="$t('国内算力节点')" value="国内算力节点" />
                 <el-option label="LLM" value="LLM" />
                 <el-option label="Web Scraping" value="Web Scraping" />
               </el-select>

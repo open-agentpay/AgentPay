@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"testing"
@@ -149,5 +150,106 @@ func TestKnownNetworks(t *testing.T) {
 	}
 	if arb.ChainID != 421614 {
 		t.Errorf("unexpected chain ID: %d", arb.ChainID)
+	}
+}
+
+func TestGasPricingEngineModes(t *testing.T) {
+	cfg := GasPolicyConfig{
+		DefaultMode:         GasModeSubsidized,
+		SlippageBufferPct:   10.0,
+		MaxAcceptableGasUSD: 0.05,
+		Networks: map[string]NetworkGasPolicy{
+			"eip155:421614": {
+				Mode:                GasModeDynamicSurcharge,
+				SlippageBufferPct:   10.0,
+				MaxAcceptableGasUSD: 0.05,
+			},
+			"eip155:84532": {
+				Mode:                GasModeSubsidized,
+				SlippageBufferPct:   10.0,
+				MaxAcceptableGasUSD: 0.05,
+			},
+			"eip155:10": {
+				Mode:                GasModeBatchAggregated,
+				SlippageBufferPct:   10.0,
+				MaxAcceptableGasUSD: 0.05,
+				BatchAmortizeFactor: 5,
+			},
+		},
+	}
+
+	mockClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			respBody, _ := json.Marshal(map[string]interface{}{
+				"surchargeBaseUnits":  int64(500), // 0.0005 USDC
+				"estimatedGasCostUsd": "0.000500",
+			})
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(bytes.NewReader(respBody)),
+			}, nil
+		}),
+	}
+
+	engine := NewGasPricingEngine(cfg, "http://facilitator.internal", "test_key")
+	engine.httpClient = mockClient
+
+	ctx := context.Background()
+
+	// 1. Mode 1: Subsidized (Base Sepolia) -> 0 surcharge
+	total, breakdown, err := engine.CalculateChallengePrice(ctx, "eip155:84532", "0xUSDC", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error for subsidized: %v", err)
+	}
+	if total != 1000 || breakdown.GasSurcharge != 0 || breakdown.GasMode != GasModeSubsidized {
+		t.Fatalf("expected total 1000 and 0 surcharge, got total=%d breakdown=%+v", total, breakdown)
+	}
+
+	// 2. Mode 2: Dynamic Surcharge (Arbitrum Sepolia) -> 1000 + 500 = 1500
+	total, breakdown, err = engine.CalculateChallengePrice(ctx, "eip155:421614", "0xUSDC", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error for dynamic surcharge: %v", err)
+	}
+	if total != 1500 || breakdown.GasSurcharge != 500 || breakdown.GasMode != GasModeDynamicSurcharge {
+		t.Fatalf("expected total 1500 and 500 surcharge, got total=%d breakdown=%+v", total, breakdown)
+	}
+
+	// 3. Mode 3: Batch Aggregated (Optimism) -> 1000 + (500 / 5) = 1100
+	total, breakdown, err = engine.CalculateChallengePrice(ctx, "eip155:10", "0xUSDC", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error for batch aggregated: %v", err)
+	}
+	if total != 1100 || breakdown.GasSurcharge != 100 || breakdown.GasMode != GasModeBatchAggregated {
+		t.Fatalf("expected total 1100 and 100 surcharge, got total=%d breakdown=%+v", total, breakdown)
+	}
+}
+
+func TestGasPricingEngineCircuitBreaker(t *testing.T) {
+	cfg := GasPolicyConfig{
+		DefaultMode:         GasModeDynamicSurcharge,
+		MaxAcceptableGasUSD: 0.01, // Max $0.01
+	}
+
+	mockClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			respBody, _ := json.Marshal(map[string]interface{}{
+				"surchargeBaseUnits":  int64(50000), // $0.05
+				"estimatedGasCostUsd": "0.050000",
+			})
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(bytes.NewReader(respBody)),
+			}, nil
+		}),
+	}
+
+	engine := NewGasPricingEngine(cfg, "http://facilitator.internal", "test_key")
+	engine.httpClient = mockClient
+
+	_, _, err := engine.CalculateChallengePrice(context.Background(), "eip155:1", "0xUSDC", 1000)
+	if err == nil || !errors.Is(err, ErrGasSurchargeExceedsLimit) {
+		t.Fatalf("expected ErrGasSurchargeExceedsLimit circuit breaker, got: %v", err)
 	}
 }

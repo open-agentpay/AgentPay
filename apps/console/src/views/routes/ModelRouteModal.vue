@@ -267,8 +267,8 @@ async function handleSubmit() {
         @click="selectProvider(preset)"
       >
         <div class="logo-box" :style="{ backgroundColor: preset.badgeBg }">{{ preset.logoText }}</div>
-        <div class="preset-name">{{ preset.name }}</div>
-        <div class="preset-sub">{{ preset.subtitle }}</div>
+        <div class="preset-name">{{ $t(preset.name) }}</div>
+        <div class="preset-sub">{{ $t(preset.subtitle) }}</div>
       </div>
     </div>
 

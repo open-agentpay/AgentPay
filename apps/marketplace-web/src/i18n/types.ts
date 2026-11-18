@@ -108,6 +108,20 @@ export interface Translations {
     settlementNetwork: string;
     allNetworks: string;
     categories: Record<string, string>;
+    clusters?: Record<string, string>;
+  };
+  publishApi: string;
+  openAiSdkBadge: string;
+  heroForAgents: string;
+  heroClear: string;
+  card: {
+    llmBadge: string;
+    tokenStreaming: string;
+    promptShort: string;
+    completionShort: string;
+    fenPer1k: string;
+    viewOpenAiCode: string;
+    viewSdkCode: string;
   };
   preview: {
     sdkTitle: string;
@@ -164,13 +178,22 @@ export interface Translations {
     codeSectionTitle: string;
     codeSectionSubtitle: string;
     copySdkCode: string;
+    mcpTabLabel: string;
+    mcpWorkBuddyLabel: string;
+    mcpClaudeCursorLabel: string;
+    mcpSdkLabel: string;
+    mcpProtectedBadge: string;
     tableSpecsTitle: string;
     tableSpecsSubtitle: string;
     paramCol: string;
     valueCol: string;
     notesCol: string;
+    routeIdParam: string;
+    routeIdNote: string;
     slugParam: string;
     slugNote: string;
+    mcpParam: string;
+    mcpNote: string;
     endpointParam: string;
     endpointNote: string;
     priceParam: string;

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/open-agentpay/agentpay-facilitator-go/internal/models"
@@ -184,5 +185,59 @@ func handleHealth(svc *service.FacilitatorService) http.HandlerFunc {
 			"service":            "agentpay-facilitator-go",
 			"facilitatorAddress": svc.FacilitatorAddress().Hex(),
 		})
+	}
+}
+
+// handleGasEstimate serves GET /v1/gas/estimate
+func handleGasEstimate(svc *service.FacilitatorService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		q := r.URL.Query()
+		network := strings.TrimSpace(q.Get("network"))
+		asset := strings.TrimSpace(q.Get("asset"))
+		slippageStr := strings.TrimSpace(q.Get("slippage"))
+
+		var slippage float64 = 10.0
+		if slippageStr != "" {
+			if s, err := strconv.ParseFloat(slippageStr, 64); err == nil && s >= 0 {
+				slippage = s
+			}
+		}
+
+		resp, err := svc.EstimateGasSurcharge(r.Context(), network, asset, slippage)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+// handleBatchSettle serves POST /v1/settle/batch
+func handleBatchSettle(svc *service.FacilitatorService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req models.BatchSettleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, service.ErrInvalidRequest)
+			return
+		}
+
+		resp, err := svc.BatchSettle(r.Context(), &req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusAccepted, resp)
 	}
 }

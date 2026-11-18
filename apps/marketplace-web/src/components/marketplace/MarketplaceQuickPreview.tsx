@@ -52,7 +52,7 @@ export function MarketplaceQuickPreview({
         <div>
           <div className="flex items-center gap-2">
             <span className="rounded-md bg-indigo-500/20 px-2 py-0.5 font-mono text-xs text-indigo-300">
-              {isLlm ? 'OpenAI 兼容 SDK' : t.preview.sdkTitle}
+              {isLlm ? t.openAiSdkBadge : t.preview.sdkTitle}
             </span>
             <h3 className="text-base font-bold text-white">{previewRoute.title}</h3>
           </div>

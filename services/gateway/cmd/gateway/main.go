@@ -106,6 +106,13 @@ func main() {
 	})
 	opts = append(opts, server.WithAssetResolver(assetResolver))
 
+	gasPolicy := onchain.LoadGasPolicyFromYAML(*configPath)
+	log.Info("loaded settlement gas policy",
+		slog.String("default_mode", string(gasPolicy.DefaultMode)),
+		slog.Float64("slippage_buffer_pct", gasPolicy.SlippageBufferPct),
+		slog.Float64("max_acceptable_gas_usd", gasPolicy.MaxAcceptableGasUSD),
+	)
+
 	facCfg := onchain.LoadFacilitatorConfig(*configPath)
 	if facCfg.URL != "" {
 		timeout := time.Duration(facCfg.TimeoutSeconds) * time.Second

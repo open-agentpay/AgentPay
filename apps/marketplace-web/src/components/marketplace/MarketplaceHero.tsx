@@ -30,7 +30,7 @@ export function MarketplaceHero({
           <span className="text-slate-400 dark:text-slate-600">•</span>
           <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">
             <Shield className="h-3 w-3 text-indigo-600 dark:text-indigo-400" />
-            <span>自主 AI Agent 专属</span>
+            <span>{t.heroForAgents}</span>
           </span>
         </div>
 
@@ -64,7 +64,7 @@ export function MarketplaceHero({
                 onClick={() => onSearchChange('')}
                 className="mr-2 rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               >
-                清除
+                {t.heroClear || t.hero.clear}
               </button>
             )}
           </div>

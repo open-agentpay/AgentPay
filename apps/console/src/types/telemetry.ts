@@ -1,5 +1,8 @@
 export interface RouteTelemetrySummary {
   total_calls: number;
+  success_calls?: number;
+  blocked_calls?: number;
+  upstream_error_calls?: number;
   success_rate: number;
   avg_duration_ms: number;
   p95_duration_ms: number;
@@ -15,6 +18,9 @@ export interface RouteTelemetryItem {
   title: string;
   route_type: string;
   calls: number;
+  success_calls?: number;
+  blocked_calls?: number;
+  upstream_error_calls?: number;
   success_rate: number;
   avg_duration_ms: number;
   p95_duration_ms: number;

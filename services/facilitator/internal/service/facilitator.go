@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -52,6 +53,7 @@ type FacilitatorService struct {
 	defaultTokenAddr   common.Address
 	autoPollReceipts   bool
 	minGasBalanceWei   *big.Int
+	nativePriceUSD     float64
 
 	nonceStore          *MemoryNonceStore
 	verificationTokens  map[string]*VerificationRecord
@@ -69,6 +71,7 @@ type Options struct {
 	DefaultTokenAddr string
 	AutoPollReceipts bool
 	MinGasBalanceWei *big.Int
+	NativePriceUSD   float64
 }
 
 // NewFacilitatorService creates a configured FacilitatorService.
@@ -117,6 +120,7 @@ func NewFacilitatorService(opts Options) (*FacilitatorService, error) {
 		defaultTokenAddr:   tokenAddr,
 		autoPollReceipts:   opts.AutoPollReceipts,
 		minGasBalanceWei:   opts.MinGasBalanceWei,
+		nativePriceUSD:     opts.NativePriceUSD,
 		nonceStore:         NewMemoryNonceStore(),
 		verificationTokens: make(map[string]*VerificationRecord),
 		settlements:        make(map[string]*models.SettlementStatus),
@@ -496,4 +500,123 @@ func (s *FacilitatorService) GetSettlementByNonce(network, asset, payer, nonce s
 // IsNonceUsed checks whether a nonce is already spent.
 func (s *FacilitatorService) IsNonceUsed(network, asset, payer, nonce string) bool {
 	return s.nonceStore.IsUsed(network, asset, payer, nonce)
+}
+
+// SetNativePriceUSD sets the native token price in USD for gas surcharge calculations.
+func (s *FacilitatorService) SetNativePriceUSD(price float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nativePriceUSD = price
+}
+
+// EstimateGasSurcharge estimates the dynamic gas surcharge in base units for a given network and asset.
+func (s *FacilitatorService) EstimateGasSurcharge(ctx context.Context, network, asset string, slippage float64) (*models.GasEstimateResponse, error) {
+	if slippage < 0 {
+		slippage = 10.0
+	}
+
+	var gasLimit uint64 = 85_000 // standard EIP-3009 transfer execution gas limit
+
+	var baseFee *big.Int
+	var tipCap *big.Int
+
+	if s.evmClient != nil {
+		tip, err := s.evmClient.SuggestGasTipCap(ctx)
+		if err == nil && tip != nil && tip.Sign() > 0 {
+			tipCap = tip
+		}
+		gp, err := s.evmClient.SuggestGasPrice(ctx)
+		if err == nil && gp != nil && gp.Sign() > 0 {
+			baseFee = gp
+		}
+	}
+
+	if tipCap == nil {
+		tipCap = big.NewInt(1_000_000) // 0.001 Gwei fallback
+	}
+	if baseFee == nil {
+		baseFee = big.NewInt(100_000_000) // 0.1 Gwei fallback
+	}
+
+	// 1.5x BaseFee buffer formula
+	baseGasBuffered := new(big.Int).Div(new(big.Int).Mul(baseFee, big.NewInt(3)), big.NewInt(2))
+	effectiveGasPrice := new(big.Int).Add(baseGasBuffered, tipCap)
+
+	// total Wei = effectiveGasPrice * gasLimit
+	totalWei := new(big.Int).Mul(effectiveGasPrice, new(big.Int).SetUint64(gasLimit))
+
+	s.mu.RLock()
+	nativePrice := s.nativePriceUSD
+	s.mu.RUnlock()
+	if nativePrice <= 0 {
+		nativePrice = 2500.0 // Default baseline for ETH/USD
+	}
+
+	// Wei to Ether float64: totalWei / 1e18
+	weiFloat, _ := new(big.Float).SetInt(totalWei).Float64()
+	etherSpent := weiFloat / 1e18
+	costUSD := etherSpent * nativePrice
+
+	// Apply slippage buffer: costUSD * (1 + slippage/100)
+	costWithSlippageUSD := costUSD * (1.0 + slippage/100.0)
+
+	// Convert USD to 6-decimal USDC base units (1 USDC = 1,000,000 base units)
+	surchargeBaseUnits := int64(math.Ceil(costWithSlippageUSD * 1e6))
+	if surchargeBaseUnits < 1 {
+		surchargeBaseUnits = 1
+	}
+
+	if network == "" {
+		network = fmt.Sprintf("eip155:%d", s.defaultChainID.Int64())
+	}
+	if asset == "" {
+		asset = s.defaultTokenAddr.Hex()
+	}
+
+	return &models.GasEstimateResponse{
+		Network:              network,
+		Asset:                asset,
+		GasLimit:             gasLimit,
+		BaseFeeWei:           baseFee.String(),
+		PriorityFeeWei:       tipCap.String(),
+		EffectiveGasPriceWei: effectiveGasPrice.String(),
+		NativeTokenPriceUSD:  fmt.Sprintf("%.2f", nativePrice),
+		EstimatedGasCostUSD:  fmt.Sprintf("%.6f", costWithSlippageUSD),
+		SurchargeBaseUnits:   surchargeBaseUnits,
+		SlippageBufferPct:    slippage,
+	}, nil
+}
+
+// BatchSettle executes or dispatches multiple verified settlements in a single batch.
+func (s *FacilitatorService) BatchSettle(ctx context.Context, req *models.BatchSettleRequest) (*models.BatchSettleResponse, error) {
+	if req == nil || len(req.Settlements) == 0 {
+		return nil, fmt.Errorf("%w: empty batch settle request", ErrInvalidRequest)
+	}
+
+	randBytes := make([]byte, 8)
+	_, _ = rand.Read(randBytes)
+	batchID := fmt.Sprintf("batch_%d_%s", s.Now(), hex.EncodeToString(randBytes))
+	settlementIDs := make([]string, 0, len(req.Settlements))
+
+	var firstTxHash string
+	for _, item := range req.Settlements {
+		settleReq := item
+		res, err := s.Settle(ctx, &settleReq)
+		if err != nil {
+			slog.Warn("batch item settlement failed", slog.String("batch_id", batchID), slog.Any("error", err))
+			continue
+		}
+		settlementIDs = append(settlementIDs, res.SettlementID)
+		if firstTxHash == "" && res.TxHash != "" {
+			firstTxHash = res.TxHash
+		}
+	}
+
+	return &models.BatchSettleResponse{
+		BatchID:       batchID,
+		TotalCount:    len(settlementIDs),
+		SettlementIDs: settlementIDs,
+		Status:        models.SettlementStateSubmitted,
+		TxHash:        firstTxHash,
+	}, nil
 }

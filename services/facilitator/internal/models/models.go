@@ -109,6 +109,41 @@ type SettleResponse struct {
 	TxHash        string          `json:"txHash,omitempty"`
 }
 
+// GasEstimateRequest contains parameters for calculating dynamic gas surcharge.
+type GasEstimateRequest struct {
+	Network           string  `json:"network"`
+	Asset             string  `json:"asset"`
+	SlippageBufferPct float64 `json:"slippageBufferPct,omitempty"`
+}
+
+// GasEstimateResponse returns the estimated gas surcharge details in base units.
+type GasEstimateResponse struct {
+	Network              string  `json:"network"`
+	Asset                string  `json:"asset"`
+	GasLimit             uint64  `json:"gasLimit"`
+	BaseFeeWei           string  `json:"baseFeeWei"`
+	PriorityFeeWei       string  `json:"priorityFeeWei"`
+	EffectiveGasPriceWei string  `json:"effectiveGasPriceWei"`
+	NativeTokenPriceUSD  string  `json:"nativeTokenPriceUsd"`
+	EstimatedGasCostUSD  string  `json:"estimatedGasCostUsd"`
+	SurchargeBaseUnits   int64   `json:"surchargeBaseUnits"`
+	SlippageBufferPct    float64 `json:"slippageBufferPct"`
+}
+
+// BatchSettleRequest contains multiple settlement authorizations for batch processing.
+type BatchSettleRequest struct {
+	Settlements []SettleRequest `json:"settlements"`
+}
+
+// BatchSettleResponse reports results for a batch settlement dispatch.
+type BatchSettleResponse struct {
+	BatchID       string           `json:"batchId"`
+	TotalCount    int              `json:"totalCount"`
+	SettlementIDs []string         `json:"settlementIds"`
+	Status        SettlementState  `json:"status"`
+	TxHash        string           `json:"txHash,omitempty"`
+}
+
 // SettlementStatus is returned by GET /v1/settle/{id}.
 type SettlementStatus struct {
 	SettlementID string          `json:"settlementId"`

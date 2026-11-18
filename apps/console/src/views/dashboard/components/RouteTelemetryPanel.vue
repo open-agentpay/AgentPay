@@ -25,6 +25,9 @@ const pageSize = ref(10);
 
 const summary = computed(() => telemetryData.value?.summary || {
   total_calls: 0,
+  success_calls: 0,
+  blocked_calls: 0,
+  upstream_error_calls: 0,
   success_rate: 100,
   avg_duration_ms: 0,
   p95_duration_ms: 0,
@@ -214,9 +217,24 @@ function getTokenSharePercent(tokens: number): number {
             <span class="kpi-unit">{{ $t('次') }}</span>
           </div>
           <div class="kpi-sub">
-            <span v-if="summary.failed_calls > 0" class="color-red">
-              {{ $t('失败') }}: {{ summary.failed_calls.toLocaleString() }}
-            </span>
+            <template v-if="summary.failed_calls > 0">
+              <el-tooltip placement="top">
+                <template #content>
+                  <div>{{ $t('成功履约') }}: {{ (summary.success_calls ?? (summary.total_calls - summary.failed_calls)).toLocaleString() }} {{ $t('次') }}</div>
+                  <div>{{ $t('合规风控拦截') }} (4xx): {{ (summary.blocked_calls ?? 0).toLocaleString() }} {{ $t('次') }}</div>
+                  <div>{{ $t('上游服务故障') }} (5xx): {{ (summary.upstream_error_calls ?? 0).toLocaleString() }} {{ $t('次') }}</div>
+                </template>
+                <span class="color-red cursor-help">
+                  {{ $t('失败') }}: {{ summary.failed_calls.toLocaleString() }}
+                  <span v-if="(summary.blocked_calls ?? 0) > 0" class="sub-breakdown">
+                    ({{ $t('拦截') }}: {{ summary.blocked_calls }}<span v-if="(summary.upstream_error_calls ?? 0) > 0"> / {{ $t('故障') }}: {{ summary.upstream_error_calls }}</span>)
+                  </span>
+                  <span v-else-if="(summary.upstream_error_calls ?? 0) > 0" class="sub-breakdown">
+                    ({{ $t('故障') }}: {{ summary.upstream_error_calls }})
+                  </span>
+                </span>
+              </el-tooltip>
+            </template>
             <span v-else class="color-green">
               {{ $t('全部成功履约') }}
             </span>
@@ -236,8 +254,8 @@ function getTokenSharePercent(tokens: number): number {
             <span class="kpi-unit">Tokens</span>
           </div>
           <div class="kpi-sub">
-            <el-tooltip :content="`输入: ${summary.prompt_tokens.toLocaleString()} | 输出: ${summary.completion_tokens.toLocaleString()}`" placement="top">
-              <span>输入: {{ formatNumber(summary.prompt_tokens) }} / 输出: {{ formatNumber(summary.completion_tokens) }}</span>
+            <el-tooltip :content="`${$t('输入')}: ${summary.prompt_tokens.toLocaleString()} | ${$t('输出')}: ${summary.completion_tokens.toLocaleString()}`" placement="top">
+              <span>{{ $t('输入') }}: {{ formatNumber(summary.prompt_tokens) }} / {{ $t('输出') }}: {{ formatNumber(summary.completion_tokens) }}</span>
             </el-tooltip>
           </div>
         </div>
@@ -257,7 +275,18 @@ function getTokenSharePercent(tokens: number): number {
             </el-tag>
           </div>
           <div class="kpi-sub">
+            <template v-if="(summary.upstream_error_calls || 0) > 0">
+              <span class="color-red" style="font-size: 11px;">
+                {{ $t('上游故障') }}: {{ summary.upstream_error_calls }} {{ $t('次') }}
+              </span>
+            </template>
+            <template v-else-if="(summary.blocked_calls || 0) > 0 && summary.failed_calls > 0">
+              <span class="color-blue" style="font-size: 11px;">
+                {{ $t('风控防护中，无上游故障') }}
+              </span>
+            </template>
             <el-progress
+              v-else
               :percentage="Math.min(100, Math.max(0, summary.success_rate))"
               :status="getSuccessRateType(summary.success_rate)"
               :stroke-width="5"
@@ -315,10 +344,10 @@ function getTokenSharePercent(tokens: number): number {
         </el-checkbox>
 
         <el-select v-model="sortBy" size="small" class="sort-select" style="width: 140px">
-          <el-option label="Token消耗最高" value="tokens_desc" />
-          <el-option label="调用量最高" value="calls_desc" />
-          <el-option label="响应延迟最高" value="latency_desc" />
-          <el-option label="成功率最低" value="success_asc" />
+          <el-option :label="$t('Token消耗最高')" value="tokens_desc" />
+          <el-option :label="$t('调用量最高')" value="calls_desc" />
+          <el-option :label="$t('响应延迟最高')" value="latency_desc" />
+          <el-option :label="$t('成功率最低')" value="success_asc" />
         </el-select>
 
         <el-input
@@ -384,9 +413,21 @@ function getTokenSharePercent(tokens: number): number {
           </template>
         </el-table-column>
 
-        <el-table-column :label="$t('调用次数')" min-width="100" align="right">
+        <el-table-column :label="$t('调用次数')" min-width="110" align="right">
           <template #default="{ row }">
-            <span class="num-cell">{{ row.calls.toLocaleString() }}</span>
+            <el-tooltip v-if="(row.blocked_calls || 0) > 0 || (row.upstream_error_calls || 0) > 0" placement="top">
+              <template #content>
+                <div>{{ $t('成功履约') }}: {{ (row.success_calls ?? (row.calls - (row.blocked_calls || 0) - (row.upstream_error_calls || 0))).toLocaleString() }}</div>
+                <div v-if="(row.blocked_calls || 0) > 0">{{ $t('合规风控拦截') }} (4xx): {{ row.blocked_calls }}</div>
+                <div v-if="(row.upstream_error_calls || 0) > 0">{{ $t('上游服务故障') }} (5xx): {{ row.upstream_error_calls }}</div>
+              </template>
+              <span class="num-cell" style="cursor: help;">
+                {{ row.calls.toLocaleString() }}
+                <span v-if="(row.blocked_calls || 0) > 0 && (row.upstream_error_calls || 0) === 0" style="font-size: 10px; color: #e6a23c; margin-left: 2px;">({{ row.blocked_calls }}🛡️)</span>
+                <span v-else-if="(row.upstream_error_calls || 0) > 0" style="font-size: 10px; color: #f56c6c; margin-left: 2px;">({{ row.upstream_error_calls }}⚠️)</span>
+              </span>
+            </el-tooltip>
+            <span v-else class="num-cell">{{ row.calls.toLocaleString() }}</span>
           </template>
         </el-table-column>
 
@@ -414,7 +455,7 @@ function getTokenSharePercent(tokens: number): number {
             <div v-if="row.total_tokens > 0" class="token-cell-wrapper">
               <div class="token-main-row">
                 <el-tooltip
-                  :content="`输入: ${row.prompt_tokens.toLocaleString()} | 输出: ${row.completion_tokens.toLocaleString()}`"
+                  :content="`${$t('输入')}: ${row.prompt_tokens.toLocaleString()} | ${$t('输出')}: ${row.completion_tokens.toLocaleString()}`"
                   placement="top"
                 >
                   <span class="token-cell font-mono">{{ formatNumber(row.total_tokens) }}</span>
@@ -580,6 +621,16 @@ function getTokenSharePercent(tokens: number): number {
   color: var(--el-text-color-placeholder, #a8abb2);
   display: flex;
   align-items: center;
+}
+
+.sub-breakdown {
+  font-size: 11px;
+  font-weight: normal;
+  opacity: 0.88;
+}
+
+.cursor-help {
+  cursor: help;
 }
 
 .rate-progress {

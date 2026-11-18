@@ -4,8 +4,10 @@ import { ElMessage } from 'element-plus';
 import { useTenantStore } from '@/stores/tenant';
 import { auditApi } from '@/api/client';
 import type { AuditEvent } from '@/types/audit';
+import { useI18n } from '@/i18n';
 
 const tenantStore = useTenantStore();
+const { t } = useI18n();
 
 // State
 const loading = ref(false);
@@ -18,26 +20,26 @@ const selectedTargetType = ref<string>('all');
 const selectedActionCategory = ref<string>('all');
 
 // Target types supported
-const targetTypes = [
-  { label: '全部类型', value: 'all' },
-  { label: '智能体 (Agent)', value: 'Agent' },
-  { label: '网关路由 (Route)', value: 'Route' },
-  { label: '安全策略 (Policy)', value: 'Policy' },
-  { label: '账户钱包 (Wallet)', value: 'Wallet' },
-  { label: '发布配置 (Config)', value: 'Config' },
-  { label: '空间项目 (Project)', value: 'Project' },
-  { label: '成员权限 (Member)', value: 'Member' },
-  { label: '租户设置 (Tenant)', value: 'Tenant' }
-];
+const targetTypes = computed(() => [
+  { label: t('全部类型'), value: 'all' },
+  { label: t('智能体 (Agent)'), value: 'Agent' },
+  { label: t('网关路由 (Route)'), value: 'Route' },
+  { label: t('安全策略 (Policy)'), value: 'Policy' },
+  { label: t('账户钱包 (Wallet)'), value: 'Wallet' },
+  { label: t('发布配置 (Config)'), value: 'Config' },
+  { label: t('空间项目 (Project)'), value: 'Project' },
+  { label: t('成员权限 (Member)'), value: 'Member' },
+  { label: t('租户设置 (Tenant)'), value: 'Tenant' }
+]);
 
 // Action categories
-const actionCategories = [
-  { label: '全部动作', value: 'all' },
-  { label: '新建 (Create)', value: 'create' },
-  { label: '修改 (Update)', value: 'update' },
-  { label: '熔断/冻结 (Status)', value: 'status' },
-  { label: '删除/注销 (Delete)', value: 'delete' }
-];
+const actionCategories = computed(() => [
+  { label: t('全部动作'), value: 'all' },
+  { label: t('新建 (Create)'), value: 'create' },
+  { label: t('修改 (Update)'), value: 'update' },
+  { label: t('熔断/冻结 (Status)'), value: 'status' },
+  { label: t('删除/注销 (Delete)'), value: 'delete' }
+]);
 
 // Modals / Drawers
 const diffDrawerVisible = ref(false);
@@ -62,7 +64,7 @@ async function fetchAuditLogs() {
     const data = await auditApi.listEvents(tenantId, params);
     auditEvents.value = data;
   } catch (err: any) {
-    ElMessage.error(err.message || '获取审计日志失败');
+    ElMessage.error(err.message || t('获取审计日志失败'));
   } finally {
     loading.value = false;
   }
@@ -179,7 +181,7 @@ function getActionTagType(action: string): 'success' | 'warning' | 'danger' | 'i
 
 function copyText(text: string) {
   navigator.clipboard.writeText(text);
-  ElMessage.success('已复制到剪贴板');
+  ElMessage.success(t('已复制到剪贴板'));
 }
 
 function openDiffDrawer(ev: AuditEvent) {
@@ -193,7 +195,7 @@ function openRawJson(ev: AuditEvent) {
 }
 
 function formatJson(obj: any): string {
-  if (!obj) return '无数据 (空或未变更)';
+  if (!obj) return t('无数据 (空或未变更)');
   try {
     return JSON.stringify(obj, null, 2);
   } catch {
@@ -216,8 +218,8 @@ function formatJson(obj: any): string {
         <el-switch
           v-model="autoRefresh"
           inline-prompt
-          active-text="实时刷新 (10s)"
-          inactive-text="手动刷新"
+          :active-text="$t('实时刷新 (10s)')"
+          :inactive-text="$t('手动刷新')"
           style="margin-right: 12px"
         />
         <el-button type="primary" plain icon="Refresh" :loading="loading" @click="fetchAuditLogs">
@@ -259,7 +261,7 @@ function formatJson(obj: any): string {
       <!-- Filter Bar -->
       <div class="filter-bar">
         <div class="filter-left">
-          <el-select v-model="selectedTargetType" style="width: 170px" placeholder="作用实体">
+          <el-select v-model="selectedTargetType" style="width: 170px" :placeholder="$t('作用实体')">
             <el-option
               v-for="item in targetTypes"
               :key="item.value"
@@ -268,7 +270,7 @@ function formatJson(obj: any): string {
             />
           </el-select>
 
-          <el-select v-model="selectedActionCategory" style="width: 160px; margin-left: 10px" placeholder="动作分类">
+          <el-select v-model="selectedActionCategory" style="width: 160px; margin-left: 10px" :placeholder="$t('动作分类')">
             <el-option
               v-for="item in actionCategories"
               :key="item.value"
@@ -279,7 +281,7 @@ function formatJson(obj: any): string {
 
           <el-input
             v-model="searchQuery"
-            placeholder="搜索操作动作、主体 ID、目标 ID 或 IP..."
+            :placeholder="$t('搜索操作动作、主体 ID、目标 ID 或 IP...')"
             clearable
             prefix-icon="Search"
             style="width: 320px; margin-left: 10px"
@@ -287,7 +289,7 @@ function formatJson(obj: any): string {
         </div>
 
         <div class="filter-right">
-          <span class="record-count">共 {{ filteredEvents.length }} 条记录</span>
+          <span class="record-count">{{ $t('共') }} {{ filteredEvents.length }} {{ $t('条记录') }}</span>
         </div>
       </div>
 
@@ -297,17 +299,17 @@ function formatJson(obj: any): string {
         :data="paginatedEvents"
         stripe
         style="width: 100%; margin-top: 12px"
-        empty-text="暂无匹配的操作审计事件"
+        :empty-text="$t('暂无匹配的操作审计事件')"
       >
         <!-- Time -->
-        <el-table-column label="发生时间" width="180">
+        <el-table-column :label="$t('发生时间')" width="180">
           <template #default="{ row }">
             <span class="mono-text">{{ formatDateTime(row.created_at) }}</span>
           </template>
         </el-table-column>
 
         <!-- Action -->
-        <el-table-column label="操作事件" min-width="190">
+        <el-table-column :label="$t('操作事件')" min-width="190">
           <template #default="{ row }">
             <el-tag :type="getActionTagType(row.action)" size="small" effect="plain" class="action-tag">
               {{ row.action }}
@@ -316,7 +318,7 @@ function formatJson(obj: any): string {
         </el-table-column>
 
         <!-- Target -->
-        <el-table-column label="作用实体" min-width="210">
+        <el-table-column :label="$t('作用实体')" min-width="210">
           <template #default="{ row }">
             <div class="target-cell">
               <el-tag size="small" type="info" style="margin-right: 6px">{{ row.target_type }}</el-tag>
@@ -327,14 +329,14 @@ function formatJson(obj: any): string {
         </el-table-column>
 
         <!-- Operator -->
-        <el-table-column label="操作人 / 主体" width="180">
+        <el-table-column :label="$t('操作人 / 主体')" width="180">
           <template #default="{ row }">
             <span class="mono-text">{{ row.operator_id || 'system' }}</span>
           </template>
         </el-table-column>
 
         <!-- Client IP -->
-        <el-table-column label="来源 IP" width="140">
+        <el-table-column :label="$t('来源 IP')" width="140">
           <template #default="{ row }">
             <el-tag size="small" type="info" effect="light" class="mono-text">
               {{ row.client_ip || '127.0.0.1' }}
@@ -343,7 +345,7 @@ function formatJson(obj: any): string {
         </el-table-column>
 
         <!-- Operation -->
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column :label="$t('操作')" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" icon="View" @click="openDiffDrawer(row)">
               {{ $t('状态差异') }}
@@ -371,31 +373,31 @@ function formatJson(obj: any): string {
     <!-- State Diff Drawer -->
     <el-drawer
       v-model="diffDrawerVisible"
-      title="操作前后状态对比 (State Diff)"
+      :title="$t('操作前后状态对比 (State Diff)')"
       size="55%"
       destroy-on-close
     >
       <div v-if="activeEvent" class="drawer-content">
         <!-- Event Meta Info -->
         <el-descriptions :column="2" border size="small" class="meta-desc">
-          <el-descriptions-item label="审计事件 ID">
+          <el-descriptions-item :label="$t('审计事件 ID')">
             <span class="mono-text">{{ activeEvent.audit_id }}</span>
           </el-descriptions-item>
-          <el-descriptions-item label="操作动作">
+          <el-descriptions-item :label="$t('操作动作')">
             <el-tag :type="getActionTagType(activeEvent.action)" size="small">
               {{ activeEvent.action }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="作用对象">
+          <el-descriptions-item :label="$t('作用对象')">
             {{ activeEvent.target_type }} (<code>{{ activeEvent.target_id }}</code>)
           </el-descriptions-item>
-          <el-descriptions-item label="触发主体">
+          <el-descriptions-item :label="$t('触发主体')">
             <code>{{ activeEvent.operator_id }}</code>
           </el-descriptions-item>
-          <el-descriptions-item label="客户端 IP">
+          <el-descriptions-item :label="$t('客户端 IP')">
             <code>{{ activeEvent.client_ip }}</code>
           </el-descriptions-item>
-          <el-descriptions-item label="发生时间">
+          <el-descriptions-item :label="$t('发生时间')">
             {{ formatDateTime(activeEvent.created_at) }}
           </el-descriptions-item>
         </el-descriptions>
@@ -403,11 +405,11 @@ function formatJson(obj: any): string {
         <!-- Diff Columns -->
         <div class="diff-container">
           <div class="diff-box">
-            <div class="diff-header before-header">变更前状态 (Before State)</div>
+            <div class="diff-header before-header">{{ $t('变更前状态 (Before State)') }}</div>
             <pre class="diff-body json-viewer">{{ formatJson(activeEvent.before_state) }}</pre>
           </div>
           <div class="diff-box">
-            <div class="diff-header after-header">变更后状态 (After State)</div>
+            <div class="diff-header after-header">{{ $t('变更后状态 (After State)') }}</div>
             <pre class="diff-body json-viewer">{{ formatJson(activeEvent.after_state) }}</pre>
           </div>
         </div>
@@ -417,7 +419,7 @@ function formatJson(obj: any): string {
     <!-- Raw JSON Dialog -->
     <el-dialog
       v-model="rawJsonDialogVisible"
-      title="审计事件原始 JSON 报文"
+      :title="$t('审计事件原始 JSON 报文')"
       width="600px"
       destroy-on-close
     >
@@ -426,9 +428,9 @@ function formatJson(obj: any): string {
       </div>
       <template #footer>
         <el-button type="primary" plain @click="copyText(JSON.stringify(activeEvent, null, 2))">
-          复制完整 JSON
+          {{ $t('复制完整 JSON') }}
         </el-button>
-        <el-button @click="rawJsonDialogVisible = false">关闭</el-button>
+        <el-button @click="rawJsonDialogVisible = false">{{ $t('关闭') }}</el-button>
       </template>
     </el-dialog>
   </div>

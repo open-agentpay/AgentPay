@@ -102,7 +102,8 @@ export function HeaderNav() {
               {t.nav.storefront}
             </Link>
             <Link
-              href="/hub/solana-smart-money-tracker-x402-api"
+              href="/hub/random"
+              prefetch={false}
               className="whitespace-nowrap transition-colors hover:text-indigo-600 dark:hover:text-white"
             >
               {t.nav.exampleRoute}
@@ -214,7 +215,8 @@ export function HeaderNav() {
               {t.nav.storefront}
             </Link>
             <Link
-              href="/hub/solana-smart-money-tracker-x402-api"
+              href="/hub/random"
+              prefetch={false}
               onClick={() => setMobileMenuOpen(false)}
               className={`rounded-xl px-3 py-2.5 transition-colors ${
                 pathname?.startsWith('/hub/')

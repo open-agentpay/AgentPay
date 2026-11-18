@@ -61,7 +61,7 @@ export function MarketplaceValueSection() {
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline dark:text-indigo-400 font-medium"
           >
-            <span>发布自己的 API</span>
+            <span>{t.publishApi}</span>
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
