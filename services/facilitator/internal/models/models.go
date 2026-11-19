@@ -156,10 +156,11 @@ type SettlementStatus struct {
 
 // ErrorResponse standardizes error responses.
 type ErrorResponse struct {
-	Valid     bool   `json:"valid"`
-	Error     string `json:"error"`
-	ErrorCode string `json:"errorCode,omitempty"`
-	Message   string `json:"message"`
+	Valid     bool                   `json:"valid"`
+	Error     string                 `json:"error"`
+	ErrorCode string                 `json:"errorCode,omitempty"`
+	Message   string                 `json:"message"`
+	Details   map[string]interface{} `json:"details,omitempty"`
 }
 
 func (e *ErrorResponse) String() string {

@@ -2,11 +2,15 @@ package service
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	agentcrypto "github.com/open-agentpay/agentpay-facilitator-go/internal/crypto"
 	agentevm "github.com/open-agentpay/agentpay-facilitator-go/internal/evm"
 	"github.com/open-agentpay/agentpay-facilitator-go/internal/models"
 )
@@ -273,4 +277,187 @@ func TestBatchSettle(t *testing.T) {
 	if bResp.TotalCount != 1 || len(bResp.SettlementIDs) != 1 {
 		t.Fatalf("expected 1 settled item in batch, got %d", bResp.TotalCount)
 	}
+}
+
+// signTestAuthorization signs a challenge using the public Hardhat test account #0 private key.
+func signTestAuthorization(t *testing.T, ch *models.PaymentChallenge, nonceHex string) *models.PaymentAuthorization {
+	t.Helper()
+	// Public Hardhat/Anvil account #0 key (test-only)
+	privKey, err := crypto.HexToECDSA("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	if err != nil {
+		t.Fatalf("failed to load test key: %v", err)
+	}
+	payer := crypto.PubkeyToAddress(privKey.PublicKey)
+	chainID, err := agentcrypto.ParseCAIP2ChainID(ch.Network)
+	if err != nil {
+		t.Fatalf("invalid chain id: %v", err)
+	}
+	amountVal, _ := new(big.Int).SetString(ch.Amount, 10)
+	nonceBytes, err := agentcrypto.NormalizeBytes32(nonceHex)
+	if err != nil {
+		t.Fatalf("invalid nonce: %v", err)
+	}
+	domainSep := agentcrypto.ComputeDomainSeparator("USD Coin", "2", chainID, common.HexToAddress(ch.Asset))
+	structHash := agentcrypto.ComputeTransferWithAuthorizationStructHash(
+		payer,
+		common.HexToAddress(ch.Payee),
+		amountVal,
+		ch.ValidAfter,
+		ch.ValidBefore,
+		nonceBytes,
+	)
+	digest := agentcrypto.ComputeEIP712Digest(domainSep, structHash)
+	sig, err := crypto.Sign(digest[:], privKey)
+	if err != nil {
+		t.Fatalf("failed to sign digest: %v", err)
+	}
+	sig[64] += 27
+
+	return &models.PaymentAuthorization{
+		Version:     ch.Version,
+		ChallengeID: ch.ChallengeID,
+		Payer:       payer.Hex(),
+		Scheme:      ch.Scheme,
+		Nonce:       nonceHex,
+		ValidAfter:  ch.ValidAfter,
+		ValidBefore: ch.ValidBefore,
+		Signature: models.SignatureData{
+			V:          sig[64],
+			R:          "0x" + hex.EncodeToString(sig[0:32]),
+			S:          "0x" + hex.EncodeToString(sig[32:64]),
+			Serialized: hex.EncodeToString(sig),
+		},
+	}
+}
+
+func TestVerifyInsufficientTokenBalance(t *testing.T) {
+	mockClient := agentevm.NewMockClient(big.NewInt(84532))
+	svc := createTestService(mockClient)
+	ch, auth := getValidTestData()
+
+	// Payer only holds 50,000 base units (0.05 USDC), challenge requires 100,000 (0.10 USDC)
+	mockClient.SetTokenBalance(common.HexToAddress(ch.Asset), common.HexToAddress(auth.Payer), big.NewInt(50_000))
+
+	_, err := svc.Verify(context.Background(), &models.VerifyRequest{
+		Challenge:     *ch,
+		Authorization: *auth,
+	})
+	if !errors.Is(err, ErrInsufficientTokenBalance) {
+		t.Fatalf("expected ErrInsufficientTokenBalance, got %v", err)
+	}
+	var balErr *InsufficientTokenBalanceError
+	if !errors.As(err, &balErr) {
+		t.Fatalf("expected *InsufficientTokenBalanceError, got %T", err)
+	}
+	if balErr.RequiredAmount != "100000" || balErr.AvailableBalance != "50000" || balErr.InFlightAmount != "0" {
+		t.Fatalf("unexpected balance error details: %+v", balErr)
+	}
+}
+
+func TestVerifyInFlightConcurrentBalanceGuardAndTTLExpiry(t *testing.T) {
+	mockClient := agentevm.NewMockClient(big.NewInt(84532))
+	now := int64(1729000100)
+	svc, err := NewFacilitatorService(Options{
+		Clock:            func() int64 { return now },
+		EVMClient:        mockClient,
+		DefaultChainID:   big.NewInt(84532),
+		DefaultTokenAddr: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+		AutoPollReceipts: false,
+	})
+	if err != nil {
+		t.Fatalf("failed to create service: %v", err)
+	}
+	svc.SetReservationTTL(60)
+
+	ch1, auth1 := getValidTestData()
+	// Wallet holds 150,000 (0.15 USDC): enough for one 100,000 payment, not two concurrently
+	mockClient.SetTokenBalance(common.HexToAddress(ch1.Asset), common.HexToAddress(auth1.Payer), big.NewInt(150_000))
+
+	if _, err := svc.Verify(context.Background(), &models.VerifyRequest{Challenge: *ch1, Authorization: *auth1}); err != nil {
+		t.Fatalf("first verify should succeed, got %v", err)
+	}
+
+	ch2 := *ch1
+	ch2.ChallengeID = "ch_second_concurrent"
+	auth2 := signTestAuthorization(t, &ch2, "0x2222222222222222222222222222222222222222222222222222222222222222")
+
+	// Second concurrent verify must be blocked by in-flight reservation
+	_, err = svc.Verify(context.Background(), &models.VerifyRequest{Challenge: ch2, Authorization: *auth2})
+	if !errors.Is(err, ErrInsufficientTokenBalance) {
+		t.Fatalf("expected ErrInsufficientTokenBalance on second concurrent verify, got %v", err)
+	}
+	var balErr *InsufficientTokenBalanceError
+	if !errors.As(err, &balErr) || balErr.AvailableBalance != "50000" || balErr.InFlightAmount != "100000" {
+		t.Fatalf("unexpected in-flight balance error details: %+v", balErr)
+	}
+
+	// Advance clock beyond 60s reservation TTL -> expired reservation is lazily purged
+	now += 61
+	if _, err := svc.Verify(context.Background(), &models.VerifyRequest{Challenge: ch2, Authorization: *auth2}); err != nil {
+		t.Fatalf("second verify should succeed after TTL expiry, got %v", err)
+	}
+}
+
+func TestVerifyBalanceCheckFailClosedOnRPCError(t *testing.T) {
+	mockClient := agentevm.NewMockClient(big.NewInt(84532))
+	svc := createTestService(mockClient)
+	ch, auth := getValidTestData()
+
+	mockClient.SetBalanceOfError(errors.New("rpc timeout"))
+	_, err := svc.Verify(context.Background(), &models.VerifyRequest{Challenge: *ch, Authorization: *auth})
+	if !errors.Is(err, ErrRPCUnavailable) {
+		t.Fatalf("expected ErrRPCUnavailable (fail-closed) on BalanceOf error, got %v", err)
+	}
+}
+
+func TestVerifySimulationRevertRejected(t *testing.T) {
+	mockClient := agentevm.NewMockClient(big.NewInt(84532))
+	svc := createTestService(mockClient)
+	ch, auth := getValidTestData()
+
+	mockClient.SetCallContractError(errors.New("execution reverted: FiatTokenV2: account is blacklisted"))
+	_, err := svc.Verify(context.Background(), &models.VerifyRequest{Challenge: *ch, Authorization: *auth})
+	if !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("expected ErrInvalidSignature when simulation reverts, got %v", err)
+	}
+}
+
+func TestPollReceiptReleasesInFlightReservation(t *testing.T) {
+	mockClient := agentevm.NewMockClient(big.NewInt(84532))
+	svc, err := NewFacilitatorService(Options{
+		Clock:            func() int64 { return 1729000100 },
+		EVMClient:        mockClient,
+		DefaultChainID:   big.NewInt(84532),
+		DefaultTokenAddr: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+		AutoPollReceipts: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to create service: %v", err)
+	}
+
+	ch, auth := getValidTestData()
+	vResp, err := svc.Verify(context.Background(), &models.VerifyRequest{Challenge: *ch, Authorization: *auth})
+	if err != nil {
+		t.Fatalf("verify failed: %v", err)
+	}
+	if got := svc.InFlightAmount(ch.Network, ch.Asset, auth.Payer); got.Cmp(big.NewInt(100_000)) != 0 {
+		t.Fatalf("expected in-flight 100000 after verify, got %s", got.String())
+	}
+
+	if _, err := svc.Settle(context.Background(), &models.SettleRequest{
+		VerificationToken: vResp.VerificationToken,
+		Authorization:     *auth,
+	}); err != nil {
+		t.Fatalf("settle failed: %v", err)
+	}
+
+	// Wait briefly for pollReceipt goroutine to confirm mock receipt and release in-flight reservation
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if svc.InFlightAmount(ch.Network, ch.Asset, auth.Payer).Sign() == 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("expected in-flight reservation to be released after receipt confirmation, still %s", svc.InFlightAmount(ch.Network, ch.Asset, auth.Payer).String())
 }

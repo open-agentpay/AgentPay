@@ -20,6 +20,7 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	errCode := "INTERNAL_SERVER_ERROR"
+	var details map[string]interface{}
 
 	switch {
 	case errors.Is(err, service.ErrUnauthorized):
@@ -28,9 +29,25 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrPayeeNotAllowed):
 		status = http.StatusForbidden
 		errCode = "PAYEE_NOT_ALLOWED"
+	case errors.Is(err, service.ErrInsufficientTokenBalance):
+		status = http.StatusPaymentRequired
+		errCode = "INSUFFICIENT_TOKEN_BALANCE"
+		var balErr *service.InsufficientTokenBalanceError
+		if errors.As(err, &balErr) {
+			details = map[string]interface{}{
+				"requiredAmount":   balErr.RequiredAmount,
+				"availableBalance": balErr.AvailableBalance,
+				"inFlightAmount":   balErr.InFlightAmount,
+				"network":          balErr.Network,
+				"asset":            balErr.Asset,
+			}
+		}
 	case errors.Is(err, service.ErrInsufficientGasBalance):
 		status = http.StatusServiceUnavailable
 		errCode = "INSUFFICIENT_FACILITATOR_GAS"
+	case errors.Is(err, service.ErrRPCUnavailable):
+		status = http.StatusServiceUnavailable
+		errCode = "FACILITATOR_UNAVAILABLE"
 	case errors.Is(err, service.ErrNonceAlreadyUsed):
 		status = http.StatusConflict
 		errCode = "NONCE_ALREADY_USED"
@@ -53,6 +70,7 @@ func writeError(w http.ResponseWriter, err error) {
 		Error:     errCode,
 		ErrorCode: errCode,
 		Message:   err.Error(),
+		Details:   details,
 	})
 }
 

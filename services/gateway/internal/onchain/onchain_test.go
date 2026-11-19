@@ -362,3 +362,61 @@ func TestFacilitatorVerifierAsyncSettlement(t *testing.T) {
 		t.Fatalf("unexpected GetSettlementStatusByNonce response: %+v", lookupStatus)
 	}
 }
+
+func TestFacilitatorVerifierInsufficientBalancePassthrough(t *testing.T) {
+	mockClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			respBody, _ := json.Marshal(map[string]interface{}{
+				"valid":     false,
+				"error":     "INSUFFICIENT_TOKEN_BALANCE",
+				"errorCode": "INSUFFICIENT_TOKEN_BALANCE",
+				"message":   "INSUFFICIENT_TOKEN_BALANCE: payer available token balance 10000 is less than required 100000",
+				"details": map[string]interface{}{
+					"requiredAmount":   "100000",
+					"availableBalance": "10000",
+					"inFlightAmount":   "0",
+				},
+			})
+			return &http.Response{
+				StatusCode: http.StatusPaymentRequired,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(bytes.NewReader(respBody)),
+			}, nil
+		}),
+	}
+
+	verifier := NewFacilitatorVerifierWithAuth("http://facilitator.internal", "test_api_key", 2*time.Second)
+	verifier.SetHTTPClient(mockClient)
+
+	now := time.Now().Unix()
+	ch := &x402.PaymentChallenge{
+		ChallengeID: "ch_low_balance",
+		Network:     "eip155:421614",
+		Asset:       "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+		ValidAfter:  now - 10,
+		ValidBefore: now + 300,
+	}
+	auth := &x402.PaymentAuthorization{
+		ChallengeID: "ch_low_balance",
+		Payer:       "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+		ValidAfter:  now - 10,
+		ValidBefore: now + 300,
+		Nonce:       "0x1234",
+	}
+
+	res, err := verifier.VerifyPayment(context.Background(), ch, auth)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Valid {
+		t.Fatalf("expected verification to be rejected")
+	}
+	if res.ErrorCode != ErrCodeOnchainInsufficientBalance {
+		t.Fatalf("expected ErrorCode %s, got %s", ErrCodeOnchainInsufficientBalance, res.ErrorCode)
+	}
+
+	desc, ok := x402.CanonicalErrorRegistry[ErrCodeOnchainInsufficientBalance]
+	if !ok || desc.Status != http.StatusPaymentRequired {
+		t.Fatalf("expected %s to be registered with HTTP 402, got ok=%v desc=%+v", ErrCodeOnchainInsufficientBalance, ok, desc)
+	}
+}

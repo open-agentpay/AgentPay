@@ -18,6 +18,9 @@ var (
 
 	// AuthorizationStateSelector = 0xe2973163
 	AuthorizationStateSelector = crypto.Keccak256([]byte("authorizationState(address,bytes32)"))[:4]
+
+	// BalanceOfSelector = 0x70a08231
+	BalanceOfSelector = crypto.Keccak256([]byte("balanceOf(address)"))[:4]
 )
 
 // EncodeTransferWithAuthorization builds the 292-byte calldata for EIP-3009 transfer.
@@ -168,4 +171,20 @@ func DecodeAuthorizationStateResult(data []byte) bool {
 		}
 	}
 	return false
+}
+
+// EncodeBalanceOf builds the 36-byte calldata for ERC-20 balanceOf(address).
+func EncodeBalanceOf(account common.Address) []byte {
+	calldata := make([]byte, 4+32)
+	copy(calldata[0:4], BalanceOfSelector)
+	copy(calldata[4+12:36], account.Bytes())
+	return calldata
+}
+
+// DecodeUint256Result parses a 32-byte big-endian uint256 ABI return value.
+func DecodeUint256Result(data []byte) (*big.Int, error) {
+	if len(data) < 32 {
+		return nil, fmt.Errorf("invalid uint256 return data length: got %d, want >= 32", len(data))
+	}
+	return new(big.Int).SetBytes(data[:32]), nil
 }

@@ -23,16 +23,45 @@ import (
 	"github.com/open-agentpay/agentpay-facilitator-go/internal/models"
 )
 
+const defaultInFlightReservationTTLSeconds int64 = 120
+
 var (
-	ErrNonceAlreadyUsed       = errors.New("NONCE_ALREADY_USED")
-	ErrChallengeExpired       = errors.New("CHALLENGE_EXPIRED")
-	ErrInvalidRequest         = errors.New("INVALID_REQUEST")
-	ErrInvalidSignature       = errors.New("INVALID_SIGNATURE")
-	ErrSettlementNotFound     = errors.New("SETTLEMENT_NOT_FOUND")
-	ErrUnauthorized           = errors.New("UNAUTHORIZED")
-	ErrPayeeNotAllowed        = errors.New("PAYEE_NOT_ALLOWED")
-	ErrInsufficientGasBalance = errors.New("INSUFFICIENT_FACILITATOR_GAS")
+	ErrNonceAlreadyUsed         = errors.New("NONCE_ALREADY_USED")
+	ErrChallengeExpired         = errors.New("CHALLENGE_EXPIRED")
+	ErrInvalidRequest           = errors.New("INVALID_REQUEST")
+	ErrInvalidSignature         = errors.New("INVALID_SIGNATURE")
+	ErrSettlementNotFound       = errors.New("SETTLEMENT_NOT_FOUND")
+	ErrUnauthorized             = errors.New("UNAUTHORIZED")
+	ErrPayeeNotAllowed          = errors.New("PAYEE_NOT_ALLOWED")
+	ErrInsufficientGasBalance   = errors.New("INSUFFICIENT_FACILITATOR_GAS")
+	ErrInsufficientTokenBalance = errors.New("INSUFFICIENT_TOKEN_BALANCE")
+	ErrRPCUnavailable           = errors.New("FACILITATOR_UNAVAILABLE")
 )
+
+// InsufficientTokenBalanceError carries structured balance details in base-unit decimal strings.
+type InsufficientTokenBalanceError struct {
+	RequiredAmount   string
+	AvailableBalance string
+	InFlightAmount   string
+	Network          string
+	Asset            string
+}
+
+func (e *InsufficientTokenBalanceError) Error() string {
+	return fmt.Sprintf("%s: payer available token balance %s (in-flight %s) is less than required %s on %s", ErrInsufficientTokenBalance.Error(), e.AvailableBalance, e.InFlightAmount, e.RequiredAmount, e.Network)
+}
+
+func (e *InsufficientTokenBalanceError) Unwrap() error {
+	return ErrInsufficientTokenBalance
+}
+
+// InFlightReservation tracks an unconfirmed verified payment amount reserved against a payer's token balance.
+type InFlightReservation struct {
+	VTok       string
+	BalanceKey string
+	Amount     *big.Int
+	ExpiresAt  int64
+}
 
 type VerificationRecord struct {
 	Challenge     models.PaymentChallenge
@@ -54,12 +83,15 @@ type FacilitatorService struct {
 	autoPollReceipts   bool
 	minGasBalanceWei   *big.Int
 	nativePriceUSD     float64
+	reservationTTL     int64
 
-	nonceStore          *MemoryNonceStore
-	verificationTokens  map[string]*VerificationRecord
-	settlements         map[string]*models.SettlementStatus
-	settlementsByNonce  map[string]string
-	idempotencyCache    map[string]*models.SettleResponse
+	nonceStore           *MemoryNonceStore
+	verificationTokens   map[string]*VerificationRecord
+	inFlightReservations map[string]*InFlightReservation
+	settlementVToks      map[string]string
+	settlements          map[string]*models.SettlementStatus
+	settlementsByNonce   map[string]string
+	idempotencyCache     map[string]*models.SettleResponse
 }
 
 // Options configure the FacilitatorService.
@@ -112,20 +144,23 @@ func NewFacilitatorService(opts Options) (*FacilitatorService, error) {
 	}
 
 	return &FacilitatorService{
-		clock:              clock,
-		evmClient:          opts.EVMClient,
-		facilitatorKey:     privKey,
-		facilitatorAddress: facilitatorAddr,
-		defaultChainID:     chainID,
-		defaultTokenAddr:   tokenAddr,
-		autoPollReceipts:   opts.AutoPollReceipts,
-		minGasBalanceWei:   opts.MinGasBalanceWei,
-		nativePriceUSD:     opts.NativePriceUSD,
-		nonceStore:         NewMemoryNonceStore(),
-		verificationTokens: make(map[string]*VerificationRecord),
-		settlements:        make(map[string]*models.SettlementStatus),
-		settlementsByNonce: make(map[string]string),
-		idempotencyCache:   make(map[string]*models.SettleResponse),
+		clock:                clock,
+		evmClient:            opts.EVMClient,
+		facilitatorKey:       privKey,
+		facilitatorAddress:   facilitatorAddr,
+		defaultChainID:       chainID,
+		defaultTokenAddr:     tokenAddr,
+		autoPollReceipts:     opts.AutoPollReceipts,
+		minGasBalanceWei:     opts.MinGasBalanceWei,
+		nativePriceUSD:       opts.NativePriceUSD,
+		reservationTTL:       defaultInFlightReservationTTLSeconds,
+		nonceStore:           NewMemoryNonceStore(),
+		verificationTokens:   make(map[string]*VerificationRecord),
+		inFlightReservations: make(map[string]*InFlightReservation),
+		settlementVToks:      make(map[string]string),
+		settlements:          make(map[string]*models.SettlementStatus),
+		settlementsByNonce:   make(map[string]string),
+		idempotencyCache:     make(map[string]*models.SettleResponse),
 	}, nil
 }
 
@@ -233,12 +268,82 @@ func (s *FacilitatorService) Verify(ctx context.Context, req *models.VerifyReque
 		return nil, fmt.Errorf("%w: cryptographic signature verification failed: recovered=%s expected=%s err=%v", ErrInvalidSignature, recovered, auth.Payer, err)
 	}
 
-	// 6. Generate Verification Token
+	amountVal, ok := new(big.Int).SetString(strings.TrimSpace(ch.Amount), 10)
+	if !ok || amountVal.Sign() <= 0 {
+		return nil, fmt.Errorf("%w: invalid challenge amount %q", ErrInvalidRequest, ch.Amount)
+	}
+
+	// 6. On-Chain Token Balance & Read-Only Simulation Guard (Fail-Closed)
+	// SECURITY-REVIEW: verify payer ERC-20 balance, simulate transferWithAuthorization, and atomically reserve in-flight balance.
+	var onchainBal *big.Int
+	needBalanceGuard := s.evmClient != nil && ch.Asset != "" && auth.Payer != ""
+	if needBalanceGuard {
+		tokenContract := common.HexToAddress(ch.Asset)
+		payerAddr := common.HexToAddress(auth.Payer)
+		payeeAddr := common.HexToAddress(ch.Payee)
+
+		bal, balErr := s.evmClient.BalanceOf(ctx, tokenContract, payerAddr)
+		if balErr != nil || bal == nil {
+			return nil, fmt.Errorf("%w: failed to query payer token balance: %v", ErrRPCUnavailable, balErr)
+		}
+		onchainBal = bal
+
+		calldata, encErr := agentevm.EncodeTransferFromAuthorization(auth, payeeAddr, amountVal)
+		if encErr != nil {
+			return nil, fmt.Errorf("%w: failed to encode EIP-3009 simulation calldata: %v", ErrInvalidRequest, encErr)
+		}
+		if _, simErr := s.evmClient.CallContract(ctx, ethereum.CallMsg{
+			From: s.facilitatorAddress,
+			To:   &tokenContract,
+			Data: calldata,
+		}); simErr != nil {
+			if onchainBal.Cmp(amountVal) < 0 {
+				return nil, &InsufficientTokenBalanceError{
+					RequiredAmount:   amountVal.String(),
+					AvailableBalance: onchainBal.String(),
+					InFlightAmount:   "0",
+					Network:          strings.ToLower(strings.TrimSpace(ch.Network)),
+					Asset:            strings.ToLower(strings.TrimSpace(ch.Asset)),
+				}
+			}
+			return nil, fmt.Errorf("%w: transferWithAuthorization pre-flight simulation reverted: %v", ErrInvalidSignature, simErr)
+		}
+	}
+
+	// 7. Generate Verification Token & Atomically Reserve In-Flight Balance
 	randBytes := make([]byte, 16)
 	_, _ = rand.Read(randBytes)
 	vtok := fmt.Sprintf("vtok_%s", hex.EncodeToString(randBytes))
 
 	s.mu.Lock()
+	if needBalanceGuard {
+		balanceKey := makeBalanceKey(ch.Network, ch.Asset, auth.Payer)
+		inFlight := s.sumActiveInFlightLocked(balanceKey, now)
+		available := new(big.Int).Sub(onchainBal, inFlight)
+		if available.Sign() < 0 {
+			available = big.NewInt(0)
+		}
+		if available.Cmp(amountVal) < 0 {
+			s.mu.Unlock()
+			return nil, &InsufficientTokenBalanceError{
+				RequiredAmount:   amountVal.String(),
+				AvailableBalance: available.String(),
+				InFlightAmount:   inFlight.String(),
+				Network:          strings.ToLower(strings.TrimSpace(ch.Network)),
+				Asset:            strings.ToLower(strings.TrimSpace(ch.Asset)),
+			}
+		}
+		expiresAt := now + s.reservationTTL
+		if ch.ValidBefore > 0 && ch.ValidBefore < expiresAt {
+			expiresAt = ch.ValidBefore
+		}
+		s.inFlightReservations[vtok] = &InFlightReservation{
+			VTok:       vtok,
+			BalanceKey: balanceKey,
+			Amount:     new(big.Int).Set(amountVal),
+			ExpiresAt:  expiresAt,
+		}
+	}
 	s.verificationTokens[vtok] = &VerificationRecord{
 		Challenge:     *ch,
 		Authorization: *auth,
@@ -362,6 +467,7 @@ func (s *FacilitatorService) Settle(ctx context.Context, req *models.SettleReque
 			Data: calldata,
 		})
 		if err != nil || gasLimit == 0 {
+			s.releaseInFlight(vtok)
 			return nil, fmt.Errorf("%w: simulation failed, not broadcasting: %v", ErrInvalidSignature, err)
 		}
 		gasLimit = gasLimit * 125 / 100
@@ -385,11 +491,13 @@ func (s *FacilitatorService) Settle(ctx context.Context, req *models.SettleReque
 		signer := types.LatestSignerForChainID(chainID)
 		signedTx, err := types.SignTx(rawTx, signer, s.facilitatorKey)
 		if err != nil {
+			s.releaseInFlight(vtok)
 			return nil, fmt.Errorf("%w: failed to sign settlement transaction: %v", ErrInvalidRequest, err)
 		}
 
 		txHash, err := s.evmClient.SendRawTransaction(ctx, signedTx)
 		if err != nil {
+			s.releaseInFlight(vtok)
 			return nil, fmt.Errorf("%w: failed to broadcast transaction to EVM RPC: %v", ErrInvalidRequest, err)
 		}
 		txHashStr = txHash.Hex()
@@ -420,6 +528,7 @@ func (s *FacilitatorService) Settle(ctx context.Context, req *models.SettleReque
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
+	s.settlementVToks[settlementID] = vtok
 
 	nonceKey := makeNonceKey(ch.Network, ch.Asset, auth.Payer, auth.Nonce)
 	s.settlementsByNonce[nonceKey] = settlementID
@@ -447,6 +556,11 @@ func (s *FacilitatorService) pollReceipt(settlementID string, txHash common.Hash
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if vtok, ok := s.settlementVToks[settlementID]; ok {
+		delete(s.inFlightReservations, vtok)
+		delete(s.settlementVToks, settlementID)
+	}
+
 	status, exists := s.settlements[settlementID]
 	if !exists {
 		return
@@ -466,6 +580,54 @@ func (s *FacilitatorService) pollReceipt(settlementID string, txHash common.Hash
 		status.Status = models.SettlementStateFailed
 		status.Error = "EVM transaction reverted on-chain"
 	}
+}
+
+func makeBalanceKey(network, asset, payer string) string {
+	return strings.ToLower(strings.TrimSpace(network)) + ":" +
+		strings.ToLower(strings.TrimSpace(asset)) + ":" +
+		strings.ToLower(strings.TrimSpace(payer))
+}
+
+// sumActiveInFlightLocked purges expired reservations and returns the total active in-flight amount for balanceKey.
+// Caller must hold s.mu.Lock().
+func (s *FacilitatorService) sumActiveInFlightLocked(balanceKey string, now int64) *big.Int {
+	total := big.NewInt(0)
+	for vtok, res := range s.inFlightReservations {
+		if res.ExpiresAt <= now {
+			delete(s.inFlightReservations, vtok)
+			continue
+		}
+		if res.BalanceKey == balanceKey && res.Amount != nil {
+			total.Add(total, res.Amount)
+		}
+	}
+	return total
+}
+
+func (s *FacilitatorService) releaseInFlight(vtok string) {
+	if vtok == "" {
+		return
+	}
+	s.mu.Lock()
+	delete(s.inFlightReservations, vtok)
+	s.mu.Unlock()
+}
+
+// SetReservationTTL configures the in-flight balance reservation TTL in seconds.
+func (s *FacilitatorService) SetReservationTTL(ttlSeconds int64) {
+	if ttlSeconds <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.reservationTTL = ttlSeconds
+	s.mu.Unlock()
+}
+
+// InFlightAmount returns the currently reserved in-flight token amount for a payer.
+func (s *FacilitatorService) InFlightAmount(network, asset, payer string) *big.Int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sumActiveInFlightLocked(makeBalanceKey(network, asset, payer), s.Now())
 }
 
 // GetSettlement implements GET /v1/settle/{id}.

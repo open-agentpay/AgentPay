@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/open-agentpay/agentpay-facilitator-go/internal/config"
 	agentevm "github.com/open-agentpay/agentpay-facilitator-go/internal/evm"
 	"github.com/open-agentpay/agentpay-facilitator-go/internal/models"
@@ -200,5 +201,74 @@ func TestHTTPServerEndpoints(t *testing.T) {
 	}
 	if gasResp.SurchargeBaseUnits <= 0 {
 		t.Fatalf("expected positive surchargeBaseUnits, got %d", gasResp.SurchargeBaseUnits)
+	}
+}
+
+func TestHTTPVerifyInsufficientTokenBalanceReturns402(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Security.APIKey = "fac_test_secret_api_key_002"
+	mockClient := agentevm.NewMockClient(big.NewInt(84532))
+
+	svc, err := service.NewFacilitatorService(service.Options{
+		Clock:            func() int64 { return 1729000100 },
+		EVMClient:        mockClient,
+		DefaultChainID:   big.NewInt(84532),
+		DefaultTokenAddr: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+		AutoPollReceipts: false,
+	})
+	if err != nil {
+		t.Fatalf("failed to initialize service: %v", err)
+	}
+
+	ch := models.PaymentChallenge{
+		Version:     "2.0",
+		ChallengeID: "ch_http_low_bal",
+		Network:     "eip155:84532",
+		Asset:       "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+		AssetSymbol: "USDC",
+		Decimals:    6,
+		Amount:      "100000",
+		Payee:       "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+		Scheme:      "EIP-3009",
+		ValidAfter:  1729000000,
+		ValidBefore: 1729000300,
+	}
+	auth := models.PaymentAuthorization{
+		Version:     "2.0",
+		ChallengeID: "ch_http_low_bal",
+		Payer:       "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+		Scheme:      "EIP-3009",
+		Nonce:       "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+		ValidAfter:  1729000000,
+		ValidBefore: 1729000300,
+		Signature: models.SignatureData{
+			V:          27,
+			R:          "0x31207f584bc8e976a0ce72ea1c9c85cdb4da7686401c5b6efdc27040e5b0f22",
+			S:          "0x2eacb1d50c27d4f5052b776e4bb5f1b42ce5c17fb7f553d44d0c42105444f4f1",
+			Serialized: "031207f584bc8e976a0ce72ea1c9c85cdb4da7686401c5b6efdc27040e5b0f222eacb1d50c27d4f5052b776e4bb5f1b42ce5c17fb7f553d44d0c42105444f4f11b",
+		},
+	}
+
+	mockClient.SetTokenBalance(common.HexToAddress(ch.Asset), common.HexToAddress(auth.Payer), big.NewInt(10_000))
+
+	srv := New(cfg, svc)
+	verifyBody, _ := json.Marshal(models.VerifyRequest{Challenge: ch, Authorization: auth})
+	req := httptest.NewRequest(http.MethodPost, "/v1/verify", bytes.NewBuffer(verifyBody))
+	req.Header.Set("Authorization", "Bearer "+cfg.Security.APIKey)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402 Payment Required, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+	var errResp models.ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	if errResp.ErrorCode != "INSUFFICIENT_TOKEN_BALANCE" {
+		t.Fatalf("expected errorCode INSUFFICIENT_TOKEN_BALANCE, got %q", errResp.ErrorCode)
+	}
+	if errResp.Details["availableBalance"] != "10000" || errResp.Details["requiredAmount"] != "100000" {
+		t.Fatalf("unexpected balance details: %+v", errResp.Details)
 	}
 }

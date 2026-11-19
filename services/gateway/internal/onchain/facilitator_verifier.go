@@ -18,8 +18,50 @@ import (
 )
 
 const (
-	ErrCodeFacilitatorUnavailable = "FACILITATOR_UNAVAILABLE"
+	ErrCodeFacilitatorUnavailable     = "FACILITATOR_UNAVAILABLE"
+	ErrCodeOnchainInsufficientBalance = "ERR_ONCHAIN_INSUFFICIENT_BALANCE"
 )
+
+func init() {
+	if _, exists := x402.CanonicalErrorRegistry[ErrCodeOnchainInsufficientBalance]; !exists {
+		x402.CanonicalErrorRegistry[ErrCodeOnchainInsufficientBalance] = x402.ErrorDescriptor{
+			Code:       ErrCodeOnchainInsufficientBalance,
+			Status:     http.StatusPaymentRequired,
+			Domain:     "ONCHAIN",
+			Message:    "On-chain token balance is insufficient to cover this payment.",
+			Actionable: "Top up the payer wallet's on-chain token balance or switch to another funded network.",
+		}
+	}
+	if _, exists := x402.CanonicalErrorRegistry[ErrCodeFacilitatorUnavailable]; !exists {
+		x402.CanonicalErrorRegistry[ErrCodeFacilitatorUnavailable] = x402.ErrorDescriptor{
+			Code:       ErrCodeFacilitatorUnavailable,
+			Status:     http.StatusServiceUnavailable,
+			Domain:     "SETTLEMENT",
+			Message:    "On-chain settlement facilitator is temporarily unavailable.",
+			Actionable: "Retry the request shortly or check facilitator health.",
+		}
+	}
+}
+
+func mapFacilitatorErrorCode(statusCode int, facCode string) string {
+	switch facCode {
+	case "INSUFFICIENT_TOKEN_BALANCE":
+		return ErrCodeOnchainInsufficientBalance
+	case "NONCE_ALREADY_USED":
+		return x402.ErrCodeNonceAlreadyUsed
+	case "CHALLENGE_EXPIRED":
+		return x402.ErrCodeSignatureExpired
+	case "INSUFFICIENT_FACILITATOR_GAS", "FACILITATOR_UNAVAILABLE":
+		return ErrCodeFacilitatorUnavailable
+	}
+	if statusCode == http.StatusPaymentRequired {
+		return ErrCodeOnchainInsufficientBalance
+	}
+	if statusCode >= 500 {
+		return ErrCodeFacilitatorUnavailable
+	}
+	return x402.ErrCodeSignatureInvalid
+}
 
 // FacilitatorVerifier executes verification by delegating to the Facilitator service.
 type FacilitatorVerifier struct {
@@ -153,15 +195,23 @@ func (fv *FacilitatorVerifier) VerifyPayment(ctx context.Context, ch *x402.Payme
 	}
 
 	var errResp struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
+		Code      string                 `json:"code"`
+		Error     string                 `json:"error"`
+		ErrorCode string                 `json:"errorCode"`
+		Message   string                 `json:"message"`
+		Details   map[string]interface{} `json:"details"`
 	}
 	_ = json.Unmarshal(bodyBytes, &errResp)
 
-	errCode := x402.ErrCodeSignatureInvalid
-	if resp.StatusCode >= 500 {
-		errCode = ErrCodeFacilitatorUnavailable
+	facCode := strings.ToUpper(strings.TrimSpace(errResp.ErrorCode))
+	if facCode == "" {
+		facCode = strings.ToUpper(strings.TrimSpace(errResp.Error))
 	}
+	if facCode == "" {
+		facCode = strings.ToUpper(strings.TrimSpace(errResp.Code))
+	}
+
+	errCode := mapFacilitatorErrorCode(resp.StatusCode, facCode)
 
 	msg := errResp.Message
 	if msg == "" {

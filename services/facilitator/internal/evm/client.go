@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 // Client defines EVM RPC operations required by Facilitator.
 type Client interface {
 	CheckAuthorizationState(ctx context.Context, tokenContract common.Address, authorizer common.Address, nonce [32]byte) (bool, error)
+	BalanceOf(ctx context.Context, tokenContract common.Address, account common.Address) (*big.Int, error)
+	CallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, error)
 	GetNonce(ctx context.Context, account common.Address) (uint64, error)
 	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
 	SuggestGasPrice(ctx context.Context) (*big.Int, error)
@@ -80,6 +83,23 @@ func (r *RPCClient) CheckAuthorizationState(ctx context.Context, tokenContract c
 	return DecodeAuthorizationStateResult(out), nil
 }
 
+func (r *RPCClient) BalanceOf(ctx context.Context, tokenContract common.Address, account common.Address) (*big.Int, error) {
+	calldata := EncodeBalanceOf(account)
+	msg := ethereum.CallMsg{
+		To:   &tokenContract,
+		Data: calldata,
+	}
+	out, err := r.client.CallContract(ctx, msg, nil)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeUint256Result(out)
+}
+
+func (r *RPCClient) CallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, error) {
+	return r.client.CallContract(ctx, msg, nil)
+}
+
 func (r *RPCClient) GetNonce(ctx context.Context, account common.Address) (uint64, error) {
 	return r.client.PendingNonceAt(ctx, account)
 }
@@ -110,14 +130,17 @@ func (r *RPCClient) TransactionReceipt(ctx context.Context, txHash common.Hash) 
 
 // MockClient provides an in-memory client for testing and simulation without requiring live RPC.
 type MockClient struct {
-	mu             sync.RWMutex
-	chainID        *big.Int
-	usedAuthNonces map[string]bool
-	receipts       map[common.Hash]*types.Receipt
-	txNonce        uint64
-	GasPriceVal    *big.Int
-	GasTipCapVal   *big.Int
-	BalanceVal     *big.Int
+	mu              sync.RWMutex
+	chainID         *big.Int
+	usedAuthNonces  map[string]bool
+	tokenBalances   map[string]*big.Int
+	balanceOfErr    error
+	callContractErr error
+	receipts        map[common.Hash]*types.Receipt
+	txNonce         uint64
+	GasPriceVal     *big.Int
+	GasTipCapVal    *big.Int
+	BalanceVal      *big.Int
 }
 
 // NewMockClient creates an in-memory client.
@@ -128,11 +151,59 @@ func NewMockClient(chainID *big.Int) *MockClient {
 	return &MockClient{
 		chainID:        chainID,
 		usedAuthNonces: make(map[string]bool),
+		tokenBalances:  make(map[string]*big.Int),
 		receipts:       make(map[common.Hash]*types.Receipt),
-		GasPriceVal:    big.NewInt(100_000_000),           // 0.1 Gwei
-		GasTipCapVal:   big.NewInt(1_000_000),             // 0.001 Gwei
+		GasPriceVal:    big.NewInt(100_000_000),               // 0.1 Gwei
+		GasTipCapVal:   big.NewInt(1_000_000),                 // 0.001 Gwei
 		BalanceVal:     big.NewInt(1_000_000_000_000_000_000), // 1 ETH default
 	}
+}
+
+func mockTokenBalanceKey(tokenContract, account common.Address) string {
+	return strings.ToLower(tokenContract.Hex()) + ":" + strings.ToLower(account.Hex())
+}
+
+func (m *MockClient) SetTokenBalance(tokenContract, account common.Address, bal *big.Int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if bal == nil {
+		delete(m.tokenBalances, mockTokenBalanceKey(tokenContract, account))
+		return
+	}
+	m.tokenBalances[mockTokenBalanceKey(tokenContract, account)] = new(big.Int).Set(bal)
+}
+
+func (m *MockClient) SetBalanceOfError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.balanceOfErr = err
+}
+
+func (m *MockClient) SetCallContractError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.callContractErr = err
+}
+
+func (m *MockClient) BalanceOf(ctx context.Context, tokenContract common.Address, account common.Address) (*big.Int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.balanceOfErr != nil {
+		return nil, m.balanceOfErr
+	}
+	if bal, ok := m.tokenBalances[mockTokenBalanceKey(tokenContract, account)]; ok {
+		return new(big.Int).Set(bal), nil
+	}
+	return big.NewInt(1_000_000_000), nil // 1000 USDC default
+}
+
+func (m *MockClient) CallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.callContractErr != nil {
+		return nil, m.callContractErr
+	}
+	return nil, nil
 }
 
 func (m *MockClient) ChainID() *big.Int {
