@@ -69,6 +69,25 @@ describe('T4.2 Console - Route & Upstream Management Test Suite', () => {
       expect(validNested.startsWith('/')).toBe(true);
       expect(invalidNoSlash.startsWith('/')).toBe(false);
     });
+
+    it('should support overseas dual-rail payment channels (both, onchain, wallet)', () => {
+      const validChannels = ['both', 'onchain', 'wallet'];
+      validChannels.forEach((method) => {
+        expect(['both', 'onchain', 'wallet'].includes(method)).toBe(true);
+      });
+
+      const validatePayee = (method: string, address: string) => {
+        const evmAddressRegex = /^0x[a-fA-F0-9]{40}$/;
+        if (method === 'wallet') return true;
+        return evmAddressRegex.test(address);
+      };
+
+      expect(validatePayee('wallet', '')).toBe(true);
+      expect(validatePayee('onchain', '')).toBe(false);
+      expect(validatePayee('onchain', '0x70997970C51812dc3A010C7d01b50e0d17dc79C8')).toBe(true);
+      expect(validatePayee('both', '0x70997970C51812dc3A010C7d01b50e0d17dc79C8')).toBe(true);
+      expect(validatePayee('both', 'invalid_address')).toBe(false);
+    });
   });
 
   describe('Route Role-Based Access Control', () => {

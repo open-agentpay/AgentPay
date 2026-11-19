@@ -109,6 +109,7 @@ export interface Translations {
     allNetworks: string;
     categories: Record<string, string>;
     clusters?: Record<string, string>;
+    tags?: Record<string, string>;
   };
   publishApi: string;
   openAiSdkBadge: string;

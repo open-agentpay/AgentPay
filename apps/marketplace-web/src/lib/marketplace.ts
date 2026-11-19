@@ -7,13 +7,13 @@ const INTERNAL_GATEWAY_URL =
   'http://127.0.0.1:8080';
 
 export const PUBLIC_GATEWAY_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_URL || 'https://gate.aipmedia.cn';
+  process.env.NEXT_PUBLIC_GATEWAY_URL || 'https://gate.openagentpay.dev';
 
 export const PUBLIC_SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL || 'https://aipmedia.cn';
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://openagentpay.dev';
 
 export const PUBLIC_CONSOLE_URL =
-  process.env.NEXT_PUBLIC_CONSOLE_URL || 'https://console.aipmedia.cn';
+  process.env.NEXT_PUBLIC_CONSOLE_URL || 'https://console.openagentpay.dev';
 
 export const PUBLIC_PLAYGROUND_URL =
   process.env.NEXT_PUBLIC_PLAYGROUND_URL || `${PUBLIC_CONSOLE_URL}/playground`;
@@ -50,6 +50,81 @@ export function formatNetworkLabel(network?: string, fallback?: string): string 
   if (clean.includes('42161')) return 'Arbitrum USDC (x402)';
   if (clean.includes('solana')) return 'Solana USDC (x402)';
   return network || 'Base / Arbitrum USDC';
+}
+
+/**
+ * Semantic and technical tags translation dictionary.
+ */
+export const TAG_DICTIONARY: Record<string, { en: string; zh: string }> = {
+  // Node / Settlement / Infrastructure tags
+  'x402': { en: 'x402', zh: 'x402' },
+  '算力点数 (Credits)': { en: 'Compute Credits', zh: '算力点数 (Credits)' },
+  '算力点数': { en: 'Compute Credits', zh: '算力点数' },
+  'Compute Credits': { en: 'Compute Credits', zh: '算力点数 (Credits)' },
+  '国内算力节点': { en: 'Domestic Compute Node', zh: '国内算力节点' },
+  'Domestic Compute Node': { en: 'Domestic Compute Node', zh: '国内算力节点' },
+  '公有云节点': { en: 'Public Cloud Node', zh: '公有云节点' },
+  'Public Cloud Node': { en: 'Public Cloud Node', zh: '公有云节点' },
+  '专网节点': { en: 'Dedicated Private Node', zh: '专网节点' },
+  'Dedicated Private Node': { en: 'Dedicated Private Node', zh: '专网节点' },
+  '专网节点 算力点数 (Credits)': { en: 'Dedicated Private Node Credits', zh: '专网节点 算力点数 (Credits)' },
+  '国内算力节点 / 公有云节点 算力点数 (Credits)': { en: 'Domestic / Public Cloud Credits', zh: '国内算力节点 / 公有云节点 算力点数 (Credits)' },
+
+  // Protocol & Model capabilities
+  'OpenAI兼容': { en: 'OpenAI Compatible', zh: 'OpenAI兼容' },
+  'OpenAI Compatible': { en: 'OpenAI Compatible', zh: 'OpenAI兼容' },
+  '流式计费': { en: 'Streaming Billing', zh: '流式计费' },
+  'Streaming Billing': { en: 'Streaming Billing', zh: '流式计费' },
+  '资金流追踪': { en: 'Fund Flow Tracking', zh: '资金流追踪' },
+  'Fund Flow Tracking': { en: 'Fund Flow Tracking', zh: '资金流追踪' },
+  '主力资金': { en: 'Smart Money', zh: '主力资金' },
+  'Smart Money': { en: 'Smart Money', zh: '主力资金' },
+  '量化投研': { en: 'Quant Research', zh: '量化投研' },
+  'Quant Research': { en: 'Quant Research', zh: '量化投研' },
+
+  // Category labels as tags
+  '沙箱算力与开发工具': { en: 'Compute & Dev Tools', zh: '沙箱算力与开发工具' },
+  '企业财务与合规审计': { en: 'Enterprise Compliance', zh: '企业财务与合规审计' },
+  '金融行情与研报': { en: 'Financial Intel', zh: '金融行情与研报' },
+  '网页抓取与实时搜索': { en: 'Web Scraping & Search', zh: '网页抓取与实时搜索' },
+  'AI 推理与多模态': { en: 'AI & LLM Inference', zh: 'AI 推理与多模态' },
+};
+
+/**
+ * Maps semantic and technical tags between Chinese and English based on current locale.
+ */
+export function formatTagLabel(tag: string, locale: string = 'en'): string {
+  if (!tag) return '';
+  const clean = tag.replace(/^#+/, '').trim();
+  const direct = TAG_DICTIONARY[clean];
+  if (direct) {
+    return locale === 'en' ? direct.en : direct.zh;
+  }
+
+  // Heuristic fallbacks for dynamic or composite tag strings
+  if (locale === 'en') {
+    if (clean.includes('算力点数')) return 'Compute Credits';
+    if (clean.includes('国内算力')) return 'Domestic Compute Node';
+    if (clean.includes('公有云')) return 'Public Cloud Node';
+    if (clean.includes('专网节点')) return 'Dedicated Private Node';
+    if (clean.includes('OpenAI兼容')) return 'OpenAI Compatible';
+    if (clean.includes('流式计费')) return 'Streaming Billing';
+    if (clean.includes('资金流')) return 'Fund Flow Tracking';
+    if (clean.includes('主力资金')) return 'Smart Money';
+    if (clean.includes('量化投研')) return 'Quant Research';
+  } else if (locale === 'zh') {
+    const lower = clean.toLowerCase();
+    if (lower === 'compute credits' || lower === 'credits') return '算力点数 (Credits)';
+    if (lower === 'domestic compute node') return '国内算力节点';
+    if (lower === 'public cloud node') return '公有云节点';
+    if (lower === 'dedicated private node') return '专网节点';
+    if (lower === 'openai compatible') return 'OpenAI兼容';
+    if (lower === 'streaming billing') return '流式计费';
+    if (lower === 'fund flow tracking') return '资金流追踪';
+    if (lower === 'quant research') return '量化投研';
+  }
+
+  return clean;
 }
 
 /**
@@ -360,17 +435,25 @@ export function buildPythonSdkSnippet(
   locale: string = 'en',
   activeApiKey?: string
 ): string {
-  const effectiveKey = activeApiKey || 'apk_live_xxx';
-  const suggestedBudgetUnits = Math.max(
-    250_000,
-    (route.price_base_units || 50_000) * 5
-  );
+  const effectiveKey = activeApiKey || 'xxx';
+  const suggestedBudgetUnits =
+    route.onchain_price_base_units && route.onchain_price_base_units > 0
+      ? route.onchain_price_base_units
+      : route.price_base_units && route.price_base_units > 0
+      ? route.price_base_units
+      : 2500000;
+  const suggestedDailyUnits = Math.max(5000000, suggestedBudgetUnits * 2);
+
   const sampleParams =
     route.sample_params && Object.keys(route.sample_params).length > 0
       ? route.sample_params
       : (route.parameters && typeof route.parameters === 'object' && !Array.isArray(route.parameters) && Object.keys(route.parameters).length > 0)
       ? (route.parameters as Record<string, unknown>)
-      : { city: locale === 'en' ? 'San Francisco' : '北京' };
+      : {
+          interval: '1h',
+          limit: '2',
+          symbol: 'BTC-PERP',
+        };
 
   const paramsJson = JSON.stringify(sampleParams, null, 4);
 
@@ -380,61 +463,36 @@ export function buildPythonSdkSnippet(
     (!route.methods?.includes('GET') && route.methods?.includes('POST'));
   const httpMethod = isPost ? 'post' : 'get';
   const paramArg = isPost ? 'json' : 'params';
-  const endpointUrl = `${PUBLIC_GATEWAY_URL}${route.path_pattern}`;
+  const endpointUrl = `${PUBLIC_GATEWAY_URL}${route.path_pattern || '/api/v1/market/candles'}`;
+  const policyId = (route.slug || 'agent_firewall').replace(/-/g, '_').slice(0, 32);
 
-  const suggestedDailyUnits = Math.max(5_000_000, suggestedBudgetUnits * 20);
-  const policyId = (route.slug || 'weather_agent').replace(/-/g, '_').slice(0, 32);
+  // All comments are strictly in English as specified
+  return `import os
+from time import time
 
-  if (locale === 'en') {
-    return `import os
-# Import AgentPayClient directly from top-level agentpay_core
-from agentpay_core import AgentPayClient, PolicyConfig, SQLitePolicyEngine
+from agentpay import AgentPayClient, LocalSigner
+from agent_core.policy import PolicyConfig, SQLitePolicyEngine, WhitelistMode
+
+# 1. Import AgentPay SDK non-custodial financial firewall & local signer
+signer = LocalSigner(os.getenv("AGENT_WALLET_KEY",
+                               "${effectiveKey}"))  # Signs offline EIP-712 / EIP-3009 authorizations, zero buyer gas
 
 # 1. Policy Firewall: configure per-call budget and domain whitelist
 policy = SQLitePolicyEngine.create_in_memory(
     PolicyConfig(
         id="${policyId}",
-        max_per_tx_base_units=${suggestedBudgetUnits},  # ${(suggestedBudgetUnits / 1_000_000).toFixed(2)} Credits
-        rolling_budget_24h_base_units=${suggestedDailyUnits},  # ${(suggestedDailyUnits / 1_000_000).toFixed(2)} Credits
-        whitelist_domains={"gate.aipmedia.cn"},
+        name="Agent Firewall",
+        wallet_address=signer.address,
+        whitelist_mode=WhitelistMode.SIMPLE,
+        max_per_tx_base_units=${suggestedBudgetUnits},  # Max spend per call protection (${(suggestedBudgetUnits / 1_000_000).toFixed(2)} USDC)
+        rolling_budget_24h_base_units=${suggestedDailyUnits},  # 24h rolling budget limit (${(suggestedDailyUnits / 1_000_000).toFixed(2)} USDC)
     )
 )
 
 # 2. Pass api_key directly; automatic virtual wallet & 402 handshake
-client = AgentPayClient(
-    api_key=os.getenv("AGENT_API_KEY", "${effectiveKey}"),
-    policy=policy,
-)
+client = AgentPayClient(signer=signer, policy=policy)
 
 # 3. Invoke endpoint normally
-response = client.${httpMethod}(
-    "${endpointUrl}",
-    ${paramArg}=${paramsJson}
-)
-print("Response:", response.json())`;
-  }
-
-  return `import os
-# 从顶层 agentpay_core 直接导入 AgentPayClient
-from agentpay_core import AgentPayClient, PolicyConfig, SQLitePolicyEngine
-
-# 1. 策略防火墙：仅配置预算和白名单域名
-policy = SQLitePolicyEngine.create_in_memory(
-    PolicyConfig(
-        id="${policyId}",
-        max_per_tx_base_units=${suggestedBudgetUnits},  # ${(suggestedBudgetUnits / 1_000_000).toFixed(2)} Credits
-        rolling_budget_24h_base_units=${suggestedDailyUnits},  # ${(suggestedDailyUnits / 1_000_000).toFixed(2)} Credits
-        whitelist_domains={"gate.aipmedia.cn"},
-    )
-)
-
-# 2. 客户端直接传入 api_key，自动开启虚拟钱包模式与 402 自动握手
-client = AgentPayClient(
-    api_key=os.getenv("AGENT_API_KEY", "${effectiveKey}"),
-    policy=policy,
-)
-
-# 3. 正常发起调用
 response = client.${httpMethod}(
     "${endpointUrl}",
     ${paramArg}=${paramsJson}
@@ -490,7 +548,7 @@ const policy = SQLitePolicyEngine.createInMemory(
     id: '${policyId}',
     maxPerTxBaseUnits: ${suggestedBudgetUnits}n,
     rollingBudget24hBaseUnits: ${suggestedDailyUnits}n,
-    whitelistDomains: ['gate.aipmedia.cn'],
+    whitelistDomains: ['gate.openagentpay.dev'],
   })
 );
 
@@ -513,7 +571,7 @@ const policy = SQLitePolicyEngine.createInMemory(
     id: '${policyId}',
     maxPerTxBaseUnits: ${suggestedBudgetUnits}n,
     rollingBudget24hBaseUnits: ${suggestedDailyUnits}n,
-    whitelistDomains: ['gate.aipmedia.cn'],
+    whitelistDomains: ['gate.openagentpay.dev'],
   })
 );
 
@@ -814,7 +872,15 @@ function applyLocalFilter(
       return false;
     }
     if (filter.tag) {
-      const hasTag = item.tags.some((t) => t.toLowerCase() === filter.tag!.toLowerCase());
+      const filterTag = filter.tag.toLowerCase();
+      const hasTag = item.tags.some((t) => {
+        const lower = t.toLowerCase();
+        return (
+          lower === filterTag ||
+          formatTagLabel(t, 'en').toLowerCase() === filterTag ||
+          formatTagLabel(t, 'zh').toLowerCase() === filterTag
+        );
+      });
       if (!hasTag) return false;
     }
     if (filter.q && filter.q.trim() !== '') {
@@ -827,6 +893,8 @@ function applyLocalFilter(
         item.path_pattern,
         item.description_md,
         ...item.tags,
+        ...item.tags.map((t) => formatTagLabel(t, 'en')),
+        ...item.tags.map((t) => formatTagLabel(t, 'zh')),
       ]
         .join(' ')
         .toLowerCase();

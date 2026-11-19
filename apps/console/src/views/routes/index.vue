@@ -209,6 +209,7 @@ onMounted(() => {
 });
 
 // Form validation rules
+const evmAddressRegex = /^0x[a-fA-F0-9]{40}$/;
 const pathPatternRegex = /^\/[a-zA-Z0-9_\-/{}*]*$/;
 
 const routeRules: FormRules = {
@@ -248,6 +249,26 @@ const routeRules: FormRules = {
       validator: (_rule, value, callback) => {
         if (value === undefined || value === null || value < 0) {
           callback(new Error(t('价格不能为负数')));
+        } else {
+          callback();
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
+  payee_address: [
+    {
+      validator: (_rule, value, callback) => {
+        const isCreatingWallet = createDialogVisible.value && createForm.allowed_payment_methods === 'wallet';
+        const isEditingWallet = editDialogVisible.value && editForm.allowed_payment_methods === 'wallet';
+        if (isCreatingWallet || isEditingWallet) {
+          callback();
+          return;
+        }
+        if (!value) {
+          callback(new Error(t('请输入链上收款地址')));
+        } else if (!evmAddressRegex.test(value)) {
+          callback(new Error(t('收款地址必须为标准的42位以太坊/EVM地址 (0x...)')));
         } else {
           callback();
         }
@@ -317,15 +338,18 @@ const createForm = reactive({
   provider_name: '',
   is_public: true,
   category: 'AI & LLM',
-  tags: ['x402', '算力点数 (Credits)'] as string[],
+  tags: ['x402', 'USDC'] as string[],
+  network: 'eip155:421614',
   network_label: '',
   description_md: '',
   path_pattern: '',
   methods: ['POST'] as string[],
   upstream_url: '',
   price_credits: 0.05,
+  onchain_price_credits: 0.05,
   asset: 'USD',
-  allowed_payment_methods: 'wallet' as PaymentMethod,
+  allowed_payment_methods: 'both' as PaymentMethod,
+  payee_address: '',
   rate_limit_rpm: 600,
   timeout_ms: 30000,
   upstream_auth: { type: 'none', params: {}, secrets: {} } as UpstreamAuthConfig,
@@ -348,15 +372,18 @@ function openCreateDialog() {
   createForm.provider_name = '';
   createForm.is_public = true;
   createForm.category = 'AI & LLM';
-  createForm.tags = ['x402', '算力点数 (Credits)'];
-  createForm.description_md = '';
+  createForm.tags = ['x402', 'USDC'];
+  createForm.network = 'eip155:421614';
   createForm.network_label = '';
+  createForm.description_md = '';
   createForm.path_pattern = '';
   createForm.methods = ['POST'];
   createForm.upstream_url = '';
   createForm.price_credits = 0.05;
+  createForm.onchain_price_credits = 0.05;
   createForm.asset = tenantStore.currentCurrency;
-  createForm.allowed_payment_methods = 'wallet';
+  createForm.allowed_payment_methods = 'both';
+  createForm.payee_address = '';
   createForm.rate_limit_rpm = 600;
   createForm.timeout_ms = 30000;
   createForm.upstream_auth = { type: 'none', params: {}, secrets: {} };
@@ -416,7 +443,7 @@ async function handleCreateRoute() {
       if (invalidFields) {
         if (invalidFields.project_id || invalidFields.path_pattern || invalidFields.upstream_url) {
           createActiveStep.value = 0;
-        } else if (invalidFields.allowed_payment_methods || invalidFields.price_credits) {
+        } else if (invalidFields.allowed_payment_methods || invalidFields.price_credits || invalidFields.payee_address) {
           createActiveStep.value = 3;
         }
       }
@@ -435,7 +462,13 @@ async function handleCreateRoute() {
 
     createLoading.value = true;
     try {
-      const priceUnits = Math.round(createForm.price_credits * 1000000);
+      const isWalletOnly = createForm.allowed_payment_methods === 'wallet';
+      const isOnchainOnly = createForm.allowed_payment_methods === 'onchain';
+      const priceBaseUnits = Math.round(createForm.price_credits * 1000000);
+      const onchainPriceBaseUnits =
+        createForm.allowed_payment_methods === 'both'
+          ? Math.round((createForm.onchain_price_credits || createForm.price_credits) * 1000000)
+          : priceBaseUnits;
 
       const cleanParameters = createForm.parameters
         .map((p) => ({
@@ -465,12 +498,17 @@ async function handleCreateRoute() {
         category: createForm.category,
         tags: createForm.tags,
         description_md: createForm.description_md.trim() || undefined,
+        network: createForm.network,
+        network_label: createForm.network_label.trim() || undefined,
         path_pattern: createForm.path_pattern.trim(),
         methods: createForm.methods.length > 0 ? createForm.methods : ['POST'],
         upstream_url: createForm.upstream_url.trim(),
-        price_base_units: createForm.pricing_type === 'per_token' ? promptUnits : priceUnits,
-        asset: tenantStore.currentCurrency,
-        allowed_payment_methods: 'wallet',
+        price_base_units: createForm.pricing_type === 'per_token' ? promptUnits : priceBaseUnits,
+        asset: isOnchainOnly ? 'USDC' : tenantStore.currentCurrency,
+        onchain_price_base_units: isWalletOnly ? 0 : onchainPriceBaseUnits,
+        onchain_asset: 'USDC',
+        payee_address: isWalletOnly ? '' : createForm.payee_address.trim().toLowerCase(),
+        allowed_payment_methods: createForm.allowed_payment_methods,
         rate_limit_rpm: createForm.rate_limit_rpm,
         timeout_ms: createForm.timeout_ms,
         upstream_auth: createForm.upstream_auth,
@@ -516,14 +554,17 @@ const editForm = reactive({
   is_public: false,
   category: 'AI & LLM',
   tags: [] as string[],
+  network: 'eip155:421614',
   network_label: '',
   description_md: '',
   path_pattern: '',
   methods: ['POST'] as string[],
   upstream_url: '',
   price_credits: 0.05,
+  onchain_price_credits: 0.05,
   asset: 'USD',
-  allowed_payment_methods: 'wallet' as PaymentMethod,
+  allowed_payment_methods: 'both' as PaymentMethod,
+  payee_address: '',
   rate_limit_rpm: 600,
   timeout_ms: 30000,
   upstream_auth: { type: 'none', params: {}, secrets: {} } as UpstreamAuthConfig,
@@ -624,13 +665,16 @@ function openEditDialog(route: Route) {
   editForm.category = route.category || 'AI & LLM';
   editForm.tags = Array.isArray(route.tags) ? [...route.tags] : [];
   editForm.description_md = route.description_md || '';
-  editForm.network_label = '';
+  editForm.network = route.network || 'eip155:421614';
+  editForm.network_label = route.network_label || '';
   editForm.path_pattern = route.path_pattern;
   editForm.methods = Array.isArray(route.methods) && route.methods.length > 0 ? [...route.methods] : ['POST'];
   editForm.upstream_url = route.upstream_url;
   editForm.price_credits = route.price_base_units / 1000000;
+  editForm.onchain_price_credits = (route.onchain_price_base_units || route.price_base_units || 0) / 1000000;
   editForm.asset = route.asset || tenantStore.currentCurrency;
-  editForm.allowed_payment_methods = route.allowed_payment_methods;
+  editForm.payee_address = route.payee_address || '';
+  editForm.allowed_payment_methods = route.allowed_payment_methods || 'both';
   editForm.rate_limit_rpm = route.rate_limit_rpm || 600;
   editForm.timeout_ms = route.timeout_ms || 30000;
   editForm.upstream_auth = route.upstream_auth
@@ -668,7 +712,7 @@ async function handleUpdateRoute() {
       if (invalidFields) {
         if (invalidFields.project_id || invalidFields.path_pattern || invalidFields.upstream_url) {
           editActiveStep.value = 0;
-        } else if (invalidFields.allowed_payment_methods || invalidFields.price_credits) {
+        } else if (invalidFields.allowed_payment_methods || invalidFields.price_credits || invalidFields.payee_address) {
           editActiveStep.value = 3;
         }
       }
@@ -687,7 +731,13 @@ async function handleUpdateRoute() {
 
     editLoading.value = true;
     try {
-      const priceUnits = Math.round(editForm.price_credits * 1000000);
+      const isWalletOnly = editForm.allowed_payment_methods === 'wallet';
+      const isOnchainOnly = editForm.allowed_payment_methods === 'onchain';
+      const priceBaseUnits = Math.round(editForm.price_credits * 1000000);
+      const onchainPriceBaseUnits =
+        editForm.allowed_payment_methods === 'both'
+          ? Math.round((editForm.onchain_price_credits || editForm.price_credits) * 1000000)
+          : priceBaseUnits;
 
       const cleanParameters = editForm.parameters
         .map((p) => ({
@@ -717,12 +767,17 @@ async function handleUpdateRoute() {
         category: editForm.category,
         tags: editForm.tags,
         description_md: editForm.description_md.trim(),
+        network: editForm.network,
+        network_label: editForm.network_label.trim() || undefined,
         path_pattern: editForm.path_pattern.trim(),
         methods: editForm.methods.length > 0 ? editForm.methods : ['POST'],
         upstream_url: editForm.upstream_url.trim(),
-        price_base_units: editForm.pricing_type === 'per_token' ? promptUnits : priceUnits,
-        asset: tenantStore.currentCurrency,
-        allowed_payment_methods: 'wallet',
+        price_base_units: editForm.pricing_type === 'per_token' ? promptUnits : priceBaseUnits,
+        asset: isOnchainOnly ? 'USDC' : tenantStore.currentCurrency,
+        onchain_price_base_units: isWalletOnly ? 0 : onchainPriceBaseUnits,
+        onchain_asset: 'USDC',
+        payee_address: isWalletOnly ? '' : editForm.payee_address.trim().toLowerCase(),
+        allowed_payment_methods: editForm.allowed_payment_methods,
         rate_limit_rpm: editForm.rate_limit_rpm,
         timeout_ms: editForm.timeout_ms,
         upstream_auth: editForm.upstream_auth,
@@ -1037,10 +1092,17 @@ function copyToClipboard(text: string) {
         </el-table-column>
 
         <el-table-column :label="$t('支付方式')" width="160">
-          <template #default>
-            <el-tag type="primary" size="small">
-              {{ $t('仅虚拟组织账户支付') }}
+          <template #default="{ row }">
+            <el-tag v-if="row.allowed_payment_methods === 'both'" type="success" size="small">
+              {{ $t('双通道 (钱包/链上)') }}
             </el-tag>
+            <el-tag v-else-if="row.allowed_payment_methods === 'wallet'" type="primary" size="small">
+              {{ $t('仅虚拟钱包支付') }}
+            </el-tag>
+            <el-tag v-else-if="row.allowed_payment_methods === 'onchain'" type="warning" size="small">
+              {{ $t('仅链上直接支付') }}
+            </el-tag>
+            <el-tag v-else size="small">{{ row.allowed_payment_methods }}</el-tag>
           </template>
         </el-table-column>
 
@@ -1050,16 +1112,35 @@ function copyToClipboard(text: string) {
               <div class="text-muted">{{ $t('输入') }}: {{ tenantStore.currencySymbol }} {{ ((row.prompt_token_price_base_units || 0) / 1000000).toFixed(4) }} / 1k</div>
               <div class="text-muted">{{ $t('输出') }}: {{ tenantStore.currencySymbol }} {{ ((row.completion_token_price_base_units || 0) / 1000000).toFixed(4) }} / 1k</div>
             </div>
-            <span v-else class="price-text">
-              {{ tenantStore.currencySymbol }} {{ (row.price_base_units / 1000000).toFixed(2) }} {{ tenantStore.currentCurrency }}
+            <span v-else-if="row.allowed_payment_methods === 'wallet'" class="price-text">
+              {{ tenantStore.currencySymbol }} {{ (row.price_base_units / 1000000).toFixed(4) }} {{ tenantStore.currentCurrency }}
             </span>
+            <span v-else-if="row.allowed_payment_methods === 'onchain'" class="price-text">
+              {{ (row.price_base_units / 1000000).toFixed(4) }} USDC
+            </span>
+            <div v-else class="price-text">
+              <div>{{ tenantStore.currencySymbol }} {{ (row.price_base_units / 1000000).toFixed(4) }} {{ tenantStore.currentCurrency }}</div>
+              <div class="text-muted" style="font-size: 11px">
+                {{ $t('链上:') }} {{ ((row.onchain_price_base_units || row.price_base_units) / 1000000).toFixed(4) }} USDC
+              </div>
+            </div>
           </template>
         </el-table-column>
 
-        <el-table-column :label="$t('收款账户')" width="170" show-overflow-tooltip>
+        <el-table-column :label="$t('收款账户/地址')" width="170" show-overflow-tooltip>
           <template #default="{ row }">
             <div v-if="row.allowed_payment_methods === 'wallet'" class="wallet-cell">
-              <el-tag size="small" type="primary">{{ $t('组织主虚拟组织账户') }}</el-tag>
+              <el-tag size="small" type="primary">{{ $t('组织主虚拟钱包') }}</el-tag>
+            </div>
+            <div v-else-if="row.payee_address" class="address-cell">
+              <span>{{ row.payee_address.slice(0, 6) }}...{{ row.payee_address.slice(-4) }}</span>
+              <el-button
+                link
+                icon="CopyDocument"
+                size="small"
+                @click="copyToClipboard(row.payee_address)"
+                :title="$t('复制收款地址')"
+              />
             </div>
             <span v-else class="text-muted">-</span>
           </template>
@@ -1484,13 +1565,15 @@ function copyToClipboard(text: string) {
         <div v-show="createActiveStep === 3" class="step-panel">
           <div class="step-guide-box">
             <div class="step-guide-title">{{ $t('X402 计费模式与清算收款') }}</div>
-            <div class="step-guide-desc">{{ $t('设置客户端调用的支付通道、单次调用价格及收款组织账户账户，网关将根据此配置自动下发 HTTP 402 Challenge') }}</div>
+            <div class="step-guide-desc">{{ $t('设置客户端调用的支付通道、单次调用价格及收款钱包账户，网关将根据此配置自动下发 HTTP 402 Challenge') }}</div>
           </div>
 
           <!-- 支付通道 (置于单价之前) -->
           <el-form-item :label="$t('支付通道')" prop="allowed_payment_methods">
             <el-radio-group v-model="createForm.allowed_payment_methods">
-              <el-radio value="wallet">{{ $t('仅虚拟组织账户支付') }}</el-radio>
+              <el-radio value="both">{{ $t('双通道 (虚拟钱包 + 链上支付)') }}</el-radio>
+              <el-radio value="wallet">{{ $t('仅虚拟钱包支付') }}</el-radio>
+              <el-radio value="onchain">{{ $t('仅链上支付') }}</el-radio>
             </el-radio-group>
           </el-form-item>
 
@@ -1537,33 +1620,68 @@ function copyToClipboard(text: string) {
           </template>
 
           <!-- 单次调用单价 (固定按次时展示) -->
-          <el-form-item v-else :label="$t('单次调用单价')" prop="price_credits">
-            <el-input-number
-              v-model="createForm.price_credits"
-              :min="0"
-              :step="0.01"
-              :precision="4"
-              style="width: 200px"
+          <template v-else>
+            <el-form-item :label="createForm.allowed_payment_methods === 'both' ? $t('钱包结算单价') : $t('单次调用单价')" prop="price_credits">
+              <el-input-number
+                v-model="createForm.price_credits"
+                :min="0"
+                :step="0.01"
+                :precision="4"
+                style="width: 200px"
+              />
+              <span style="margin-left: 8px; font-weight: 500">
+                {{ createForm.allowed_payment_methods === 'onchain' ? 'USDC' : `${tenantStore.currentCurrency} (${tenantStore.currencySymbol})` }}
+              </span>
+              <div class="form-hint">
+                {{ createForm.allowed_payment_methods === 'onchain' ? $t('链上直付单价，计费精度为 6 位小数') : `${$t('内部虚拟钱包结算单价，以租户本位币')} ${tenantStore.currentCurrency} ${$t('计价 (6 位精度)')}` }}
+              </div>
+            </el-form-item>
+
+            <!-- 双通道模式下的独立链上结算单价 (USDC) -->
+            <el-form-item
+              v-if="createForm.allowed_payment_methods === 'both'"
+              :label="$t('链上结算单价')"
+            >
+              <el-input-number
+                v-model="createForm.onchain_price_credits"
+                :min="0"
+                :step="0.01"
+                :precision="4"
+                style="width: 200px"
+              />
+              <span style="margin-left: 8px; font-weight: 500">USDC</span>
+              <div class="form-hint">
+                {{ $t('双通道模式下链上 x402 EIP-3009 签名支付的独立 USDC 定价，网关不做实时汇率换算') }}
+              </div>
+            </el-form-item>
+          </template>
+
+          <!-- 链上收款地址 (仅在包含链上支付时显示) -->
+          <el-form-item
+            v-if="createForm.allowed_payment_methods !== 'wallet'"
+            :label="$t('链上收款地址')"
+            prop="payee_address"
+          >
+            <el-input
+              v-model="createForm.payee_address"
+              :placeholder="$t('例如: 0x...')"
+              clearable
             />
-            <span style="margin-left: 8px; font-weight: 500">
-              {{ `${tenantStore.currentCurrency} (${tenantStore.currencySymbol})` }}
-            </span>
-            <div class="form-hint">
-              {{ `${$t('内部虚拟组织账户结算单价，以租户本位币')} ${tenantStore.currentCurrency} ${$t('计价 (6 位精度)')}` }}
-            </div>
+            <div class="form-hint">{{ $t('用于链上清算直接打款的 EVM 0x 格式收款账户') }}</div>
           </el-form-item>
 
-          <!-- 虚拟账户组织账户展示 (在仅虚拟支付时展示) -->
+          <!-- 虚拟账户钱包展示 (在仅虚拟支付时展示) -->
           <el-form-item
-            :label="$t('虚拟账户组织账户')"
+            v-else
+            :label="$t('虚拟账户钱包')"
           >
             <el-input
               :model-value="`wlt_${tenantStore.currentTenantId || 'master'}`"
               disabled
             >
-              <template #prepend>{{ $t('组织主组织账户') }}</template>
+              <template #prepend>{{ $t('组织主钱包') }}</template>
             </el-input>
-            <div class="form-hint">{{ $t('虚拟支付自动记账并结算至当前组织的虚拟主组织账户中，无需配置实时地址') }}</div>
+            <div class="form-hint">{{ $t('虚拟支付自动记账并结算至当前组织的虚拟主钱包中，无需配置链上地址') }}</div>
           </el-form-item>
         </div>
       </el-form>
@@ -1970,13 +2088,15 @@ function copyToClipboard(text: string) {
         <div v-show="editActiveStep === 3" class="step-panel">
           <div class="step-guide-box">
             <div class="step-guide-title">{{ $t('X402 计费模式与清算收款') }}</div>
-            <div class="step-guide-desc">{{ $t('设置客户端调用的支付通道、单次调用价格及收款组织账户账户，网关将根据此配置自动下发 HTTP 402 Challenge') }}</div>
+            <div class="step-guide-desc">{{ $t('设置客户端调用的支付通道、单次调用价格及收款钱包账户，网关将根据此配置自动下发 HTTP 402 Challenge') }}</div>
           </div>
 
           <!-- 支付通道 (置于单价之前) -->
           <el-form-item :label="$t('支付通道')" prop="allowed_payment_methods">
             <el-radio-group v-model="editForm.allowed_payment_methods">
-              <el-radio value="wallet">{{ $t('仅虚拟组织账户支付') }}</el-radio>
+              <el-radio value="both">{{ $t('双通道 (虚拟钱包 + 链上支付)') }}</el-radio>
+              <el-radio value="wallet">{{ $t('仅虚拟钱包支付') }}</el-radio>
+              <el-radio value="onchain">{{ $t('仅链上支付') }}</el-radio>
             </el-radio-group>
           </el-form-item>
 
@@ -2023,33 +2143,68 @@ function copyToClipboard(text: string) {
           </template>
 
           <!-- 单次调用单价 (固定按次时展示) -->
-          <el-form-item v-else :label="$t('单次调用单价')" prop="price_credits">
-            <el-input-number
-              v-model="editForm.price_credits"
-              :min="0"
-              :step="0.01"
-              :precision="4"
-              style="width: 200px"
+          <template v-else>
+            <el-form-item :label="editForm.allowed_payment_methods === 'both' ? $t('钱包结算单价') : $t('单次调用单价')" prop="price_credits">
+              <el-input-number
+                v-model="editForm.price_credits"
+                :min="0"
+                :step="0.01"
+                :precision="4"
+                style="width: 200px"
+              />
+              <span style="margin-left: 8px; font-weight: 500">
+                {{ editForm.allowed_payment_methods === 'onchain' ? 'USDC' : `${tenantStore.currentCurrency} (${tenantStore.currencySymbol})` }}
+              </span>
+              <div class="form-hint">
+                {{ editForm.allowed_payment_methods === 'onchain' ? $t('链上直付单价，计费精度为 6 位小数') : `${$t('内部虚拟钱包结算单价，以租户本位币')} ${tenantStore.currentCurrency} ${$t('计价 (6 位精度)')}` }}
+              </div>
+            </el-form-item>
+
+            <!-- 双通道模式下的独立链上结算单价 (USDC) -->
+            <el-form-item
+              v-if="editForm.allowed_payment_methods === 'both'"
+              :label="$t('链上结算单价')"
+            >
+              <el-input-number
+                v-model="editForm.onchain_price_credits"
+                :min="0"
+                :step="0.01"
+                :precision="4"
+                style="width: 200px"
+              />
+              <span style="margin-left: 8px; font-weight: 500">USDC</span>
+              <div class="form-hint">
+                {{ $t('双通道模式下链上 x402 EIP-3009 签名支付的独立 USDC 定价，网关不做实时汇率换算') }}
+              </div>
+            </el-form-item>
+          </template>
+
+          <!-- 链上收款地址 (仅在包含链上支付时显示) -->
+          <el-form-item
+            v-if="editForm.allowed_payment_methods !== 'wallet'"
+            :label="$t('链上收款地址')"
+            prop="payee_address"
+          >
+            <el-input
+              v-model="editForm.payee_address"
+              :placeholder="$t('例如: 0x...')"
+              clearable
             />
-            <span style="margin-left: 8px; font-weight: 500">
-              {{ `${tenantStore.currentCurrency} (${tenantStore.currencySymbol})` }}
-            </span>
-            <div class="form-hint">
-              {{ `${$t('内部虚拟组织账户结算单价，以租户本位币')} ${tenantStore.currentCurrency} ${$t('计价 (6 位精度)')}` }}
-            </div>
+            <div class="form-hint">{{ $t('用于链上清算直接打款的 EVM 0x 格式收款账户') }}</div>
           </el-form-item>
 
-          <!-- 虚拟账户组织账户展示 -->
+          <!-- 虚拟账户钱包展示 -->
           <el-form-item
-            :label="$t('虚拟账户组织账户')"
+            v-else
+            :label="$t('虚拟账户钱包')"
           >
             <el-input
               :model-value="`wlt_${tenantStore.currentTenantId || 'master'}`"
               disabled
             >
-              <template #prepend>{{ $t('组织主组织账户') }}</template>
+              <template #prepend>{{ $t('组织主钱包') }}</template>
             </el-input>
-            <div class="form-hint">{{ $t('虚拟支付自动记账并结算至当前组织的虚拟主组织账户中，无需配置实时地址') }}</div>
+            <div class="form-hint">{{ $t('虚拟支付自动记账并结算至当前组织的虚拟主钱包中，无需配置链上地址') }}</div>
           </el-form-item>
         </div>
       </el-form>

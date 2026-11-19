@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import {
   formatCreditsPrice,
+  formatTagLabel,
   formatTokenPriceFen,
   getLlmModelName,
   isLlmRoute,
@@ -30,7 +31,7 @@ export function MarketplaceRouteCard({
   route,
   onOpenQuickSdk,
 }: MarketplaceRouteCardProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   const isLlm = isLlmRoute(route);
   const llmModel = getLlmModelName(route);
@@ -119,7 +120,7 @@ export function MarketplaceRouteCard({
               key={tag}
               className="rounded-md border border-slate-200 bg-slate-100/70 px-2 py-0.5 font-mono text-[11px] text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400"
             >
-              #{tag}
+              #{formatTagLabel(tag, locale)}
             </span>
           ))}
         </div>

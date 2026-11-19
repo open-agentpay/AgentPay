@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { formatTagLabel } from '@/lib/marketplace';
 import type { MarketplaceRouteItem } from '@/types/marketplace';
 import {
   MarketplaceFilterBar,
@@ -46,6 +47,8 @@ export function MarketplaceExplorer({ initialRoutes }: MarketplaceExplorerProps)
           route.provider_name,
           route.model_name || '',
           ...route.tags,
+          ...route.tags.map((t) => formatTagLabel(t, 'en')),
+          ...route.tags.map((t) => formatTagLabel(t, 'zh')),
         ]
           .join(' ')
           .toLowerCase();

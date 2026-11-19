@@ -218,7 +218,7 @@ async function handleSubmit() {
       path_pattern: `/models/${form.model_name}`,
       upstream_url: form.upstream_url,
       methods: ['POST', 'GET'],
-      allowed_payment_methods: 'wallet',
+      allowed_payment_methods: 'both',
       price_base_units: promptBaseUnits.value,
       prompt_token_price_base_units: promptBaseUnits.value,
       completion_token_price_base_units: completionBaseUnits.value,

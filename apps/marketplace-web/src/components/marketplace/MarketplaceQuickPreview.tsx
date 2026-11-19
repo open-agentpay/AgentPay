@@ -35,7 +35,7 @@ export function MarketplaceQuickPreview({
       ? 'pip install openai'
       : 'npm install openai'
     : sdkLang === 'python'
-    ? 'pip install agentpay-core-sdk'
+    ? 'pip install agentpay'
     : 'npm install agentpay-core-sdk';
 
   const previewSdkSnippet = isLlm
