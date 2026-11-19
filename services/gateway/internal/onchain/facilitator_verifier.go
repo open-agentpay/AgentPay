@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -174,7 +175,182 @@ func (fv *FacilitatorVerifier) VerifyPayment(ctx context.Context, ch *x402.Payme
 	}, nil
 }
 
+// SettlePayment delegates asynchronous settlement to Facilitator POST /v1/settle.
+func (fv *FacilitatorVerifier) SettlePayment(ctx context.Context, vToken string, auth *x402.PaymentAuthorization, idemKey string) (*x402.SettleResult, error) {
+	if auth == nil {
+		return nil, fmt.Errorf("payment authorization cannot be nil")
+	}
+
+	reqBody := map[string]interface{}{
+		"verificationToken": vToken,
+		"authorization":     auth,
+		"idempotencyKey":    idemKey,
+	}
+	jsonBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode settlement request: %w", err)
+	}
+
+	endpoint := fv.facilitatorURL + "/v1/settle"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(jsonBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct facilitator settle request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	fv.applyAuthHeaders(req)
+
+	resp, err := fv.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("facilitator connection error during settlement: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read facilitator settle response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		var errResp struct {
+			Code    string `json:"code"`
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(bodyBytes, &errResp)
+		msg := errResp.Message
+		if msg == "" {
+			msg = errResp.Error
+		}
+		if msg == "" {
+			msg = fmt.Sprintf("facilitator rejected settlement with HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+		return nil, fmt.Errorf("facilitator settle failed (%d): %s", resp.StatusCode, msg)
+	}
+
+	var settleResp struct {
+		SettlementID string `json:"settlementId"`
+		Status       string `json:"status"`
+		TxHash       string `json:"txHash"`
+	}
+	if err := json.Unmarshal(bodyBytes, &settleResp); err != nil {
+		return nil, fmt.Errorf("failed to decode facilitator settle response: %w", err)
+	}
+
+	return &x402.SettleResult{
+		SettlementID: settleResp.SettlementID,
+		Status:       settleResp.Status,
+		TxHash:       settleResp.TxHash,
+	}, nil
+}
+
+// GetSettlementStatus queries settlement receipt from Facilitator GET /v1/settle/{id}.
+func (fv *FacilitatorVerifier) GetSettlementStatus(ctx context.Context, settlementID string) (*x402.SettlementStatus, error) {
+	if settlementID == "" {
+		return nil, fmt.Errorf("settlement ID cannot be empty")
+	}
+
+	endpoint := fmt.Sprintf("%s/v1/settle/%s", fv.facilitatorURL, settlementID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct settlement status request: %w", err)
+	}
+	fv.applyAuthHeaders(req)
+
+	resp, err := fv.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("facilitator connection error during settlement status query: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read settlement status response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("facilitator status query failed (%d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var raw struct {
+		SettlementID string `json:"settlementId"`
+		Status       string `json:"status"`
+		TxHash       string `json:"txHash,omitempty"`
+		Error        string `json:"error,omitempty"`
+		ErrorMessage string `json:"errorMessage,omitempty"`
+	}
+	if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+		return nil, fmt.Errorf("failed to decode settlement status response: %w", err)
+	}
+
+	errMsg := raw.ErrorMessage
+	if errMsg == "" {
+		errMsg = raw.Error
+	}
+
+	return &x402.SettlementStatus{
+		SettlementID: raw.SettlementID,
+		Status:       raw.Status,
+		TxHash:       raw.TxHash,
+		ErrorMessage: errMsg,
+	}, nil
+}
+
+// GetSettlementStatusByNonce queries settlement status by nonce from Facilitator GET /v1/settle/lookup.
+func (fv *FacilitatorVerifier) GetSettlementStatusByNonce(ctx context.Context, network, asset, payer, nonce string) (*x402.SettlementStatus, error) {
+	endpoint := fmt.Sprintf("%s/v1/settle/lookup?network=%s&asset=%s&payer=%s&nonce=%s",
+		fv.facilitatorURL,
+		url.QueryEscape(network),
+		url.QueryEscape(asset),
+		url.QueryEscape(payer),
+		url.QueryEscape(nonce),
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct settlement lookup request: %w", err)
+	}
+	fv.applyAuthHeaders(req)
+
+	resp, err := fv.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("facilitator connection error during settlement lookup: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read settlement lookup response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("facilitator lookup failed (%d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var raw struct {
+		SettlementID string `json:"settlementId"`
+		Status       string `json:"status"`
+		TxHash       string `json:"txHash,omitempty"`
+		Error        string `json:"error,omitempty"`
+		ErrorMessage string `json:"errorMessage,omitempty"`
+	}
+	if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+		return nil, fmt.Errorf("failed to decode settlement lookup response: %w", err)
+	}
+
+	errMsg := raw.ErrorMessage
+	if errMsg == "" {
+		errMsg = raw.Error
+	}
+
+	return &x402.SettlementStatus{
+		SettlementID: raw.SettlementID,
+		Status:       raw.Status,
+		TxHash:       raw.TxHash,
+		ErrorMessage: errMsg,
+	}, nil
+}
+
 var _ x402.PaymentVerifier = (*FacilitatorVerifier)(nil)
+var _ x402.AsyncSettlementVerifier = (*FacilitatorVerifier)(nil)
 
 // FacilitatorConfig defines configuration for the on-chain settlement facilitator.
 type FacilitatorConfig struct {

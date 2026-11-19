@@ -114,6 +114,9 @@ func main() {
 	)
 
 	facCfg := onchain.LoadFacilitatorConfig(*configPath)
+	gasEngine := onchain.NewGasPricingEngine(gasPolicy, facCfg.URL, facCfg.APIKey)
+	opts = append(opts, server.WithPriceCalculator(gasEngine))
+
 	if facCfg.URL != "" {
 		timeout := time.Duration(facCfg.TimeoutSeconds) * time.Second
 		if timeout <= 0 {

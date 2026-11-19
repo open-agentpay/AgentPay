@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/open-agentpay/agent-core-sdk/gateway/x402"
 )
 
 // GasMode defines the supported Gas settlement models in AgentPay.
@@ -224,6 +226,28 @@ func (e *GasPricingEngine) CalculateChallengePrice(ctx context.Context, network,
 		}, nil
 	}
 }
+
+// CalculatePrice implements x402.PriceCalculator interface for PaymentProcessor.
+func (e *GasPricingEngine) CalculatePrice(ctx context.Context, network, asset string, basePrice int64) (int64, map[string]interface{}, error) {
+	total, breakdown, err := e.CalculateChallengePrice(ctx, network, asset, basePrice)
+	if err != nil {
+		return basePrice, nil, err
+	}
+	if breakdown == nil {
+		return total, nil, nil
+	}
+	m := map[string]interface{}{
+		"base_amount":         breakdown.BaseAmount,
+		"gas_surcharge":       breakdown.GasSurcharge,
+		"total_amount":        breakdown.TotalAmount,
+		"gas_mode":            string(breakdown.GasMode),
+		"estimated_gas_usd":   breakdown.EstimatedGasUSD,
+		"slippage_buffer_pct": breakdown.SlippageBufferPct,
+	}
+	return total, m, nil
+}
+
+var _ x402.PriceCalculator = (*GasPricingEngine)(nil)
 
 func (e *GasPricingEngine) fetchGasEstimate(ctx context.Context, network, asset string, slippage float64) (int64, float64, error) {
 	cacheKey := fmt.Sprintf("%s:%s", network, asset)

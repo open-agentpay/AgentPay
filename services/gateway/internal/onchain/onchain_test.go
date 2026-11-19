@@ -253,3 +253,112 @@ func TestGasPricingEngineCircuitBreaker(t *testing.T) {
 		t.Fatalf("expected ErrGasSurchargeExceedsLimit circuit breaker, got: %v", err)
 	}
 }
+
+func TestFacilitatorVerifierAsyncSettlement(t *testing.T) {
+	mockClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			path := req.URL.Path
+			auth := req.Header.Get("Authorization")
+			if auth != "Bearer test_api_key" {
+				return &http.Response{
+					StatusCode: http.StatusUnauthorized,
+					Body:       io.NopCloser(bytes.NewReader([]byte(`{"message":"unauthorized"}`))),
+				}, nil
+			}
+
+			if path == "/v1/settle" && req.Method == http.MethodPost {
+				respBody, _ := json.Marshal(map[string]interface{}{
+					"settlementId": "stl_test_123",
+					"status":       "submitted",
+					"txHash":       "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+				})
+				return &http.Response{
+					StatusCode: http.StatusAccepted,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(bytes.NewReader(respBody)),
+				}, nil
+			}
+
+			if path == "/v1/settle/stl_test_123" && req.Method == http.MethodGet {
+				respBody, _ := json.Marshal(map[string]interface{}{
+					"settlementId": "stl_test_123",
+					"status":       "confirmed",
+					"txHash":       "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+				})
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(bytes.NewReader(respBody)),
+				}, nil
+			}
+
+			if path == "/v1/settle/lookup" && req.Method == http.MethodGet {
+				nonce := req.URL.Query().Get("nonce")
+				if nonce == "0xnonce123" {
+					respBody, _ := json.Marshal(map[string]interface{}{
+						"settlementId": "stl_test_123",
+						"status":       "confirmed",
+						"txHash":       "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+					})
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body:       io.NopCloser(bytes.NewReader(respBody)),
+					}, nil
+				}
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Body:       io.NopCloser(bytes.NewReader([]byte(`{"error":"SETTLEMENT_NOT_FOUND"}`))),
+				}, nil
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusNotFound,
+				Body:       io.NopCloser(bytes.NewReader([]byte(`{"error":"not found"}`))),
+			}, nil
+		}),
+	}
+
+	verifier := NewFacilitatorVerifierWithAuth("http://facilitator.internal", "test_api_key", 2*time.Second)
+	verifier.SetHTTPClient(mockClient)
+
+	// Verify interface compliance
+	var asyncVerifier x402.AsyncSettlementVerifier = verifier
+	if asyncVerifier == nil {
+		t.Fatalf("expected verifier to implement x402.AsyncSettlementVerifier")
+	}
+
+	ctx := context.Background()
+
+	// 1. SettlePayment test
+	auth := &x402.PaymentAuthorization{
+		ChallengeID: "ch_test",
+		Payer:       "0x1111111111111111111111111111111111111111",
+		Nonce:       "0xnonce123",
+	}
+	settleRes, err := verifier.SettlePayment(ctx, "vtok_123", auth, "idem_abc")
+	if err != nil {
+		t.Fatalf("SettlePayment failed: %v", err)
+	}
+	if settleRes.SettlementID != "stl_test_123" || settleRes.Status != "submitted" || settleRes.TxHash == "" {
+		t.Fatalf("unexpected SettlePayment response: %+v", settleRes)
+	}
+
+	// 2. GetSettlementStatus test
+	status, err := verifier.GetSettlementStatus(ctx, "stl_test_123")
+	if err != nil {
+		t.Fatalf("GetSettlementStatus failed: %v", err)
+	}
+	if status.SettlementID != "stl_test_123" || status.Status != "confirmed" {
+		t.Fatalf("unexpected GetSettlementStatus response: %+v", status)
+	}
+
+	// 3. GetSettlementStatusByNonce test
+	lookupStatus, err := verifier.GetSettlementStatusByNonce(ctx, "eip155:421614", "0xUSDC", "0x1111111111111111111111111111111111111111", "0xnonce123")
+	if err != nil {
+		t.Fatalf("GetSettlementStatusByNonce failed: %v", err)
+	}
+	if lookupStatus.SettlementID != "stl_test_123" || lookupStatus.Status != "confirmed" {
+		t.Fatalf("unexpected GetSettlementStatusByNonce response: %+v", lookupStatus)
+	}
+}
