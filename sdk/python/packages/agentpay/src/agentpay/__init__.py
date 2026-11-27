@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 import agent_core
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # 1. 动态将 agent_core 的核心子模块映射到 agentpay.* 命名空间
 _CORE_MODULE_MAP = {

@@ -1,53 +1,71 @@
-import type { Metadata } from 'next';
-import { cookies } from 'next/headers';
-import { PUBLIC_SITE_URL } from '@/lib/marketplace';
-import { I18nProvider } from '@/i18n/context';
-import { ThemeProvider } from '@/theme/ThemeContext';
-import { HeaderNav } from '@/components/HeaderNav';
-import { FooterNav } from '@/components/FooterNav';
-import type { SupportedLocale } from '@/i18n/types';
-import type { ThemeMode } from '@/theme/ThemeContext';
-import './globals.css';
+import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import { PUBLIC_SITE_URL } from "@/lib/marketplace";
+import { I18nProvider } from "@/i18n/context";
+import { ThemeProvider } from "@/theme/ThemeContext";
+import { HeaderNav } from "@/components/HeaderNav";
+import { FooterNav } from "@/components/FooterNav";
+import type { SupportedLocale } from "@/i18n/types";
+import type { ThemeMode } from "@/theme/ThemeContext";
+import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(PUBLIC_SITE_URL),
   title: {
-    default: 'AgentPay — Autonomous Payment Network & Financial Firewall for AI Agents',
-    template: '%s | AgentPay',
+    default:
+      "AgentPay — Autonomous Payment Network & Financial Firewall for AI Agents",
+    template: "%s | AgentPay",
   },
   description:
-    'Discover verified HTTP 402 (x402 V2) APIs and Agent Skills. Pay per request in Circle USDC with zero gas, live gateway SLA endorsement, and built-in local financial firewall protection.',
+    "Discover verified HTTP 402 (x402 V2) APIs and Agent Skills. Pay per request in Circle USDC with zero gas, live gateway SLA endorsement, and built-in local financial firewall protection.",
   keywords: [
-    'AgentPay',
-    'OpenAgentPay',
-    'x402',
-    'HTTP 402 Payment Required',
-    'AI Agent Marketplace',
-    'USDC Micro-Payments',
-    'EIP-3009',
-    'MCP Tools',
-    'Agentic Web',
+    "AgentPay",
+    "OpenAgentPay",
+    "x402",
+    "HTTP 402 Payment Required",
+    "AI Agent Marketplace",
+    "USDC Micro-Payments",
+    "EIP-3009",
+    "MCP Tools",
+    "Agentic Web",
   ],
   icons: {
     icon: [
-      { url: '/favicon.ico', sizes: 'any' },
-      { url: '/favicon.png', type: 'image/png' },
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.png", type: "image/png" },
     ],
-    apple: '/logo.png',
+    apple: "/logo.png",
   },
   alternates: {
     canonical: PUBLIC_SITE_URL,
     types: {
-      'text/markdown': `${PUBLIC_SITE_URL}/llms.txt`,
+      "text/markdown": `${PUBLIC_SITE_URL}/llms.txt`,
     },
   },
   openGraph: {
-    title: 'AgentPay — Autonomous Payment Network & Financial Firewall for AI Agents',
+    title:
+      "AgentPay — Autonomous Payment Network & Financial Firewall for AI Agents",
     description:
-      'Zero-onboarding HTTP 402 APIs with live Go gateway SLA metrics, instant Python SDK snippets, and /llms.txt machine discovery.',
+      "Zero-onboarding HTTP 402 APIs with live Go gateway SLA metrics, instant Python SDK snippets, and /llms.txt machine discovery.",
     url: PUBLIC_SITE_URL,
-    siteName: 'AgentPay',
-    type: 'website',
+    siteName: "AgentPay",
+    type: "website",
+    images: [
+      {
+        url: "/og-image.png", // 因为设置了 metadataBase，会自动补全为绝对 URL
+        width: 1200,
+        height: 630,
+        alt: "AgentPay — Autonomous Payment Network for AI Agents",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title:
+      "AgentPay — Autonomous Payment Network & Financial Firewall for AI Agents",
+    description:
+      "Zero-onboarding HTTP 402 APIs with live Go gateway SLA metrics, instant Python SDK snippets, and /llms.txt machine discovery.",
+    images: ["/og-image.png"],
   },
 };
 
@@ -56,17 +74,17 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  let initialLocale: SupportedLocale = 'en';
-  let initialTheme: ThemeMode = 'dark';
+  let initialLocale: SupportedLocale = "en";
+  let initialTheme: ThemeMode = "dark";
 
   try {
     const cookieStore = await cookies();
-    const loc = cookieStore.get('NEXT_LOCALE')?.value;
-    if (loc === 'zh' || loc === 'en') {
+    const loc = cookieStore.get("NEXT_LOCALE")?.value;
+    if (loc === "zh" || loc === "en") {
       initialLocale = loc;
     }
-    const th = cookieStore.get('NEXT_THEME')?.value;
-    if (th === 'light' || th === 'dark') {
+    const th = cookieStore.get("NEXT_THEME")?.value;
+    if (th === "light" || th === "dark") {
       initialTheme = th;
     }
   } catch {
@@ -75,8 +93,8 @@ export default async function RootLayout({
 
   return (
     <html
-      lang={initialLocale === 'zh' ? 'zh-CN' : 'en'}
-      className={initialTheme === 'dark' ? 'dark' : ''}
+      lang={initialLocale === "zh" ? "zh-CN" : "en"}
+      className={initialTheme === "dark" ? "dark" : ""}
       suppressHydrationWarning
     >
       <body className="min-h-screen flex flex-col">
